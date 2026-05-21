@@ -1,0 +1,22 @@
+.preview-content { color: #c8ccd4; }
+.preview-content h1 { font-size: 2em; font-weight: 700; color: #d4d7de; margin: 1.2em 0 0.6em; border-bottom: 1px solid #3a3a4a; }
+.preview-content h2 { font-size: 1.5em; font-weight: 600; color: #c8ccd4; margin: 1em 0 0.5em; border-bottom: 1px solid #3a3a4a; }
+.preview-content h3 { font-size: 1.25em; font-weight: 600; color: #bfc3cb; margin: 0.8em 0 0.4em; }
+.preview-content h4 { font-size: 1.1em; font-weight: 600; color: #b0b4bc; }
+.preview-content h5 { font-size: 1em; font-weight: 600; color: #a0a4ac; }
+.preview-content h6 { font-size: 0.9em; font-weight: 600; color: #90949c; }
+.preview-content p { margin: 0.6em 0; line-height: 1.8; }
+.preview-content a { color: #58a6ff; text-decoration: none; }
+.preview-content a:hover { text-decoration: underline; }
+.preview-content strong { color: #d4d7de; font-weight: 600; }
+.preview-content code { background: #2d333b; color: #7ee787; padding: 0.15em 0.4em; border-radius: 4px; font-size: 0.88em; font-family: 'JetBrains Mono', monospace; }
+.preview-content pre { background: #1c2128; border: 1px solid #3a3a4a; border-radius: 8px; padding: 16px 20px; overflow-x: auto; margin: 1em 0; }
+.preview-content pre code { background: transparent; padding: 0; color: #adbac7; }
+.preview-content blockquote { border-left: 3px solid #3a3a4a; padding: 0.5em 1em; margin: 1em 0; color: #8b949e; }
+.preview-content table { width: 100%; border-collapse: collapse; margin: 1em 0; }
+.preview-content th { background: #2d333b; font-weight: 600; text-align: left; padding: 10px 14px; border: 1px solid #3a3a4a; }
+.preview-content td { padding: 8px 14px; border: 1px solid #3a3a4a; }
+.preview-content hr { border: none; height: 1px; background: #3a3a4a; margin: 1.5em 0; }
+.preview-content .mermaid-diagram { margin: 1em 0; text-align: center; background: #1c2128; border-radius: 8px; padding: 16px; }
+.preview-content .mermaid-diagram svg { max-width: 100%; }
+.preview-content .mermaid-error { color: #f85149; padding: 12px; background: rgba(248, 81, 73, 0.1); border-radius: 6px; }

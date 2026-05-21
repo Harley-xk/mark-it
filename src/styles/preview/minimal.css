@@ -1,0 +1,16 @@
+.preview-content { color: #d0d0d4; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; }
+.preview-content h1 { font-size: 1.8em; font-weight: 300; color: #e8e8ec; margin: 1.2em 0 0.6em; letter-spacing: -0.02em; }
+.preview-content h2 { font-size: 1.4em; font-weight: 300; color: #e0e0e4; margin: 1em 0 0.5em; letter-spacing: -0.01em; }
+.preview-content h3 { font-size: 1.15em; font-weight: 400; color: #d8d8dc; margin: 0.8em 0 0.4em; }
+.preview-content h4, .preview-content h5, .preview-content h6 { font-weight: 400; color: #c0c0c4; }
+.preview-content p { margin: 0.5em 0; line-height: 1.7; }
+.preview-content a { color: #6c9bff; text-decoration: none; }
+.preview-content code { color: #a0a0a4; font-size: 0.9em; font-family: 'JetBrains Mono', monospace; }
+.preview-content pre { margin: 1em 0; padding: 12px 16px; overflow-x: auto; }
+.preview-content blockquote { border-left: 2px solid rgba(255, 255, 255, 0.1); padding: 0.4em 1em; margin: 0.8em 0; color: rgba(255, 255, 255, 0.4); }
+.preview-content table { width: 100%; border-collapse: collapse; margin: 1em 0; }
+.preview-content th { font-weight: 400; text-align: left; padding: 8px 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.06); }
+.preview-content td { padding: 6px 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.03); }
+.preview-content hr { border: none; height: 1px; background: rgba(255, 255, 255, 0.05); margin: 2em 0; }
+.preview-content .mermaid-diagram { margin: 1em 0; text-align: center; padding: 12px; }
+.preview-content .mermaid-diagram svg { max-width: 100%; }
