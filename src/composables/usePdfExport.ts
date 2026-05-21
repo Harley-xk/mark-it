@@ -1,0 +1,53 @@
+import { ref } from 'vue'
+import { useEditorStore } from '../stores/editor'
+import MarkdownIt from 'markdown-it'
+
+export function usePdfExport() {
+  const editor = useEditorStore()
+  const showDialog = ref(false)
+  const exporting = ref(false)
+
+  const md = new MarkdownIt({ html: true, linkify: true, breaks: true })
+
+  async function exportPdf(options: {
+    pageSize: 'A4' | 'Letter'
+    margin: 'narrow' | 'standard' | 'wide'
+    showPageNumbers: boolean
+  }) {
+    exporting.value = true
+    try {
+      const htmlBody = md.render(editor.content)
+      const html = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; color: #222; line-height: 1.7; padding: 40px; max-width: 100%; }
+  h1 { font-size: 2em; border-bottom: 1px solid #ddd; padding-bottom: 0.3em; }
+  h2 { font-size: 1.5em; border-bottom: 1px solid #eee; padding-bottom: 0.2em; }
+  h3 { font-size: 1.25em; }
+  code { background: #f4f4f4; padding: 0.15em 0.4em; border-radius: 3px; font-size: 0.9em; }
+  pre { background: #f8f8f8; border: 1px solid #e0e0e0; border-radius: 6px; padding: 14px 18px; overflow-x: auto; }
+  pre code { background: transparent; padding: 0; }
+  blockquote { border-left: 3px solid #ddd; padding: 0.5em 1em; color: #666; margin: 1em 0; }
+  table { width: 100%; border-collapse: collapse; margin: 1em 0; }
+  th { background: #f6f6f6; font-weight: 600; text-align: left; padding: 8px 12px; border: 1px solid #ddd; }
+  td { padding: 6px 12px; border: 1px solid #ddd; }
+  img { max-width: 100%; }
+  a { color: #0366d6; }
+</style>
+</head>
+<body>${htmlBody}</body>
+</html>`
+
+      const filePath = await window.api.exportPdf(html, options)
+      if (filePath) {
+        showDialog.value = false
+      }
+    } finally {
+      exporting.value = false
+    }
+  }
+
+  return { showDialog, exporting, exportPdf }
+}

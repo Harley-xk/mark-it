@@ -74,6 +74,37 @@ ipcMain.handle('window:maximize', () => {
 })
 ipcMain.handle('window:close', () => mainWindow?.close())
 
+ipcMain.handle('export:pdf', async (_e, html: string, options: {
+  pageSize: 'A4' | 'Letter'
+  margin: 'narrow' | 'standard' | 'wide'
+  showPageNumbers: boolean
+}) => {
+  const result = await dialog.showSaveDialog(mainWindow!, {
+    filters: [{ name: 'PDF', extensions: ['pdf'] }]
+  })
+  if (result.canceled || !result.filePath) return null
+
+  const pdfWin = new BrowserWindow({
+    width: 800,
+    height: 1100,
+    show: false,
+    webPreferences: { offscreen: true }
+  })
+
+  await pdfWin.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
+  await new Promise(r => setTimeout(r, 1000))
+
+  const pdf = await pdfWin.webContents.printToPDF({
+    pageSize: options.pageSize,
+    printBackground: true,
+    margins: { marginType: 'default' },
+  })
+
+  pdfWin.close()
+  await writeFile(result.filePath, pdf)
+  return result.filePath
+})
+
 // --- App lifecycle ---
 
 app.whenReady().then(() => {
