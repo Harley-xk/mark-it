@@ -1,0 +1,20 @@
+.preview-content { font-family: 'Georgia', 'Times New Roman', serif; color: #d4d4d8; line-height: 1.8; }
+.preview-content h1 { font-size: 2em; font-weight: 700; color: #f0f0f5; margin: 1.5em 0 0.8em; text-align: center; }
+.preview-content h2 { font-size: 1.5em; font-weight: 600; color: #e0e0ea; margin: 1.2em 0 0.6em; }
+.preview-content h3 { font-size: 1.25em; font-weight: 600; color: #d0d0e0; margin: 1em 0 0.5em; }
+.preview-content h4 { font-size: 1.1em; font-weight: 600; color: #c0c0d0; }
+.preview-content p { margin: 0.8em 0; text-align: justify; text-indent: 2em; }
+.preview-content a { color: #7eb8ff; text-decoration: none; }
+.preview-content strong { color: #f0f0f5; }
+.preview-content code { background: rgba(126, 184, 255, 0.08); color: #8bc8ff; padding: 0.1em 0.3em; border-radius: 3px; font-size: 0.86em; font-family: 'JetBrains Mono', monospace; }
+.preview-content pre { background: rgba(0, 0, 0, 0.25); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 4px; padding: 14px 18px; overflow-x: auto; margin: 1em 0; }
+.preview-content pre code { background: transparent; padding: 0; text-indent: 0; }
+.preview-content blockquote { border-left: 3px solid rgba(126, 184, 255, 0.3); padding: 0.5em 1em; margin: 1em 0; color: rgba(255, 255, 255, 0.5); font-style: italic; }
+.preview-content ol { list-style-type: decimal; }
+.preview-content ul { list-style-type: disc; }
+.preview-content table { width: 100%; border-collapse: collapse; margin: 1em 0; font-size: 0.92em; }
+.preview-content th { background: rgba(126, 184, 255, 0.06); font-weight: 600; text-align: left; padding: 8px 12px; border-bottom: 2px solid rgba(255, 255, 255, 0.08); }
+.preview-content td { padding: 6px 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.04); }
+.preview-content hr { border: none; height: 1px; background: rgba(255, 255, 255, 0.06); margin: 2em 0; }
+.preview-content .mermaid-diagram { margin: 1.5em 0; text-align: center; background: rgba(0, 0, 0, 0.12); border-radius: 6px; padding: 16px; }
+.preview-content .mermaid-diagram svg { max-width: 100%; }
