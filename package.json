@@ -1,0 +1,38 @@
+{
+  "name": "mark-it",
+  "version": "1.0.0",
+  "description": "A modern Markdown editor with live preview",
+  "main": "./out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "postinstall": "electron-builder install-app-deps"
+  },
+  "dependencies": {
+    "@electron-toolkit/preload": "^3.0.1",
+    "@electron-toolkit/utils": "^3.0.0",
+    "electron-store": "^10.0.0",
+    "mermaid": "^11.4.1"
+  },
+  "devDependencies": {
+    "@codemirror/lang-markdown": "^6.3.1",
+    "@codemirror/language-data": "^6.5.1",
+    "@codemirror/theme-one-dark": "^6.1.2",
+    "@electron-toolkit/tsconfig": "^1.0.1",
+    "@types/node": "^22.10.0",
+    "@vitejs/plugin-vue": "^5.2.1",
+    "codemirror": "^6.0.1",
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8",
+    "electron-vite": "^2.3.0",
+    "katex": "^0.16.11",
+    "markdown-it": "^14.1.0",
+    "pinia": "^2.3.0",
+    "punycode": "^2.3.1",
+    "typescript": "^5.7.2",
+    "vite": "^5.4.11",
+    "vue": "^3.5.13",
+    "vue-tsc": "^2.2.0"
+  }
+}
