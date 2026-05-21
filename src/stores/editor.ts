@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, shallowRef } from 'vue'
+import type { EditorView } from '@codemirror/view'
 import type { HeadingItem } from '../types'
 
 export const useEditorStore = defineStore('editor', () => {
@@ -47,6 +48,7 @@ graph LR
   const cursorCol = ref(1)
   const wordCount = ref(0)
   const headings = ref<HeadingItem[]>([])
+  const editorView = shallowRef<EditorView | null>(null)
 
   function setContent(val: string) {
     content.value = val
@@ -65,8 +67,12 @@ graph LR
     wordCount.value = count
   }
 
+  function setEditorView(view: EditorView | null) {
+    editorView.value = view
+  }
+
   return {
-    content, cursorLine, cursorCol, wordCount, headings,
-    setContent, setCursor, setHeadings, setWordCount
+    content, cursorLine, cursorCol, wordCount, headings, editorView,
+    setContent, setCursor, setHeadings, setWordCount, setEditorView
   }
 })
