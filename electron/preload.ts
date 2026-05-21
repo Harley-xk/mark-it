@@ -12,6 +12,13 @@ const api = {
   maximize: () => ipcRenderer.invoke('window:maximize'),
   close: () => ipcRenderer.invoke('window:close'),
 
+  // PDF export
+  exportPdf: (html: string, options: {
+    pageSize: 'A4' | 'Letter'
+    margin: 'narrow' | 'standard' | 'wide'
+    showPageNumbers: boolean
+  }) => ipcRenderer.invoke('export:pdf', html, options),
+
   // Events
   onFileOpened: (callback: (path: string, content: string) => void) => {
     ipcRenderer.on('file:opened', (_, path, content) => callback(path, content))
