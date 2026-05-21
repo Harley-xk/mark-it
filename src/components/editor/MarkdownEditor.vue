@@ -86,9 +86,12 @@ onMounted(() => {
     }),
     parent: editorRef.value,
   })
+
+  editorStore.setEditorView(view)
 })
 
 onUnmounted(() => {
+  editorStore.setEditorView(null)
   view?.destroy()
 })
 
