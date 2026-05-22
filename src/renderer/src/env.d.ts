@@ -1,4 +1,4 @@
-import type { ExposedAPI } from '../electron/preload'
+import type { ExposedAPI } from '../../preload/index'
 
 declare global {
   interface Window {
