@@ -9,6 +9,7 @@ import OutlinePanel from '../outline/OutlinePanel.vue'
 import MarkdownEditor from '../editor/MarkdownEditor.vue'
 import MarkdownPreview from '../preview/MarkdownPreview.vue'
 import PdfExportDialog from '../export/PdfExportDialog.vue'
+import SettingsDialog from '../settings/SettingsDialog.vue'
 
 const app = useAppStore()
 const { exportPdf } = usePdfExport()
@@ -54,6 +55,7 @@ async function onExport(options: any) {
       @close="app.showPdfDialog = false"
       @export="onExport"
     />
+    <SettingsDialog />
   </div>
 </template>
 
@@ -129,13 +131,6 @@ async function onExport(options: any) {
 .light .toolbar-separator {
   background: rgba(0, 0, 0, 0.08);
 }
-.light .theme-btn {
-  color: rgba(0, 0, 0, 0.45);
-}
-.light .theme-btn:hover {
-  color: rgba(0, 0, 0, 0.75);
-  background: rgba(0, 0, 0, 0.04);
-}
 .light .export-btn {
   color: rgba(59, 130, 246, 0.6);
 }
@@ -194,34 +189,6 @@ async function onExport(options: any) {
 }
 .light .preview-content {
   color: #374151;
-}
-
-/* StyleSelector */
-.light .style-btn {
-  color: rgba(0, 0, 0, 0.4);
-}
-.light .style-btn:hover {
-  background: rgba(0, 0, 0, 0.04);
-  color: rgba(0, 0, 0, 0.7);
-}
-.light .style-menu {
-  background: rgba(255, 255, 255, 0.95);
-  border-color: rgba(0, 0, 0, 0.08);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
-}
-.light .style-menu-item {
-  color: rgba(0, 0, 0, 0.6);
-}
-.light .style-menu-item:hover {
-  background: rgba(0, 0, 0, 0.04);
-  color: rgba(0, 0, 0, 0.9);
-}
-.light .style-menu-item.active {
-  color: #3b82f6;
-  background: rgba(59, 130, 246, 0.08);
-}
-.light .style-menu-divider {
-  background: rgba(0, 0, 0, 0.06);
 }
 
 /* Scrollbar */
