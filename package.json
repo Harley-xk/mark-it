@@ -4,7 +4,7 @@
   "description": "A modern Markdown editor with live preview",
   "main": "./out/main/index.js",
   "scripts": {
-    "dev": "cross-env ELECTRON_RUN_AS_NODE= electron-vite dev",
+    "dev": "node scripts/dev.js",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "postinstall": "electron-builder install-app-deps"
@@ -20,7 +20,6 @@
     "@types/node": "^22.10.0",
     "@vitejs/plugin-vue": "^5.2.1",
     "codemirror": "^6.0.1",
-    "cross-env": "^10.1.0",
     "electron": "^33.2.1",
     "electron-builder": "^25.1.8",
     "electron-vite": "^2.3.0",
