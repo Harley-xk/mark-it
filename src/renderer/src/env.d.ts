@@ -1,7 +1,12 @@
-import type { ExposedAPI } from '../../preload/index'
+/// <reference types="vite/client" />
 
-declare global {
-  interface Window {
-    api: ExposedAPI
-  }
+declare module '*.vue' {
+  import type { DefineComponent } from 'vue'
+  const component: DefineComponent<{}, {}, any>
+  export default component
+}
+
+declare module '*.css?raw' {
+  const content: string
+  export default content
 }

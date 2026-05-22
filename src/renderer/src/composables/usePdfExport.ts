@@ -1,10 +1,11 @@
 import { ref } from 'vue'
 import { useEditorStore } from '../stores/editor'
+import { useAppStore } from '../stores/app'
 import MarkdownIt from 'markdown-it'
 
 export function usePdfExport() {
   const editor = useEditorStore()
-  const showDialog = ref(false)
+  const app = useAppStore()
   const exporting = ref(false)
 
   const md = new MarkdownIt({ html: true, linkify: true, breaks: true })
@@ -42,12 +43,12 @@ export function usePdfExport() {
 
       const filePath = await window.api.exportPdf(html, options)
       if (filePath) {
-        showDialog.value = false
+        app.showPdfDialog = false
       }
     } finally {
       exporting.value = false
     }
   }
 
-  return { showDialog, exporting, exportPdf }
+  return { exporting, exportPdf }
 }
