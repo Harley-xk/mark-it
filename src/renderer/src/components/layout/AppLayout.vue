@@ -12,6 +12,14 @@ import PdfExportDialog from '../export/PdfExportDialog.vue'
 
 const app = useAppStore()
 const { exportPdf } = usePdfExport()
+
+async function onExport(options: any) {
+  try {
+    await exportPdf(options)
+  } catch (err) {
+    console.error('PDF export failed:', err)
+  }
+}
 </script>
 
 <template>
@@ -44,7 +52,7 @@ const { exportPdf } = usePdfExport()
     <PdfExportDialog
       :visible="app.showPdfDialog"
       @close="app.showPdfDialog = false"
-      @export="exportPdf"
+      @export="onExport"
     />
   </div>
 </template>

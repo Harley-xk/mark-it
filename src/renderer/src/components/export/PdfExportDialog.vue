@@ -1,9 +1,8 @@
 <script setup lang="ts">
 import { ref } from 'vue'
+import { useAppStore } from '../../stores/app'
 
-const props = defineProps<{
-  visible: boolean
-}>()
+const app = useAppStore()
 
 const emit = defineEmits<{
   close: []
@@ -17,26 +16,19 @@ const emit = defineEmits<{
 const pageSize = ref<'A4' | 'Letter'>('A4')
 const margin = ref<'narrow' | 'standard' | 'wide'>('standard')
 const showPageNumbers = ref(true)
-const exporting = ref(false)
 
-async function handleExport() {
-  exporting.value = true
-  try {
-    emit('export', {
-      pageSize: pageSize.value,
-      margin: margin.value,
-      showPageNumbers: showPageNumbers.value
-    })
-  } finally {
-    exporting.value = false
-    props.visible
-  }
+function handleExport() {
+  emit('export', {
+    pageSize: pageSize.value,
+    margin: margin.value,
+    showPageNumbers: showPageNumbers.value
+  })
 }
 </script>
 
 <template>
   <Teleport to="body">
-    <div v-if="visible" class="dialog-overlay" @click.self="emit('close')">
+    <div v-if="app.showPdfDialog" class="dialog-overlay" @click.self="emit('close')">
       <div class="dialog">
         <div class="dialog-header">
           <h3>导出 PDF</h3>
@@ -67,9 +59,7 @@ async function handleExport() {
         </div>
         <div class="dialog-footer">
           <button class="btn btn-secondary" @click="emit('close')">取消</button>
-          <button class="btn btn-primary" :disabled="exporting" @click="handleExport">
-            {{ exporting ? '导出中...' : '导出' }}
-          </button>
+          <button class="btn btn-primary" @click="handleExport">导出</button>
         </div>
       </div>
     </div>
@@ -200,10 +190,5 @@ async function handleExport() {
 
 .btn-primary:hover {
   background: rgba(108, 155, 255, 0.3);
-}
-
-.btn-primary:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 </style>

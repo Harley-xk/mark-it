@@ -88,16 +88,20 @@ ipcMain.handle('export:pdf', async (_e, html: string, options: {
     width: 800,
     height: 1100,
     show: false,
-    webPreferences: { offscreen: true }
+    webPreferences: {
+      sandbox: false,
+      nodeIntegration: false,
+      contextIsolation: true
+    }
   })
 
   await pdfWin.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
-  await new Promise(r => setTimeout(r, 1000))
+  await new Promise(r => setTimeout(r, 1500))
 
+  const sizeMap: Record<string, string> = { A4: 'A4', Letter: 'Letter' }
   const pdf = await pdfWin.webContents.printToPDF({
-    pageSize: options.pageSize,
+    pageSize: sizeMap[options.pageSize] || 'A4',
     printBackground: true,
-    margins: { marginType: 'default' },
   })
 
   pdfWin.close()
