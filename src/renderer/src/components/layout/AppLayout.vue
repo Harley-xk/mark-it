@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { provide } from 'vue'
 import { useAppStore } from '../../stores/app'
 import { usePdfExport } from '../../composables/usePdfExport'
 import TitleBar from './TitleBar.vue'
@@ -12,9 +11,7 @@ import MarkdownPreview from '../preview/MarkdownPreview.vue'
 import PdfExportDialog from '../export/PdfExportDialog.vue'
 
 const app = useAppStore()
-const pdfExport = usePdfExport()
-
-provide('pdfExport', pdfExport)
+const { exportPdf } = usePdfExport()
 </script>
 
 <template>
@@ -45,9 +42,9 @@ provide('pdfExport', pdfExport)
     </div>
     <StatusBar />
     <PdfExportDialog
-      :visible="pdfExport.showDialog.value"
-      @close="pdfExport.showDialog.value = false"
-      @export="pdfExport.exportPdf"
+      :visible="app.showPdfDialog"
+      @close="app.showPdfDialog = false"
+      @export="exportPdf"
     />
   </div>
 </template>

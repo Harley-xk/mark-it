@@ -10,6 +10,7 @@ export const useAppStore = defineStore('app', () => {
   const fileName = ref('untitled.md')
   const filePath = ref<string | null>(null)
   const isModified = ref(false)
+  const showPdfDialog = ref(false)
 
   const isSplitMode = computed(() =>
     layoutMode.value === 'edit-left' || layoutMode.value === 'edit-right'
@@ -33,7 +34,7 @@ export const useAppStore = defineStore('app', () => {
 
   return {
     layoutMode, themeMode, showOutline, splitRatio,
-    fileName, filePath, isModified,
+    fileName, filePath, isModified, showPdfDialog,
     isSplitMode, showEditor, showPreview,
     setLayoutMode, cycleLayout, toggleOutline
   }
