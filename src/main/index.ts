@@ -1,6 +1,8 @@
-import { app, BrowserWindow, ipcMain, dialog } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, dialog } from 'electron'
 import { join } from 'path'
 import { readFile, writeFile } from 'fs/promises'
+import { electronApp, optimizer, is } from '@electron-toolkit/utils'
+import icon from '../../resources/icon.png?asset'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -11,6 +13,7 @@ function createWindow(): void {
     minWidth: 800,
     minHeight: 600,
     show: false,
+    autoHideMenuBar: true,
     frame: false,
     titleBarStyle: 'hidden',
     titleBarOverlay: {
@@ -20,11 +23,10 @@ function createWindow(): void {
     },
     vibrancy: 'ultra-dark',
     backgroundMaterial: 'acrylic',
+    ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
-      preload: join(__dirname, '../preload/preload.js'),
-      sandbox: false,
-      nodeIntegration: false,
-      contextIsolation: true
+      preload: join(__dirname, '../preload/index.js'),
+      sandbox: false
     }
   })
 
@@ -32,11 +34,15 @@ function createWindow(): void {
     mainWindow!.show()
   })
 
-  const devServerUrl = process.env['ELECTRON_RENDERER_URL']
-  if (devServerUrl) {
-    mainWindow.loadURL(devServerUrl)
+  mainWindow.webContents.setWindowOpenHandler((details) => {
+    shell.openExternal(details.url)
+    return { action: 'deny' }
+  })
+
+  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+    mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
   } else {
-    mainWindow.loadFile(join(__dirname, '../renderer/src/index.html'))
+    mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
 }
 
@@ -67,13 +73,6 @@ ipcMain.handle('dialog:saveFile', async (_e, content: string) => {
   return result.filePath
 })
 
-ipcMain.handle('window:minimize', () => mainWindow?.minimize())
-ipcMain.handle('window:maximize', () => {
-  if (mainWindow?.isMaximized()) mainWindow.unmaximize()
-  else mainWindow?.maximize()
-})
-ipcMain.handle('window:close', () => mainWindow?.close())
-
 ipcMain.handle('export:pdf', async (_e, html: string, options: {
   pageSize: 'A4' | 'Letter'
   margin: 'narrow' | 'standard' | 'wide'
@@ -88,11 +87,7 @@ ipcMain.handle('export:pdf', async (_e, html: string, options: {
     width: 800,
     height: 1100,
     show: false,
-    webPreferences: {
-      sandbox: false,
-      nodeIntegration: false,
-      contextIsolation: true
-    }
+    webPreferences: { sandbox: false }
   })
 
   await pdfWin.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
@@ -101,7 +96,7 @@ ipcMain.handle('export:pdf', async (_e, html: string, options: {
   const sizeMap: Record<string, string> = { A4: 'A4', Letter: 'Letter' }
   const pdf = await pdfWin.webContents.printToPDF({
     pageSize: sizeMap[options.pageSize] || 'A4',
-    printBackground: true,
+    printBackground: true
   })
 
   pdfWin.close()
@@ -109,16 +104,31 @@ ipcMain.handle('export:pdf', async (_e, html: string, options: {
   return result.filePath
 })
 
+ipcMain.handle('window:minimize', () => mainWindow?.minimize())
+ipcMain.handle('window:maximize', () => {
+  if (mainWindow?.isMaximized()) mainWindow.unmaximize()
+  else mainWindow?.maximize()
+})
+ipcMain.handle('window:close', () => mainWindow?.close())
+
 // --- App lifecycle ---
 
 app.whenReady().then(() => {
+  electronApp.setAppUserModelId('com.mark-it')
+
+  app.on('browser-window-created', (_, window) => {
+    optimizer.watchWindowShortcuts(window)
+  })
+
   createWindow()
 
-  app.on('activate', () => {
+  app.on('activate', function () {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
 })
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit()
+  if (process.platform !== 'darwin') {
+    app.quit()
+  }
 })
