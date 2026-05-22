@@ -53,16 +53,16 @@ const app = useAppStore()
   background: #6c9bff;
 }
 
-.light .title-bar {
+:global(.light) .title-bar {
   background: rgba(0, 0, 0, 0.02);
   border-bottom-color: rgba(0, 0, 0, 0.06);
 }
 
-.light .app-title {
+:global(.light) .app-title {
   color: rgba(0, 0, 0, 0.4);
 }
 
-.light .file-name {
+:global(.light) .file-name {
   color: rgba(0, 0, 0, 0.6);
 }
 </style>
