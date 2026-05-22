@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { useStyle } from '../../composables/useStyle'
 import { useAppStore } from '../../stores/app'
 
@@ -9,6 +9,7 @@ const showMenu = ref(false)
 const showImport = ref(false)
 const importName = ref('')
 const importCss = ref('')
+const selectorRef = ref<HTMLElement>()
 
 function toggleMenu() {
   showMenu.value = !showMenu.value
@@ -18,6 +19,15 @@ function selectStyle(id: string) {
   setStyle(id)
   showMenu.value = false
 }
+
+function onClickOutside(e: MouseEvent) {
+  if (showMenu.value && selectorRef.value && !selectorRef.value.contains(e.target as Node)) {
+    showMenu.value = false
+  }
+}
+
+onMounted(() => document.addEventListener('click', onClickOutside))
+onUnmounted(() => document.removeEventListener('click', onClickOutside))
 
 function handleImport() {
   if (!importName.value.trim() || !importCss.value.trim()) return
@@ -53,7 +63,7 @@ function handleFileImport() {
 </script>
 
 <template>
-  <div class="style-selector" @mouseleave="showMenu = false">
+  <div ref="selectorRef" class="style-selector">
     <button class="style-btn" @click="toggleMenu">
       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
       <span>Style</span>
