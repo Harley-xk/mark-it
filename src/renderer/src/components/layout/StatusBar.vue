@@ -47,13 +47,13 @@ const app = useAppStore()
   color: rgba(255, 255, 255, 0.1);
 }
 
-.light .status-bar {
+:global(.light) .status-bar {
   background: rgba(0, 0, 0, 0.02);
   border-top-color: rgba(0, 0, 0, 0.06);
   color: rgba(0, 0, 0, 0.35);
 }
 
-.light .status-sep {
+:global(.light) .status-sep {
   color: rgba(0, 0, 0, 0.1);
 }
 </style>
