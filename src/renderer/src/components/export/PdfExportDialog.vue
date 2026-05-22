@@ -6,18 +6,20 @@ const app = useAppStore()
 
 const emit = defineEmits<{
   close: []
-  export: [options: {
-    pageSize: 'A4' | 'Letter'
-    margin: 'narrow' | 'standard' | 'wide'
-    showPageNumbers: boolean
-  }]
+  export: [
+    options: {
+      pageSize: 'A4' | 'Letter'
+      margin: 'narrow' | 'standard' | 'wide'
+      showPageNumbers: boolean
+    }
+  ]
 }>()
 
 const pageSize = ref<'A4' | 'Letter'>('A4')
 const margin = ref<'narrow' | 'standard' | 'wide'>('standard')
 const showPageNumbers = ref(true)
 
-function handleExport() {
+function handleExport(): void {
   emit('export', {
     pageSize: pageSize.value,
     margin: margin.value,
@@ -29,11 +31,21 @@ function handleExport() {
 <template>
   <Teleport to="body">
     <div v-if="app.showPdfDialog" class="dialog-overlay" @click.self="emit('close')">
-      <div class="dialog">
+      <div class="dialog" :class="app.resolvedTheme">
         <div class="dialog-header">
           <h3>导出 PDF</h3>
           <button class="dialog-close" @click="emit('close')">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
           </button>
         </div>
         <div class="dialog-body">
@@ -151,7 +163,7 @@ function handleExport() {
   gap: 8px;
 }
 
-.checkbox-field input[type="checkbox"] {
+.checkbox-field input[type='checkbox'] {
   accent-color: #6c9bff;
 }
 
@@ -190,5 +202,65 @@ function handleExport() {
 
 .btn-primary:hover {
   background: rgba(108, 155, 255, 0.3);
+}
+
+.dialog.light {
+  background: rgba(255, 255, 255, 0.95);
+  border-color: rgba(0, 0, 0, 0.08);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.12);
+}
+
+.dialog.light .dialog-header {
+  border-bottom-color: rgba(0, 0, 0, 0.06);
+}
+
+.dialog.light .dialog-header h3 {
+  color: #1a1a2e;
+}
+
+.dialog.light .dialog-close {
+  color: rgba(0, 0, 0, 0.3);
+}
+
+.dialog.light .dialog-close:hover {
+  color: rgba(0, 0, 0, 0.7);
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.dialog.light .field {
+  color: rgba(0, 0, 0, 0.6);
+}
+
+.dialog.light .field select {
+  background: rgba(0, 0, 0, 0.04);
+  border-color: rgba(0, 0, 0, 0.1);
+  color: #1a1a2e;
+}
+
+.dialog.light .field select:focus {
+  border-color: rgba(59, 130, 246, 0.4);
+}
+
+.dialog.light .dialog-footer {
+  border-top-color: rgba(0, 0, 0, 0.06);
+}
+
+.dialog.light .btn-secondary {
+  background: rgba(0, 0, 0, 0.04);
+  color: rgba(0, 0, 0, 0.6);
+}
+
+.dialog.light .btn-secondary:hover {
+  background: rgba(0, 0, 0, 0.08);
+  color: rgba(0, 0, 0, 0.8);
+}
+
+.dialog.light .btn-primary {
+  background: rgba(59, 130, 246, 0.1);
+  color: #3b82f6;
+}
+
+.dialog.light .btn-primary:hover {
+  background: rgba(59, 130, 246, 0.2);
 }
 </style>
