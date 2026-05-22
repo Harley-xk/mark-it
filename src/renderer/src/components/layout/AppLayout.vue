@@ -23,7 +23,7 @@ async function onExport(options: any) {
 </script>
 
 <template>
-  <div class="app-layout" :class="[app.themeMode]">
+  <div class="app-layout" :class="[app.resolvedTheme]">
     <TitleBar />
     <Toolbar />
     <div class="main-area">

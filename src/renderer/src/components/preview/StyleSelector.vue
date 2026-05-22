@@ -151,4 +151,37 @@ function handleFileImport() {
   opacity: 1;
   color: #ff6b6b;
 }
+
+:global(.light) .style-btn {
+  color: rgba(0, 0, 0, 0.4);
+}
+
+:global(.light) .style-btn:hover {
+  background: rgba(0, 0, 0, 0.04);
+  color: rgba(0, 0, 0, 0.7);
+}
+
+:global(.light) .style-menu {
+  background: rgba(255, 255, 255, 0.95);
+  border-color: rgba(0, 0, 0, 0.08);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+}
+
+:global(.light) .style-menu-item {
+  color: rgba(0, 0, 0, 0.6);
+}
+
+:global(.light) .style-menu-item:hover {
+  background: rgba(0, 0, 0, 0.04);
+  color: rgba(0, 0, 0, 0.9);
+}
+
+:global(.light) .style-menu-item.active {
+  color: #3b82f6;
+  background: rgba(59, 130, 246, 0.08);
+}
+
+:global(.light) .style-menu-divider {
+  background: rgba(0, 0, 0, 0.06);
+}
 </style>

@@ -1,14 +1,17 @@
 <script setup lang="ts">
 import { computed, ref, watch, onMounted, nextTick } from 'vue'
 import { useEditorStore } from '../../stores/editor'
+import { useAppStore } from '../../stores/app'
 import { useStyle } from '../../composables/useStyle'
 import StyleSelector from './StyleSelector.vue'
 import MarkdownIt from 'markdown-it'
 
 const editorStore = useEditorStore()
+const appStore = useAppStore()
 const { currentCss } = useStyle()
 const previewRef = ref<HTMLDivElement>()
 let mermaidInitialized = false
+let currentMermaidTheme: string | null = null
 
 const md = new MarkdownIt({
   html: true,
@@ -29,13 +32,15 @@ async function renderMermaid() {
 
   try {
     const mermaid = (await import('mermaid')).default
-    if (!mermaidInitialized) {
+    const theme = appStore.resolvedTheme === 'dark' ? 'dark' : 'default'
+    if (!mermaidInitialized || currentMermaidTheme !== theme) {
       mermaid.initialize({
         startOnLoad: false,
-        theme: 'dark',
+        theme: theme,
         securityLevel: 'loose',
       })
       mermaidInitialized = true
+      currentMermaidTheme = theme
     }
 
     for (const block of blocks) {
@@ -116,5 +121,17 @@ onMounted(async () => {
   margin: 0 auto;
   line-height: 1.7;
   color: #d4d4d8;
+}
+
+:global(.light) .preview-toolbar {
+  border-bottom-color: rgba(0, 0, 0, 0.06);
+}
+
+:global(.light) .preview-container {
+  background: rgba(0, 0, 0, 0.02);
+}
+
+:global(.light) .preview-content {
+  color: #374151;
 }
 </style>
