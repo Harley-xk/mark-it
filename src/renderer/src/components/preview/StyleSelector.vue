@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useStyle } from '../../composables/useStyle'
+import { useAppStore } from '../../stores/app'
 
-const { allStyles, currentStyleId, setStyle, addCustomStyle, removeCustomStyle } = useStyle()
+const app = useAppStore()
+const { allStyles, currentStyleId, setStyle, addCustomStyle, removeCustomStyle } = useStyle(() => app.resolvedTheme === 'dark')
 const showMenu = ref(false)
 const showImport = ref(false)
 const importName = ref('')

@@ -1,0 +1,40 @@
+.preview-content h1 {
+  font-size: 2em;
+  font-weight: 700;
+  color: #1a1a2e;
+  margin: 1.2em 0 0.6em;
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid #e0e0e8;
+}
+.preview-content h2 {
+  font-size: 1.5em;
+  font-weight: 600;
+  color: #24243e;
+  margin: 1em 0 0.5em;
+  padding-bottom: 0.2em;
+  border-bottom: 1px solid #e0e0e8;
+}
+.preview-content h3 { font-size: 1.25em; font-weight: 600; color: #2d2d4a; margin: 0.8em 0 0.4em; }
+.preview-content h4 { font-size: 1.1em; font-weight: 600; color: #33335a; margin: 0.6em 0 0.3em; }
+.preview-content h5 { font-size: 1em; font-weight: 600; color: #3a3a60; }
+.preview-content h6 { font-size: 0.9em; font-weight: 600; color: #555580; }
+.preview-content p { margin: 0.6em 0; }
+.preview-content a { color: #3b82f6; text-decoration: none; border-bottom: 1px solid rgba(59, 130, 246, 0.3); }
+.preview-content a:hover { border-bottom-color: #3b82f6; }
+.preview-content strong { color: #1a1a2e; font-weight: 600; }
+.preview-content em { color: #4a4a6a; }
+.preview-content code { background: rgba(59, 130, 246, 0.08); color: #b45309; padding: 0.15em 0.4em; border-radius: 4px; font-size: 0.88em; font-family: 'JetBrains Mono', 'Fira Code', monospace; }
+.preview-content pre { background: #f3f4f6; border: 1px solid #e0e0e8; border-radius: 8px; padding: 16px 20px; overflow-x: auto; margin: 1em 0; }
+.preview-content pre code { background: transparent; padding: 0; color: #374151; font-size: 0.85em; }
+.preview-content blockquote { border-left: 3px solid rgba(59, 130, 246, 0.3); padding: 0.5em 1em; margin: 1em 0; background: rgba(59, 130, 246, 0.03); border-radius: 0 6px 6px 0; color: rgba(0, 0, 0, 0.45); }
+.preview-content ul, .preview-content ol { padding-left: 1.5em; margin: 0.5em 0; }
+.preview-content li { margin: 0.25em 0; }
+.preview-content table { width: 100%; border-collapse: collapse; margin: 1em 0; font-size: 0.9em; }
+.preview-content th { background: #f3f4f6; font-weight: 600; text-align: left; padding: 10px 14px; border: 1px solid #e0e0e8; }
+.preview-content td { padding: 8px 14px; border: 1px solid #e0e0e8; }
+.preview-content tr:hover td { background: #f9fafb; }
+.preview-content hr { border: none; height: 1px; background: #e0e0e8; margin: 1.5em 0; }
+.preview-content img { max-width: 100%; border-radius: 8px; margin: 1em 0; }
+.preview-content .mermaid-diagram { margin: 1em 0; text-align: center; background: #f9fafb; border-radius: 8px; padding: 16px; }
+.preview-content .mermaid-diagram svg { max-width: 100%; }
+.preview-content .mermaid-error { color: #dc2626; padding: 12px; background: rgba(220, 38, 38, 0.06); border-radius: 6px; border: 1px solid rgba(220, 38, 38, 0.15); }

@@ -91,3 +91,144 @@ async function onExport(options: any) {
   height: 100%;
 }
 </style>
+
+<style>
+/* ── Light theme overrides (global, non-scoped) ── */
+
+/* TitleBar */
+.light .title-bar {
+  background: rgba(0, 0, 0, 0.02);
+  border-bottom-color: rgba(0, 0, 0, 0.06);
+}
+.light .app-title {
+  color: rgba(0, 0, 0, 0.4);
+}
+.light .file-name {
+  color: rgba(0, 0, 0, 0.6);
+}
+
+/* Toolbar */
+.light .toolbar {
+  background: rgba(0, 0, 0, 0.02);
+  border-bottom-color: rgba(0, 0, 0, 0.06);
+}
+.light .tb-btn {
+  color: rgba(0, 0, 0, 0.45);
+}
+.light .tb-btn:hover {
+  background: rgba(0, 0, 0, 0.04);
+  color: rgba(0, 0, 0, 0.75);
+}
+.light .tb-btn.active {
+  background: rgba(59, 130, 246, 0.1);
+  color: #3b82f6;
+}
+.light .tb-btn.active:hover {
+  background: rgba(59, 130, 246, 0.15);
+}
+.light .toolbar-separator {
+  background: rgba(0, 0, 0, 0.08);
+}
+.light .theme-btn {
+  color: rgba(0, 0, 0, 0.45);
+}
+.light .theme-btn:hover {
+  color: rgba(0, 0, 0, 0.75);
+  background: rgba(0, 0, 0, 0.04);
+}
+.light .export-btn {
+  color: rgba(59, 130, 246, 0.6);
+}
+.light .export-btn:hover {
+  color: #3b82f6;
+  background: rgba(59, 130, 246, 0.06);
+}
+
+/* StatusBar */
+.light .status-bar {
+  background: rgba(0, 0, 0, 0.02);
+  border-top-color: rgba(0, 0, 0, 0.06);
+  color: rgba(0, 0, 0, 0.35);
+}
+.light .status-sep {
+  color: rgba(0, 0, 0, 0.1);
+}
+
+/* SplitPane */
+.light .divider {
+  background: rgba(0, 0, 0, 0.08);
+}
+.light .divider:hover,
+.light .divider.dragging {
+  background: rgba(59, 130, 246, 0.4);
+}
+
+/* OutlinePanel */
+.light .outline-panel {
+  background: rgba(0, 0, 0, 0.02);
+  border-right-color: rgba(0, 0, 0, 0.06);
+}
+.light .outline-header {
+  border-bottom-color: rgba(0, 0, 0, 0.06);
+}
+.light .outline-title {
+  color: rgba(0, 0, 0, 0.35);
+}
+.light .outline-item {
+  color: rgba(0, 0, 0, 0.5);
+}
+.light .outline-item:hover {
+  color: rgba(0, 0, 0, 0.85);
+  background: rgba(59, 130, 246, 0.06);
+}
+.light .outline-empty {
+  color: rgba(0, 0, 0, 0.2);
+}
+
+/* Preview toolbar */
+.light .preview-toolbar {
+  border-bottom-color: rgba(0, 0, 0, 0.06);
+}
+.light .preview-container {
+  background: rgba(0, 0, 0, 0.02);
+}
+.light .preview-content {
+  color: #374151;
+}
+
+/* StyleSelector */
+.light .style-btn {
+  color: rgba(0, 0, 0, 0.4);
+}
+.light .style-btn:hover {
+  background: rgba(0, 0, 0, 0.04);
+  color: rgba(0, 0, 0, 0.7);
+}
+.light .style-menu {
+  background: rgba(255, 255, 255, 0.95);
+  border-color: rgba(0, 0, 0, 0.08);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+}
+.light .style-menu-item {
+  color: rgba(0, 0, 0, 0.6);
+}
+.light .style-menu-item:hover {
+  background: rgba(0, 0, 0, 0.04);
+  color: rgba(0, 0, 0, 0.9);
+}
+.light .style-menu-item.active {
+  color: #3b82f6;
+  background: rgba(59, 130, 246, 0.08);
+}
+.light .style-menu-divider {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+/* Scrollbar */
+.light ::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.15);
+}
+.light ::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.25);
+}
+</style>

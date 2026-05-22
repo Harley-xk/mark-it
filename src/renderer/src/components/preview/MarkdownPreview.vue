@@ -8,7 +8,7 @@ import MarkdownIt from 'markdown-it'
 
 const editorStore = useEditorStore()
 const appStore = useAppStore()
-const { currentCss } = useStyle()
+const { currentCss } = useStyle(() => appStore.resolvedTheme === 'dark')
 const previewRef = ref<HTMLDivElement>()
 let mermaidInitialized = false
 let currentMermaidTheme: string | null = null
