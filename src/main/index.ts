@@ -1,7 +1,6 @@
 import { app, BrowserWindow, ipcMain, dialog } from 'electron'
 import { join } from 'path'
 import { readFile, writeFile } from 'fs/promises'
-import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -22,7 +21,7 @@ function createWindow(): void {
     vibrancy: 'ultra-dark',
     backgroundMaterial: 'acrylic',
     webPreferences: {
-      preload: join(__dirname, '../preload/index.js'),
+      preload: join(__dirname, '../preload/preload.js'),
       sandbox: false,
       nodeIntegration: false,
       contextIsolation: true
@@ -33,8 +32,9 @@ function createWindow(): void {
     mainWindow!.show()
   })
 
-  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-    mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
+  const devServerUrl = process.env['ELECTRON_RENDERER_URL']
+  if (devServerUrl) {
+    mainWindow.loadURL(devServerUrl)
   } else {
     mainWindow.loadFile(join(__dirname, '../renderer/src/index.html'))
   }
@@ -108,12 +108,6 @@ ipcMain.handle('export:pdf', async (_e, html: string, options: {
 // --- App lifecycle ---
 
 app.whenReady().then(() => {
-  electronApp.setAppUserModelId('com.mark-it')
-
-  app.on('browser-window-created', (_, window) => {
-    optimizer.watchWindowShortcuts(window)
-  })
-
   createWindow()
 
   app.on('activate', () => {
