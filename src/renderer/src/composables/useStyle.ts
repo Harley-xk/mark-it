@@ -6,21 +6,37 @@ import darkCss from '../styles/preview/dark.css?raw'
 import academicCss from '../styles/preview/academic.css?raw'
 import minimalCss from '../styles/preview/minimal.css?raw'
 
-const builtinStyles: PreviewStyle[] = [
+import githubLightCss from '../styles/preview/github-light.css?raw'
+import darkLightCss from '../styles/preview/dark-light.css?raw'
+import academicLightCss from '../styles/preview/academic-light.css?raw'
+import minimalLightCss from '../styles/preview/minimal-light.css?raw'
+
+const builtinStylesDark: PreviewStyle[] = [
   { id: 'github', name: 'GitHub', css: githubCss, isBuiltin: true },
   { id: 'dark', name: 'Dark', css: darkCss, isBuiltin: true },
   { id: 'academic', name: 'Academic', css: academicCss, isBuiltin: true },
   { id: 'minimal', name: 'Minimal', css: minimalCss, isBuiltin: true },
 ]
 
-export function useStyle() {
+const builtinStylesLight: PreviewStyle[] = [
+  { id: 'github', name: 'GitHub', css: githubLightCss, isBuiltin: true },
+  { id: 'dark', name: 'Dark', css: darkLightCss, isBuiltin: true },
+  { id: 'academic', name: 'Academic', css: academicLightCss, isBuiltin: true },
+  { id: 'minimal', name: 'Minimal', css: minimalLightCss, isBuiltin: true },
+]
+
+export function useStyle(isDark: () => boolean) {
   const customStyles = ref<PreviewStyle[]>([])
   const currentStyleId = ref('github')
 
-  const allStyles = computed(() => [...builtinStyles, ...customStyles.value])
+  const builtinStyles = computed(() =>
+    isDark() ? builtinStylesDark : builtinStylesLight
+  )
+
+  const allStyles = computed(() => [...builtinStyles.value, ...customStyles.value])
 
   const currentStyle = computed(() =>
-    allStyles.value.find(s => s.id === currentStyleId.value) || builtinStyles[0]
+    allStyles.value.find(s => s.id === currentStyleId.value) || builtinStyles.value[0]
   )
 
   const currentCss = computed(() => currentStyle.value.css)

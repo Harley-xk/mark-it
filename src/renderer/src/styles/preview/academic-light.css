@@ -1,0 +1,20 @@
+.preview-content { font-family: 'Georgia', 'Times New Roman', serif; color: #2d2d3a; line-height: 1.8; }
+.preview-content h1 { font-size: 2em; font-weight: 700; color: #1a1a2e; margin: 1.5em 0 0.8em; text-align: center; }
+.preview-content h2 { font-size: 1.5em; font-weight: 600; color: #24243e; margin: 1.2em 0 0.6em; }
+.preview-content h3 { font-size: 1.25em; font-weight: 600; color: #2d2d4a; margin: 1em 0 0.5em; }
+.preview-content h4 { font-size: 1.1em; font-weight: 600; color: #3a3a60; }
+.preview-content p { margin: 0.8em 0; text-align: justify; text-indent: 2em; }
+.preview-content a { color: #1d4ed8; text-decoration: none; }
+.preview-content strong { color: #1a1a2e; }
+.preview-content code { background: rgba(59, 130, 246, 0.06); color: #b45309; padding: 0.1em 0.3em; border-radius: 3px; font-size: 0.86em; font-family: 'JetBrains Mono', monospace; }
+.preview-content pre { background: #f3f4f6; border: 1px solid #e0e0e8; border-radius: 4px; padding: 14px 18px; overflow-x: auto; margin: 1em 0; }
+.preview-content pre code { background: transparent; padding: 0; text-indent: 0; }
+.preview-content blockquote { border-left: 3px solid rgba(59, 130, 246, 0.25); padding: 0.5em 1em; margin: 1em 0; color: rgba(0, 0, 0, 0.45); font-style: italic; }
+.preview-content ol { list-style-type: decimal; }
+.preview-content ul { list-style-type: disc; }
+.preview-content table { width: 100%; border-collapse: collapse; margin: 1em 0; font-size: 0.92em; }
+.preview-content th { background: #f3f4f6; font-weight: 600; text-align: left; padding: 8px 12px; border-bottom: 2px solid #d0d0d8; }
+.preview-content td { padding: 6px 12px; border-bottom: 1px solid #e0e0e8; }
+.preview-content hr { border: none; height: 1px; background: #e0e0e8; margin: 2em 0; }
+.preview-content .mermaid-diagram { margin: 1.5em 0; text-align: center; background: #f9fafb; border-radius: 6px; padding: 16px; }
+.preview-content .mermaid-diagram svg { max-width: 100%; }
