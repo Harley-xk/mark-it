@@ -10,6 +10,44 @@ export function usePdfExport() {
 
   const md = new MarkdownIt({ html: true, linkify: true, breaks: true })
 
+  async function renderMermaidToSvg(html: string): Promise<string> {
+    const container = document.createElement('div')
+    container.innerHTML = html
+    const blocks = container.querySelectorAll('code.language-mermaid')
+    if (blocks.length === 0) return html
+
+    try {
+      const mermaid = (await import('mermaid')).default
+      mermaid.initialize({
+        startOnLoad: false,
+        theme: 'default',
+        securityLevel: 'loose',
+      })
+
+      for (const block of blocks) {
+        const parent = block.parentElement
+        if (!parent || parent.tagName !== 'PRE') continue
+
+        const id = `mermaid-pdf-${Math.random().toString(36).slice(2, 9)}`
+        const code = block.textContent || ''
+        try {
+          const { svg } = await mermaid.render(id, code)
+          const div = document.createElement('div')
+          div.innerHTML = svg
+          div.style.textAlign = 'center'
+          div.style.margin = '1em 0'
+          parent.replaceWith(div)
+        } catch {
+          // skip failed mermaid blocks
+        }
+      }
+    } catch {
+      // mermaid not available
+    }
+
+    return container.innerHTML
+  }
+
   async function exportPdf(options: {
     pageSize: 'A4' | 'Letter'
     margin: 'narrow' | 'standard' | 'wide'
@@ -17,7 +55,9 @@ export function usePdfExport() {
   }) {
     exporting.value = true
     try {
-      const htmlBody = md.render(editor.content)
+      let htmlBody = md.render(editor.content)
+      htmlBody = await renderMermaidToSvg(htmlBody)
+
       const html = `<!DOCTYPE html>
 <html>
 <head>
@@ -36,6 +76,7 @@ export function usePdfExport() {
   td { padding: 6px 12px; border: 1px solid #ddd; }
   img { max-width: 100%; }
   a { color: #0366d6; }
+  svg { max-width: 100%; height: auto; }
 </style>
 </head>
 <body>${htmlBody}</body>
