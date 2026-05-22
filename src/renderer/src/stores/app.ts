@@ -22,6 +22,7 @@ export const useAppStore = defineStore('app', () => {
   const filePath = ref<string | null>(null)
   const isModified = ref(false)
   const showPdfDialog = ref(false)
+  const showSettingsDialog = ref(false)
 
   const resolvedTheme = computed<'light' | 'dark'>(() =>
     themeMode.value === 'system' ? (systemIsDark.value ? 'dark' : 'light') : themeMode.value
@@ -77,6 +78,7 @@ export const useAppStore = defineStore('app', () => {
     filePath,
     isModified,
     showPdfDialog,
+    showSettingsDialog,
     isSplitMode,
     showEditor,
     showPreview,

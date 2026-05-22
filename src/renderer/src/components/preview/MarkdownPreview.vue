@@ -2,16 +2,18 @@
 import { computed, ref, watch, onMounted, nextTick } from 'vue'
 import { useEditorStore } from '../../stores/editor'
 import { useAppStore } from '../../stores/app'
-import { useStyle } from '../../composables/useStyle'
-import StyleSelector from './StyleSelector.vue'
+import { useStyleStore } from '../../stores/style'
 import MarkdownIt from 'markdown-it'
 
 const editorStore = useEditorStore()
 const appStore = useAppStore()
-const { currentCss } = useStyle(() => appStore.resolvedTheme === 'dark')
+const styleStore = useStyleStore()
 const previewRef = ref<HTMLDivElement>()
 let mermaidInitialized = false
 let currentMermaidTheme: string | null = null
+
+const isDark = computed(() => appStore.resolvedTheme === 'dark')
+const currentCss = computed(() => styleStore.currentCss(isDark.value))
 
 const md = new MarkdownIt({
   html: true,
@@ -80,9 +82,6 @@ onMounted(async () => {
 
 <template>
   <div class="preview-wrapper">
-    <div class="preview-toolbar">
-      <StyleSelector />
-    </div>
     <div ref="previewRef" class="preview-container">
       <!-- eslint-disable-next-line vue/no-v-html -->
       <component :is="'style'">{{ currentCss }}</component>
@@ -99,16 +98,6 @@ onMounted(async () => {
   flex-direction: column;
 }
 
-.preview-toolbar {
-  height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  padding: 0 12px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-  flex-shrink: 0;
-}
-
 .preview-container {
   flex: 1;
   overflow-y: auto;
@@ -121,10 +110,6 @@ onMounted(async () => {
   margin: 0 auto;
   line-height: 1.7;
   color: #d4d4d8;
-}
-
-:global(.light) .preview-toolbar {
-  border-bottom-color: rgba(0, 0, 0, 0.06);
 }
 
 :global(.light) .preview-container {

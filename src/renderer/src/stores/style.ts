@@ -1,4 +1,5 @@
-import { ref, computed } from 'vue'
+import { defineStore } from 'pinia'
+import { ref } from 'vue'
 import type { PreviewStyle } from '../types'
 
 import githubCss from '../styles/preview/github.css?raw'
@@ -25,21 +26,25 @@ const builtinStylesLight: PreviewStyle[] = [
   { id: 'minimal', name: 'Minimal', css: minimalLightCss, isBuiltin: true },
 ]
 
-export function useStyle(isDark: () => boolean) {
+export const useStyleStore = defineStore('style', () => {
   const customStyles = ref<PreviewStyle[]>([])
   const currentStyleId = ref('github')
 
-  const builtinStyles = computed(() =>
-    isDark() ? builtinStylesDark : builtinStylesLight
-  )
+  function builtinStyles(isDark: boolean): PreviewStyle[] {
+    return isDark ? builtinStylesDark : builtinStylesLight
+  }
 
-  const allStyles = computed(() => [...builtinStyles.value, ...customStyles.value])
+  function allStyles(isDark: boolean): PreviewStyle[] {
+    return [...builtinStyles(isDark), ...customStyles.value]
+  }
 
-  const currentStyle = computed(() =>
-    allStyles.value.find(s => s.id === currentStyleId.value) || builtinStyles.value[0]
-  )
+  function currentStyle(isDark: boolean): PreviewStyle {
+    return allStyles(isDark).find(s => s.id === currentStyleId.value) || builtinStyles(isDark)[0]
+  }
 
-  const currentCss = computed(() => currentStyle.value.css)
+  function currentCss(isDark: boolean): string {
+    return currentStyle(isDark).css
+  }
 
   function setStyle(id: string) {
     currentStyleId.value = id
@@ -57,8 +62,8 @@ export function useStyle(isDark: () => boolean) {
   }
 
   return {
-    builtinStyles, customStyles, allStyles,
-    currentStyleId, currentStyle, currentCss,
+    customStyles, currentStyleId,
+    builtinStyles, allStyles, currentStyle, currentCss,
     setStyle, addCustomStyle, removeCustomStyle
   }
-}
+})
