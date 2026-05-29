@@ -23,13 +23,13 @@ const app = useAppStore()
         <div class="confirm-dialog" :class="[app.resolvedTheme]">
           <div class="confirm-header">
             <span class="confirm-title">{{ title || '未保存的修改' }}</span>
+            <button class="close-btn" @click="emit('cancel')">&times;</button>
           </div>
           <div class="confirm-body">
             {{ message || '当前文件有未保存的修改，是否保存？' }}
           </div>
           <div class="confirm-actions">
-            <button class="btn btn-secondary" @click="emit('cancel')">取消</button>
-            <button class="btn btn-danger" @click="emit('discard')">不保存</button>
+            <button class="btn btn-danger" @click="emit('discard')">放弃修改</button>
             <button class="btn btn-primary" @click="emit('save')">保存</button>
           </div>
         </div>
@@ -67,7 +67,33 @@ const app = useAppStore()
 }
 
 .confirm-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   margin-bottom: 12px;
+}
+
+.close-btn {
+  background: none;
+  border: none;
+  font-size: 18px;
+  color: rgba(255, 255, 255, 0.35);
+  cursor: pointer;
+  padding: 0 2px;
+  line-height: 1;
+  transition: color 0.15s ease;
+}
+
+.close-btn:hover {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.light .close-btn {
+  color: rgba(0, 0, 0, 0.3);
+}
+
+.light .close-btn:hover {
+  color: rgba(0, 0, 0, 0.7);
 }
 
 .confirm-title {
@@ -105,24 +131,6 @@ const app = useAppStore()
   font-family: inherit;
   cursor: pointer;
   transition: all 0.15s ease;
-}
-
-.btn-secondary {
-  background: rgba(255, 255, 255, 0.06);
-  color: rgba(255, 255, 255, 0.7);
-}
-
-.btn-secondary:hover {
-  background: rgba(255, 255, 255, 0.1);
-}
-
-.light .btn-secondary {
-  background: rgba(0, 0, 0, 0.05);
-  color: rgba(0, 0, 0, 0.6);
-}
-
-.light .btn-secondary:hover {
-  background: rgba(0, 0, 0, 0.08);
 }
 
 .btn-danger {
