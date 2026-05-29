@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import AppLayout from './components/layout/AppLayout.vue'
 import { useOutline } from './composables/useOutline'
+import { useKeyboardShortcuts } from './composables/useKeyboardShortcuts'
 import { useEditorStore } from './stores/editor'
 import { useAppStore } from './stores/app'
 
 useOutline()
+useKeyboardShortcuts()
 
 // 监听主进程发来的文件打开事件（右键"使用 MarkIt 打开" / 命令行传参）
 const editor = useEditorStore()
