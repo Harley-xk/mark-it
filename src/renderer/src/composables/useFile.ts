@@ -1,21 +1,22 @@
 import { useEditorStore } from '../stores/editor'
 import { useAppStore } from '../stores/app'
-import { useConfirmBeforeAction } from './useConfirmUnsaved'
+import { confirmUnsaved } from './useConfirmUnsaved'
 
 export function useFile() {
   const editor = useEditorStore()
   const app = useAppStore()
-  const { proceed } = useConfirmBeforeAction()
 
   async function openFile() {
-    await proceed(async () => {
-      const result = await window.api.openFile()
-      if (!result) return
-      editor.setContent(result.content)
-      app.filePath = result.path
-      app.fileName = result.path.split(/[/\\]/).pop() || 'untitled.md'
-      app.isModified = false
-    }, '打开文件', '当前文件有未保存的修改，是否在打开新文件前保存？')
+    const result = await confirmUnsaved('打开文件', '当前文件有未保存的修改，是否在打开新文件前保存？')
+    if (result === 'cancel') return
+    if (result === 'save') await saveFile()
+
+    const fileResult = await window.api.openFile()
+    if (!fileResult) return
+    editor.setContent(fileResult.content)
+    app.filePath = fileResult.path
+    app.fileName = fileResult.path.split(/[/\\]/).pop() || 'untitled.md'
+    app.isModified = false
   }
 
   async function saveFile() {
@@ -35,12 +36,14 @@ export function useFile() {
   }
 
   async function newFile() {
-    await proceed(() => {
-      editor.setContent('')
-      app.filePath = null
-      app.fileName = 'untitled.md'
-      app.isModified = false
-    }, '新建文件', '当前文件有未保存的修改，是否在新建文件前保存？')
+    const result = await confirmUnsaved('新建文件', '当前文件有未保存的修改，是否在新建文件前保存？')
+    if (result === 'cancel') return
+    if (result === 'save') await saveFile()
+
+    editor.setContent('')
+    app.filePath = null
+    app.fileName = 'untitled.md'
+    app.isModified = false
   }
 
   return { openFile, saveFile, saveFileAs, newFile }
