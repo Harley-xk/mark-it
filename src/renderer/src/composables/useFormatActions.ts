@@ -11,13 +11,11 @@ export function applyFormatAction(view: EditorView | null, action: FormatAction)
   if (!view) return false
 
   const { state } = view
-  const { selection } = state
 
   if (action.wrap) {
     const [before, after] = action.wrap
     view.dispatch(
       state.changeByRange((range) => {
-        const text = state.sliceDoc(range.from, range.to)
         return {
           changes: [
             { from: range.from, insert: before },
