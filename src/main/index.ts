@@ -6,6 +6,7 @@ import icon from '../../resources/icon.png?asset'
 
 let mainWindow: BrowserWindow | null = null
 let pendingFilePath: string | null = null
+let allowClose = false
 
 /**
  * 从命令行参数中提取文件路径
@@ -65,6 +66,15 @@ function createWindow(): void {
 
   mainWindow.on('ready-to-show', () => {
     mainWindow!.show()
+  })
+
+  // 窗口关闭前询问渲染进程是否有未保存修改
+  mainWindow.on('close', (e) => {
+    if (allowClose) return
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      e.preventDefault()
+      mainWindow.webContents.send('window:close-request')
+    }
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
@@ -150,7 +160,10 @@ ipcMain.handle('window:maximize', () => {
   if (mainWindow?.isMaximized()) mainWindow.unmaximize()
   else mainWindow?.maximize()
 })
-ipcMain.handle('window:close', () => mainWindow?.close())
+ipcMain.handle('window:close', () => {
+  allowClose = true
+  mainWindow?.close()
+})
 
 // --- App lifecycle ---
 

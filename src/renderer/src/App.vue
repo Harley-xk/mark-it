@@ -1,27 +1,59 @@
 <script setup lang="ts">
 import AppLayout from './components/layout/AppLayout.vue'
+import ConfirmDialog from './components/common/ConfirmDialog.vue'
 import { useOutline } from './composables/useOutline'
 import { useKeyboardShortcuts } from './composables/useKeyboardShortcuts'
+import { useConfirmDialog, resolveConfirm, confirmUnsaved } from './composables/useConfirmUnsaved'
 import { useEditorStore } from './stores/editor'
 import { useAppStore } from './stores/app'
+import { useFile } from './composables/useFile'
 
 useOutline()
 useKeyboardShortcuts()
 
-// 监听主进程发来的文件打开事件（右键"使用 MarkIt 打开" / 命令行传参）
 const editor = useEditorStore()
 const app = useAppStore()
+const file = useFile()
+const { showConfirm, confirmTitle, confirmMessage } = useConfirmDialog()
 
-window.api.onOpenFile((result) => {
+// 加载文件到编辑器的公共方法
+function loadFile(result: { path: string; content: string }) {
   editor.setContent(result.content)
   app.filePath = result.path
   app.fileName = result.path.split(/[/\\]/).pop() || 'untitled.md'
   app.isModified = false
+}
+
+// 监听主进程发来的文件打开事件（右键"使用 MarkIt 打开" / 命令行传参）
+window.api.onOpenFile(async (result) => {
+  const action = await confirmUnsaved('打开文件', '当前文件有未保存的修改，是否在打开新文件前保存？')
+  if (action === 'cancel') return
+  if (action === 'save') await file.saveFile()
+  loadFile(result)
+})
+
+// 监听窗口关闭请求
+window.api.onCloseRequest(async () => {
+  if (app.isModified) {
+    const action = await confirmUnsaved('关闭窗口', '当前文件有未保存的修改，是否在关闭前保存？')
+    if (action === 'cancel') return
+    if (action === 'save') await file.saveFile()
+  }
+  // 销毁 close 监听器后真正关闭
+  window.api.close()
 })
 </script>
 
 <template>
   <AppLayout />
+  <ConfirmDialog
+    :visible="showConfirm"
+    :title="confirmTitle"
+    :message="confirmMessage"
+    @save="resolveConfirm('save')"
+    @discard="resolveConfirm('discard')"
+    @cancel="resolveConfirm('cancel')"
+  />
 </template>
 
 <style>

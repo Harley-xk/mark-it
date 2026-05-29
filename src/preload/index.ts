@@ -16,6 +16,10 @@ const api = {
   /** 监听主进程发来的文件打开事件（右键打开 / 命令行传参） */
   onOpenFile: (callback: (result: { path: string; content: string }) => void) => {
     ipcRenderer.on('open-file-from-argv', (_e, data) => callback(data))
+  },
+  /** 监听窗口关闭请求（主进程 close 事件） */
+  onCloseRequest: (callback: () => void) => {
+    ipcRenderer.on('window:close-request', () => callback())
   }
 }
 

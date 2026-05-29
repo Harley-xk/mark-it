@@ -110,6 +110,7 @@ onMounted(() => {
     if (update.docChanged) {
       editorStore.setContent(update.state.doc.toString())
       editorStore.setWordCount(update.state.doc.toString().replace(/\s/g, '').length)
+      appStore.isModified = true
     }
     const pos = update.state.selection.main.head
     const line = update.state.doc.lineAt(pos)
