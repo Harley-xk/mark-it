@@ -5,6 +5,39 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 
 let mainWindow: BrowserWindow | null = null
+let pendingFilePath: string | null = null
+
+/**
+ * 从命令行参数中提取文件路径
+ * 开发模式下跳过 electron-vite 注入的参数（以 -/ electron 开头的）
+ */
+function extractFilePath(argv: string[]): string | null {
+  for (const arg of argv) {
+    // 跳过选项参数和 electron 自身
+    if (arg.startsWith('-') || arg === 'electron') continue
+    // 跳过 .js/.ts 入口文件（electron-vite dev 模式）
+    if (arg.endsWith('.js') || arg.endsWith('.ts')) continue
+    // 绝对路径且文件存在 => 当作文件打开
+    if (arg.includes(':') || arg.startsWith('/')) {
+      if (arg.toLowerCase().endsWith('.md') || arg.toLowerCase().endsWith('.markdown') || arg.toLowerCase().endsWith('.txt')) {
+        return arg
+      }
+    }
+  }
+  return null
+}
+
+/**
+ * 打开指定文件：读取内容并发送到渲染进程
+ */
+async function openFileAtPath(filePath: string): Promise<void> {
+  try {
+    const content = await readFile(filePath, 'utf-8')
+    mainWindow?.webContents.send('open-file-from-argv', { path: filePath, content })
+  } catch (err) {
+    console.error('Failed to open file from argv:', err)
+  }
+}
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -21,7 +54,7 @@ function createWindow(): void {
       symbolColor: '#888',
       height: 36
     },
-    vibrancy: 'ultra-dark',
+    vibrancy: 'under-window',
     backgroundMaterial: 'acrylic',
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
@@ -44,6 +77,14 @@ function createWindow(): void {
   } else {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
+
+  // 窗口加载完毕后，打开待处理的文件
+  mainWindow.webContents.on('did-finish-load', () => {
+    if (pendingFilePath) {
+      openFileAtPath(pendingFilePath)
+      pendingFilePath = null
+    }
+  })
 }
 
 // --- IPC handlers ---
@@ -93,9 +134,9 @@ ipcMain.handle('export:pdf', async (_e, html: string, options: {
   await pdfWin.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
   await new Promise(r => setTimeout(r, 1500))
 
-  const sizeMap: Record<string, string> = { A4: 'A4', Letter: 'Letter' }
+  const sizeMap: Record<string, 'A4' | 'Letter'> = { A4: 'A4', Letter: 'Letter' }
   const pdf = await pdfWin.webContents.printToPDF({
-    pageSize: sizeMap[options.pageSize] || 'A4',
+    pageSize: sizeMap[options.pageSize] ?? 'A4',
     printBackground: true
   })
 
@@ -113,19 +154,48 @@ ipcMain.handle('window:close', () => mainWindow?.close())
 
 // --- App lifecycle ---
 
-app.whenReady().then(() => {
-  electronApp.setAppUserModelId('com.mark-it')
-
-  app.on('browser-window-created', (_, window) => {
-    optimizer.watchWindowShortcuts(window)
+// 单实例锁：如果已有实例在运行，将文件路径转发给已有实例
+const gotTheLock = app.requestSingleInstanceLock()
+if (!gotTheLock) {
+  app.quit()
+} else {
+  // 第二次启动时，把命令行参数中的文件路径发给已有实例
+  app.on('second-instance', (_e, argv) => {
+    const filePath = extractFilePath(argv)
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore()
+      mainWindow.focus()
+      if (filePath) {
+        openFileAtPath(filePath)
+      }
+    }
   })
 
-  createWindow()
+  app.whenReady().then(() => {
+    electronApp.setAppUserModelId('com.mark-it')
 
-  app.on('activate', function () {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    app.on('browser-window-created', (_, window) => {
+      optimizer.watchWindowShortcuts(window)
+    })
+
+    createWindow()
+
+    // 处理首次启动时的命令行文件参数
+    const filePath = extractFilePath(process.argv)
+    if (filePath) {
+      // 如果窗口已加载完毕，直接打开；否则存为 pending
+      if (mainWindow?.webContents.isLoading()) {
+        pendingFilePath = filePath
+      } else {
+        openFileAtPath(filePath)
+      }
+    }
+
+    app.on('activate', function () {
+      if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    })
   })
-})
+}
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {

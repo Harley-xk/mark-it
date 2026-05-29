@@ -1,8 +1,21 @@
 <script setup lang="ts">
 import AppLayout from './components/layout/AppLayout.vue'
 import { useOutline } from './composables/useOutline'
+import { useEditorStore } from './stores/editor'
+import { useAppStore } from './stores/app'
 
 useOutline()
+
+// 监听主进程发来的文件打开事件（右键"使用 MarkIt 打开" / 命令行传参）
+const editor = useEditorStore()
+const app = useAppStore()
+
+window.api.onOpenFile((result) => {
+  editor.setContent(result.content)
+  app.filePath = result.path
+  app.fileName = result.path.split(/[/\\]/).pop() || 'untitled.md'
+  app.isModified = false
+})
 </script>
 
 <template>
