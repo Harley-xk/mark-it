@@ -72,7 +72,7 @@ async function onExport(options: any) {
 }
 
 .app-layout.light {
-  background: rgba(245, 245, 250, 0.85);
+  background: #ffffff;
   color: #1a1a2e;
 }
 
@@ -99,27 +99,27 @@ async function onExport(options: any) {
 
 /* TitleBar */
 .light .title-bar {
-  background: rgba(0, 0, 0, 0.02);
+  background: #ffffff;
   border-bottom-color: rgba(0, 0, 0, 0.06);
 }
 .light .app-title {
-  color: rgba(0, 0, 0, 0.4);
+  color: rgba(0, 0, 0, 0.65);
 }
 .light .file-name {
-  color: rgba(0, 0, 0, 0.6);
+  color: rgba(0, 0, 0, 0.8);
 }
 
 /* Toolbar */
 .light .toolbar {
-  background: rgba(0, 0, 0, 0.02);
+  background: #ffffff;
   border-bottom-color: rgba(0, 0, 0, 0.06);
 }
 .light .tb-btn {
-  color: rgba(0, 0, 0, 0.45);
+  color: rgba(0, 0, 0, 0.7);
 }
 .light .tb-btn:hover {
   background: rgba(0, 0, 0, 0.04);
-  color: rgba(0, 0, 0, 0.75);
+  color: rgba(0, 0, 0, 0.9);
 }
 .light .tb-btn.active {
   background: rgba(59, 130, 246, 0.1);
@@ -141,12 +141,12 @@ async function onExport(options: any) {
 
 /* StatusBar */
 .light .status-bar {
-  background: rgba(0, 0, 0, 0.02);
+  background: #ffffff;
   border-top-color: rgba(0, 0, 0, 0.06);
-  color: rgba(0, 0, 0, 0.35);
+  color: rgba(0, 0, 0, 0.55);
 }
 .light .status-sep {
-  color: rgba(0, 0, 0, 0.1);
+  color: rgba(0, 0, 0, 0.2);
 }
 
 /* SplitPane */
@@ -160,24 +160,24 @@ async function onExport(options: any) {
 
 /* OutlinePanel */
 .light .outline-panel {
-  background: rgba(0, 0, 0, 0.02);
+  background: #ffffff;
   border-right-color: rgba(0, 0, 0, 0.06);
 }
 .light .outline-header {
   border-bottom-color: rgba(0, 0, 0, 0.06);
 }
 .light .outline-title {
-  color: rgba(0, 0, 0, 0.35);
+  color: rgba(0, 0, 0, 0.55);
 }
 .light .outline-item {
-  color: rgba(0, 0, 0, 0.5);
+  color: rgba(0, 0, 0, 0.7);
 }
 .light .outline-item:hover {
-  color: rgba(0, 0, 0, 0.85);
+  color: rgba(0, 0, 0, 0.9);
   background: rgba(59, 130, 246, 0.06);
 }
 .light .outline-empty {
-  color: rgba(0, 0, 0, 0.2);
+  color: rgba(0, 0, 0, 0.3);
 }
 
 /* Preview toolbar */
@@ -185,7 +185,7 @@ async function onExport(options: any) {
   border-bottom-color: rgba(0, 0, 0, 0.06);
 }
 .light .preview-container {
-  background: rgba(0, 0, 0, 0.02);
+  background: #ffffff;
 }
 .light .preview-content {
   color: #374151;

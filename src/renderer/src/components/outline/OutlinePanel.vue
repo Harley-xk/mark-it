@@ -104,28 +104,7 @@ function scrollToHeading(id: string) {
 }
 
 :global(.light) .outline-panel {
-  background: rgba(0, 0, 0, 0.02);
+  background: #ffffff;
   border-right-color: rgba(0, 0, 0, 0.06);
-}
-
-:global(.light) .outline-header {
-  border-bottom-color: rgba(0, 0, 0, 0.06);
-}
-
-:global(.light) .outline-title {
-  color: rgba(0, 0, 0, 0.35);
-}
-
-:global(.light) .outline-item {
-  color: rgba(0, 0, 0, 0.5);
-}
-
-:global(.light) .outline-item:hover {
-  color: rgba(0, 0, 0, 0.85);
-  background: rgba(59, 130, 246, 0.06);
-}
-
-:global(.light) .outline-empty {
-  color: rgba(0, 0, 0, 0.2);
 }
 </style>

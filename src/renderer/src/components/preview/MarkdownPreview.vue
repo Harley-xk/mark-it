@@ -120,10 +120,6 @@ onUnmounted(() => {
 }
 
 :global(.light) .preview-container {
-  background: rgba(0, 0, 0, 0.02);
-}
-
-:global(.light) .preview-content {
-  color: #374151;
+  background: #ffffff;
 }
 </style>

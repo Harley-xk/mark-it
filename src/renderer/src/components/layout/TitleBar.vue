@@ -54,7 +54,7 @@ const app = useAppStore()
 }
 
 :global(.light) .title-bar {
-  background: rgba(0, 0, 0, 0.02);
+  background: #ffffff;
   border-bottom-color: rgba(0, 0, 0, 0.06);
 }
 
