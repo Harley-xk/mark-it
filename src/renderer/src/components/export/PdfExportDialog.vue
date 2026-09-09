@@ -205,7 +205,7 @@ function handleExport(): void {
 }
 
 .dialog.light {
-  background: rgba(255, 255, 255, 0.95);
+  background: #ffffff;
   border-color: rgba(0, 0, 0, 0.08);
   box-shadow: 0 16px 48px rgba(0, 0, 0, 0.12);
 }

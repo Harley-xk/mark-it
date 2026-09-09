@@ -48,7 +48,7 @@ const app = useAppStore()
 }
 
 :global(.light) .status-bar {
-  background: rgba(0, 0, 0, 0.02);
+  background: #ffffff;
   border-top-color: rgba(0, 0, 0, 0.06);
   color: rgba(0, 0, 0, 0.35);
 }

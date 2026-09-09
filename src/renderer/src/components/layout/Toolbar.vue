@@ -403,7 +403,7 @@ function fmt(action: string) {
 
 /* Light theme */
 :global(.light) .toolbar {
-  background: rgba(0, 0, 0, 0.02);
+  background: #ffffff;
   border-bottom-color: rgba(0, 0, 0, 0.06);
 }
 

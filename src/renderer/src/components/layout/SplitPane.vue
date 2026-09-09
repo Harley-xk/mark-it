@@ -93,12 +93,4 @@ function onPointerUp() {
   width: 2px;
 }
 
-:global(.light) .divider {
-  background: rgba(0, 0, 0, 0.08);
-}
-
-:global(.light) .divider:hover,
-:global(.light) .divider.dragging {
-  background: rgba(59, 130, 246, 0.4);
-}
 </style>
