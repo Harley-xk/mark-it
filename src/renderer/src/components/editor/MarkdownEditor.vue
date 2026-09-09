@@ -26,9 +26,12 @@ import { oneDark } from '@codemirror/theme-one-dark'
 import { tags } from '@lezer/highlight'
 import { useEditorStore } from '../../stores/editor'
 import { useAppStore } from '../../stores/app'
+import { useScrollSync } from '../../composables/useScrollSync'
 
 const editorStore = useEditorStore()
 const appStore = useAppStore()
+const { registerEditor, unregisterEditor } = useScrollSync()
+let isExternalUpdate = false
 const editorRef = ref<HTMLDivElement>()
 let view: EditorView | null = null
 const themeCompartment = new Compartment()
@@ -107,7 +110,7 @@ onMounted(() => {
   if (!editorRef.value) return
 
   const updateListener = EditorView.updateListener.of((update) => {
-    if (update.docChanged) {
+    if (update.docChanged && !isExternalUpdate) {
       editorStore.setContent(update.state.doc.toString())
       editorStore.setWordCount(update.state.doc.toString().replace(/\s/g, '').length)
       appStore.isModified = true
@@ -144,9 +147,11 @@ onMounted(() => {
   })
 
   editorStore.setEditorView(view)
+  registerEditor(view)
 })
 
 onUnmounted(() => {
+  unregisterEditor()
   editorStore.setEditorView(null)
   view?.destroy()
 })
@@ -165,9 +170,11 @@ watch(
   () => editorStore.content,
   (newVal) => {
     if (view && newVal !== view.state.doc.toString()) {
+      isExternalUpdate = true
       view.dispatch({
         changes: { from: 0, to: view.state.doc.length, insert: newVal }
       })
+      isExternalUpdate = false
     }
   }
 )

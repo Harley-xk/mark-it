@@ -1,13 +1,15 @@
 <script setup lang="ts">
-import { computed, ref, watch, onMounted, nextTick } from 'vue'
+import { computed, ref, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { useEditorStore } from '../../stores/editor'
 import { useAppStore } from '../../stores/app'
 import { useStyleStore } from '../../stores/style'
+import { useScrollSync } from '../../composables/useScrollSync'
 import MarkdownIt from 'markdown-it'
 
 const editorStore = useEditorStore()
 const appStore = useAppStore()
 const styleStore = useStyleStore()
+const { registerPreview, unregisterPreview } = useScrollSync()
 const previewRef = ref<HTMLDivElement>()
 let mermaidInitialized = false
 let currentMermaidTheme: string | null = null
@@ -77,6 +79,11 @@ watch(renderedHtml, async () => {
 onMounted(async () => {
   await nextTick()
   await renderMermaid()
+  if (previewRef.value) registerPreview(previewRef.value)
+})
+
+onUnmounted(() => {
+  unregisterPreview()
 })
 </script>
 
