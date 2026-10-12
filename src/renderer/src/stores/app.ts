@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
-import type { LayoutMode, ThemeMode } from '../types'
+import type { LayoutMode, PreviewWidthMode, ThemeMode } from '../types'
 
 function getSystemTheme(): 'light' | 'dark' {
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
@@ -12,12 +12,39 @@ function loadSavedTheme(): ThemeMode {
   return 'system'
 }
 
+function loadSavedLayoutMode(): LayoutMode {
+  const saved = localStorage.getItem('markit-layout')
+  if (
+    saved === 'edit-left' ||
+    saved === 'edit-right' ||
+    saved === 'edit-only' ||
+    saved === 'preview-only'
+  ) {
+    return saved
+  }
+  return 'edit-left'
+}
+
+function loadSavedPreviewWidthMode(): PreviewWidthMode {
+  return localStorage.getItem('markit-preview-width-mode') === 'auto' ? 'auto' : 'fixed'
+}
+
+function loadClampedNumber(key: string, fallback: number, min: number, max: number): number {
+  const raw = localStorage.getItem(key)
+  const saved = raw === null ? NaN : Number(raw)
+  const value = Number.isFinite(saved) ? saved : fallback
+  return Math.min(max, Math.max(min, value))
+}
+
 export const useAppStore = defineStore('app', () => {
-  const layoutMode = ref<LayoutMode>('edit-left')
+  const layoutMode = ref<LayoutMode>(loadSavedLayoutMode())
   const themeMode = ref<ThemeMode>(loadSavedTheme())
   const systemIsDark = ref(getSystemTheme() === 'dark')
-  const showOutline = ref(true)
-  const splitRatio = ref(0.5)
+  const showOutline = ref(localStorage.getItem('markit-show-outline') !== '0')
+  const outlineWidth = ref(loadClampedNumber('markit-outline-width', 220, 160, 500))
+  const splitRatio = ref(loadClampedNumber('markit-split-ratio', 0.5, 0.3, 0.7))
+  const previewWidthMode = ref<PreviewWidthMode>(loadSavedPreviewWidthMode())
+  const previewWidth = ref(loadClampedNumber('markit-preview-width', 800, 400, 1600))
   const fileName = ref('untitled.md')
   const filePath = ref<string | null>(null)
   const isModified = ref(false)
@@ -42,6 +69,24 @@ export const useAppStore = defineStore('app', () => {
 
   watch(themeMode, (mode) => {
     localStorage.setItem('markit-theme', mode)
+  })
+  watch(layoutMode, (mode) => {
+    localStorage.setItem('markit-layout', mode)
+  })
+  watch(showOutline, (v) => {
+    localStorage.setItem('markit-show-outline', v ? '1' : '0')
+  })
+  watch(outlineWidth, (w) => {
+    localStorage.setItem('markit-outline-width', String(w))
+  })
+  watch(splitRatio, (r) => {
+    localStorage.setItem('markit-split-ratio', String(r))
+  })
+  watch(previewWidthMode, (m) => {
+    localStorage.setItem('markit-preview-width-mode', m)
+  })
+  watch(previewWidth, (w) => {
+    localStorage.setItem('markit-preview-width', String(w))
   })
 
   function setLayoutMode(mode: LayoutMode) {
@@ -73,7 +118,10 @@ export const useAppStore = defineStore('app', () => {
     themeMode,
     resolvedTheme,
     showOutline,
+    outlineWidth,
     splitRatio,
+    previewWidthMode,
+    previewWidth,
     fileName,
     filePath,
     isModified,

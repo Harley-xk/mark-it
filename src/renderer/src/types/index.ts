@@ -2,6 +2,8 @@ export type LayoutMode = 'edit-left' | 'edit-right' | 'edit-only' | 'preview-onl
 
 export type ThemeMode = 'light' | 'dark' | 'system'
 
+export type PreviewWidthMode = 'auto' | 'fixed'
+
 export interface HeadingItem {
   id: string
   level: number

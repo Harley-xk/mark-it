@@ -17,6 +17,11 @@ let currentMermaidTheme: string | null = null
 const isDark = computed(() => appStore.resolvedTheme === 'dark')
 const currentCss = computed(() => styleStore.currentCss(isDark.value))
 
+const contentStyle = computed(() => ({
+  maxWidth:
+    appStore.previewWidthMode === 'fixed' ? `${appStore.previewWidth}px` : 'none'
+}))
+
 const md = new MarkdownIt({
   html: true,
   linkify: true,
@@ -92,7 +97,7 @@ onUnmounted(() => {
     <div ref="previewRef" class="preview-container">
       <!-- eslint-disable-next-line vue/no-v-html -->
       <component :is="'style'">{{ currentCss }}</component>
-      <div class="preview-content" v-html="renderedHtml"></div>
+      <div class="preview-content" :style="contentStyle" v-html="renderedHtml"></div>
     </div>
   </div>
 </template>
@@ -113,7 +118,6 @@ onUnmounted(() => {
 }
 
 .preview-content {
-  max-width: 800px;
   margin: 0 auto;
   line-height: 1.7;
   color: #d4d4d8;
