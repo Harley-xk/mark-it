@@ -119,6 +119,38 @@ function removeStyle(id: string) {
               </button>
             </div>
           </div>
+
+          <!-- Preview Width -->
+          <div class="setting-section">
+            <div class="section-title">预览宽度</div>
+            <div class="width-options">
+              <button
+                class="width-option"
+                :class="{ active: app.previewWidthMode === 'fixed' }"
+                @click="app.previewWidthMode = 'fixed'"
+              >
+                固定宽度
+              </button>
+              <button
+                class="width-option"
+                :class="{ active: app.previewWidthMode === 'auto' }"
+                @click="app.previewWidthMode = 'auto'"
+              >
+                随容器自适应
+              </button>
+            </div>
+            <div v-if="app.previewWidthMode === 'fixed'" class="width-input-row">
+              <input
+                v-model.number="app.previewWidth"
+                class="width-slider"
+                type="range"
+                min="400"
+                max="1600"
+                step="20"
+              />
+              <span class="width-value">{{ app.previewWidth }} px</span>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -301,6 +333,55 @@ function removeStyle(id: string) {
   background: rgba(108, 155, 255, 0.04);
 }
 
+/* Preview width */
+.width-options {
+  display: flex;
+  gap: 8px;
+}
+
+.width-option {
+  flex: 1;
+  padding: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  cursor: pointer;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 12px;
+  font-family: inherit;
+  transition: all 0.15s ease;
+}
+
+.width-option:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.width-option.active {
+  background: rgba(108, 155, 255, 0.1);
+  border-color: rgba(108, 155, 255, 0.3);
+  color: #6c9bff;
+}
+
+.width-input-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.width-slider {
+  flex: 1;
+  accent-color: #6c9bff;
+}
+
+.width-value {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+  min-width: 56px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
 /* Light theme */
 .settings-dialog.light {
   background: #ffffff;
@@ -380,5 +461,26 @@ function removeStyle(id: string) {
   border-color: rgba(59, 130, 246, 0.3);
   color: rgba(0, 0, 0, 0.5);
   background: rgba(59, 130, 246, 0.04);
+}
+
+.settings-dialog.light .width-option {
+  background: rgba(0, 0, 0, 0.02);
+  border-color: rgba(0, 0, 0, 0.06);
+  color: rgba(0, 0, 0, 0.45);
+}
+
+.settings-dialog.light .width-option:hover {
+  background: rgba(0, 0, 0, 0.04);
+  color: rgba(0, 0, 0, 0.65);
+}
+
+.settings-dialog.light .width-option.active {
+  background: rgba(59, 130, 246, 0.08);
+  border-color: rgba(59, 130, 246, 0.25);
+  color: #3b82f6;
+}
+
+.settings-dialog.light .width-value {
+  color: rgba(0, 0, 0, 0.5);
 }
 </style>

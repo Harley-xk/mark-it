@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
+import { useAppStore } from '../../stores/app'
 import { useEditorStore } from '../../stores/editor'
 
+const app = useAppStore()
 const editorStore = useEditorStore()
 
 const flatHeadings = computed(() => {
@@ -23,10 +25,34 @@ function scrollToHeading(id: string) {
     el.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 }
+
+const panelRef = ref<HTMLDivElement>()
+const isResizing = ref(false)
+
+function onResizeDown(e: PointerEvent): void {
+  isResizing.value = true
+  ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+}
+
+function onResizeMove(e: PointerEvent): void {
+  if (!isResizing.value || !panelRef.value) return
+  const rect = panelRef.value.getBoundingClientRect()
+  const width = Math.round(Math.min(500, Math.max(160, e.clientX - rect.left)))
+  app.outlineWidth = width
+}
+
+function onResizeUp(): void {
+  isResizing.value = false
+}
 </script>
 
 <template>
-  <div class="outline-panel">
+  <div
+    ref="panelRef"
+    class="outline-panel"
+    :class="{ resizing: isResizing }"
+    :style="{ width: `${app.outlineWidth}px` }"
+  >
     <div class="outline-header">
       <span class="outline-title">大纲</span>
     </div>
@@ -44,6 +70,13 @@ function scrollToHeading(id: string) {
       </template>
       <div v-else class="outline-empty">暂无大纲</div>
     </div>
+    <div
+      class="outline-resizer"
+      :class="{ dragging: isResizing }"
+      @pointerdown="onResizeDown"
+      @pointermove="onResizeMove"
+      @pointerup="onResizeUp"
+    ></div>
   </div>
 </template>
 
@@ -56,6 +89,27 @@ function scrollToHeading(id: string) {
   background: rgba(255, 255, 255, 0.02);
   border-right: 1px solid rgba(255, 255, 255, 0.06);
   overflow: hidden;
+  position: relative;
+}
+
+.outline-panel.resizing,
+.outline-panel.resizing * {
+  user-select: none;
+}
+
+.outline-resizer {
+  position: absolute;
+  top: 0;
+  right: -2px;
+  width: 5px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 10;
+}
+
+.outline-resizer:hover,
+.outline-resizer.dragging {
+  background: rgba(108, 155, 255, 0.4);
 }
 
 .outline-header {
@@ -106,5 +160,10 @@ function scrollToHeading(id: string) {
 :global(.light) .outline-panel {
   background: #ffffff;
   border-right-color: rgba(0, 0, 0, 0.06);
+}
+
+:global(.light) .outline-resizer:hover,
+:global(.light) .outline-resizer.dragging {
+  background: rgba(59, 130, 246, 0.4);
 }
 </style>
