@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 
-const props = defineProps<{
-  layout: string
+defineProps<{
   ratio: number
 }>()
 
@@ -13,22 +12,22 @@ const emit = defineEmits<{
 const isDragging = ref(false)
 const containerRef = ref<HTMLDivElement>()
 
-function onPointerDown(e: PointerEvent) {
+function onPointerDown(e: PointerEvent): void {
   isDragging.value = true
   const target = e.currentTarget as HTMLElement
   target.setPointerCapture(e.pointerId)
 }
 
-function onPointerMove(e: PointerEvent) {
+function onPointerMove(e: PointerEvent): void {
   if (!isDragging.value || !containerRef.value) return
   const rect = containerRef.value.getBoundingClientRect()
-  const x = props.layout === 'edit-left' ? e.clientX - rect.left : rect.right - e.clientX
+  const x = e.clientX - rect.left
   let ratio = x / rect.width
   ratio = Math.max(0.3, Math.min(0.7, ratio))
   emit('update:ratio', ratio)
 }
 
-function onPointerUp() {
+function onPointerUp(): void {
   isDragging.value = false
 }
 </script>

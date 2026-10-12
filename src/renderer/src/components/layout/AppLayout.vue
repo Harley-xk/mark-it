@@ -32,7 +32,6 @@ async function onExport(options: any) {
       <div class="content-area">
         <SplitPane
           v-if="app.isSplitMode"
-          :layout="app.layoutMode"
           :ratio="app.splitRatio"
           @update:ratio="app.splitRatio = $event"
         >
