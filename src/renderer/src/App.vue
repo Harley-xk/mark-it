@@ -3,6 +3,7 @@ import AppLayout from './components/layout/AppLayout.vue'
 import ConfirmDialog from './components/common/ConfirmDialog.vue'
 import { useOutline } from './composables/useOutline'
 import { useKeyboardShortcuts } from './composables/useKeyboardShortcuts'
+import { useScrollbarState } from './composables/useScrollbarState'
 import { useConfirmDialog, resolveConfirm, confirmUnsaved } from './composables/useConfirmUnsaved'
 import { useEditorStore } from './stores/editor'
 import { useAppStore } from './stores/app'
@@ -10,11 +11,13 @@ import { useFile } from './composables/useFile'
 
 useOutline()
 useKeyboardShortcuts()
+useScrollbarState()
 
 const editor = useEditorStore()
 const app = useAppStore()
 const file = useFile()
-const { showConfirm, confirmTitle, confirmMessage } = useConfirmDialog()
+const { showConfirm, confirmTitle, confirmMessage, confirmSaveText, confirmDiscardText } =
+  useConfirmDialog()
 
 // 加载文件到编辑器的公共方法
 function loadFile(result: { path: string; content: string }) {
@@ -50,6 +53,8 @@ window.api.onCloseRequest(async () => {
     :visible="showConfirm"
     :title="confirmTitle"
     :message="confirmMessage"
+    :save-text="confirmSaveText"
+    :discard-text="confirmDiscardText"
     @save="resolveConfirm('save')"
     @discard="resolveConfirm('discard')"
     @cancel="resolveConfirm('cancel')"
@@ -74,8 +79,13 @@ body {
   background: transparent;
 }
 
+/* 滚动条：固定 12px 始终占位（宽度不变，避免内容抖动），
+   平时淡显，悬停/滚动时点亮，拖动时高亮（VS Code 风格）。
+   悬停状态由 useScrollbarState 以 sb-active 类维护 —— CSS :hover 会在
+   鼠标进入标题栏拖拽区等不派发事件的区域时卡住不消失 */
 ::-webkit-scrollbar {
-  width: 6px;
+  width: 12px;
+  height: 12px;
 }
 
 ::-webkit-scrollbar-track {
@@ -83,19 +93,29 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.15);
-  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.14);
+  border-radius: 6px;
 }
 
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.25);
+.sb-active::-webkit-scrollbar-thumb,
+.sb-scrolling::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.sb-active::-webkit-scrollbar-thumb:active {
+  background: rgba(255, 255, 255, 0.5);
 }
 
 .light ::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.15);
+  background: rgba(0, 0, 0, 0.14);
 }
 
-.light ::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 0, 0, 0.25);
+.light .sb-active::-webkit-scrollbar-thumb,
+.light .sb-scrolling::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.3);
+}
+
+.light .sb-active::-webkit-scrollbar-thumb:active {
+  background: rgba(0, 0, 0, 0.5);
 }
 </style>
