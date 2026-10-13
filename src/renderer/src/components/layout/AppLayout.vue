@@ -189,12 +189,4 @@ async function onExport(options: any) {
 .light .preview-content {
   color: #374151;
 }
-
-/* Scrollbar */
-.light ::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.15);
-}
-.light ::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 0, 0, 0.25);
-}
 </style>

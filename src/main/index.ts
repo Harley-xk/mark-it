@@ -300,6 +300,21 @@ if (!gotTheLock) {
 
     createWindow()
 
+    // 每 300ms 将真实光标位置换算为页面坐标推送给渲染进程。
+    // 鼠标移入标题栏拖拽区 (-webkit-app-region: drag) 或窗口外时，
+    // 渲染进程收不到任何鼠标事件，CSS :hover / mousemove 都会卡住，
+    // 只有主进程能拿到可靠的地面真值（用于滚动条悬停状态自愈）。
+    setInterval(() => {
+      if (!mainWindow || mainWindow.isDestroyed() || !mainWindow.isVisible()) return
+      const cursor = screen.getCursorScreenPoint()
+      const bounds = mainWindow.getContentBounds()
+      const zoom = mainWindow.webContents.getZoomFactor()
+      mainWindow.webContents.send('cursor-pos', {
+        x: (cursor.x - bounds.x) / zoom,
+        y: (cursor.y - bounds.y) / zoom
+      })
+    }, 300)
+
     // 处理首次启动时的命令行文件参数
     const filePath = extractFilePath(process.argv)
     if (filePath) {

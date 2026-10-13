@@ -21,6 +21,10 @@ const api = {
   /** 监听窗口关闭请求（主进程 close 事件） */
   onCloseRequest: (callback: () => void) => {
     ipcRenderer.on('window:close-request', () => callback())
+  },
+  /** 主进程光标位置轮询（滚动条悬停状态判定兜底） */
+  onCursorPos: (callback: (pos: { x: number; y: number }) => void) => {
+    ipcRenderer.on('cursor-pos', (_e, pos) => callback(pos))
   }
 }
 
