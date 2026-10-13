@@ -75,6 +75,26 @@ function fmt(action: string) {
           <polyline points="7 3 7 8 15 8" />
         </svg>
       </button>
+      <button
+        class="tb-btn"
+        title="刷新 (F5 / Ctrl+R)"
+        :disabled="!app.filePath"
+        @click="file.refreshFile()"
+      >
+        <svg
+          width="15"
+          height="15"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.8"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <polyline points="23 4 23 10 17 10" />
+          <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+        </svg>
+      </button>
     </div>
 
     <div class="toolbar-separator"></div>
@@ -381,6 +401,12 @@ function fmt(action: string) {
 
 .tb-btn.active:hover {
   background: rgba(108, 155, 255, 0.18);
+}
+
+.tb-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+  pointer-events: none;
 }
 
 .icon-btn {

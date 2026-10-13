@@ -42,6 +42,13 @@ export function useKeyboardShortcuts() {
       return
     }
 
+    // F5 / Ctrl+R: 刷新（重新读取磁盘上的文件）
+    if (e.key === 'F5' || (isCtrl(e) && !e.shiftKey && e.key === 'r')) {
+      e.preventDefault()
+      file.refreshFile()
+      return
+    }
+
     // Ctrl+P: 导出 PDF
     if (isCtrl(e) && !e.shiftKey && e.key === 'p') {
       e.preventDefault()

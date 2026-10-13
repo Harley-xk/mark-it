@@ -46,5 +46,34 @@ export function useFile() {
     app.isModified = false
   }
 
-  return { openFile, saveFile, saveFileAs, newFile }
+  /**
+   * 刷新：重新读取磁盘上的当前文件
+   * - 无未保存修改（或本地内容与磁盘一致）时直接加载最新内容
+   * - 有未保存修改时提示用户谨慎选择：放弃本地修改，或用本地内容覆盖磁盘
+   */
+  async function refreshFile(): Promise<void> {
+    if (!app.filePath) return
+    const result = await window.api.readFile(app.filePath)
+    if (!result) return
+
+    if (app.isModified && editor.content !== result.content) {
+      const action = await confirmUnsaved(
+        '刷新文件',
+        '磁盘上的文件已被其他程序修改，而当前编辑内容有未保存的修改：\n\n' +
+          '「放弃修改」将丢弃本地修改，加载磁盘上的最新内容；\n' +
+          '「保存」将用本地内容覆盖磁盘上的修改。',
+        { save: '保存（覆盖磁盘）', discard: '放弃修改（载入磁盘）' }
+      )
+      if (action === 'cancel') return
+      if (action === 'save') {
+        await saveFile()
+        return
+      }
+    }
+
+    editor.setContent(result.content)
+    app.isModified = false
+  }
+
+  return { openFile, saveFile, saveFileAs, newFile, refreshFile }
 }

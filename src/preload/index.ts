@@ -4,6 +4,7 @@ import { electronAPI } from '@electron-toolkit/preload'
 const api = {
   openFile: () => ipcRenderer.invoke('dialog:openFile'),
   saveFile: (path: string, content: string) => ipcRenderer.invoke('file:save', path, content),
+  readFile: (path: string) => ipcRenderer.invoke('file:read', path),
   saveFileAs: (content: string) => ipcRenderer.invoke('dialog:saveFile', content),
   exportPdf: (html: string, options: {
     pageSize: 'A4' | 'Letter'
