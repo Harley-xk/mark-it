@@ -1,12 +1,95 @@
-import { app, shell, BrowserWindow, ipcMain, dialog } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, dialog, screen } from 'electron'
 import { join } from 'path'
 import { readFile, writeFile } from 'fs/promises'
+import { existsSync, readFileSync } from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 
 let mainWindow: BrowserWindow | null = null
 let pendingFilePath: string | null = null
 let allowClose = false
+
+// --- 窗口大小/位置记忆 ---
+
+interface WindowState {
+  width: number
+  height: number
+  x?: number
+  y?: number
+  isMaximized: boolean
+}
+
+const windowStateFile = join(app.getPath('userData'), 'window-state.json')
+const defaultWindowState: WindowState = { width: 1280, height: 800, isMaximized: false }
+let saveStateTimer: ReturnType<typeof setTimeout> | null = null
+
+function loadWindowState(): WindowState {
+  try {
+    if (!existsSync(windowStateFile)) return { ...defaultWindowState }
+    const state = JSON.parse(readFileSync(windowStateFile, 'utf-8')) as Partial<WindowState>
+    if (
+      typeof state.width !== 'number' ||
+      !Number.isFinite(state.width) ||
+      typeof state.height !== 'number' ||
+      !Number.isFinite(state.height)
+    ) {
+      return { ...defaultWindowState }
+    }
+
+    const result: WindowState = {
+      // 不小于窗口最小尺寸限制
+      width: Math.max(800, state.width),
+      height: Math.max(600, state.height),
+      isMaximized: state.isMaximized === true
+    }
+
+    const savedX = typeof state.x === 'number' ? state.x : NaN
+    const savedY = typeof state.y === 'number' ? state.y : NaN
+    if (Number.isFinite(savedX) && Number.isFinite(savedY)) {
+      // 校验窗口仍在已连接的显示器范围内（拔掉显示器后旧坐标可能位于屏幕外）
+      const wa = screen.getDisplayMatching({
+        x: savedX,
+        y: savedY,
+        width: result.width,
+        height: result.height
+      }).workArea
+      if (
+        savedX < wa.x + wa.width &&
+        savedX + result.width > wa.x &&
+        savedY < wa.y + wa.height &&
+        savedY + result.height > wa.y
+      ) {
+        result.x = savedX
+        result.y = savedY
+      }
+    }
+    return result
+  } catch (err) {
+    console.error('Failed to load window state:', err)
+    return { ...defaultWindowState }
+  }
+}
+
+function saveWindowState(): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  // 最大化时保存还原后的普通尺寸，下次启动再恢复最大化状态
+  const bounds = mainWindow.getNormalBounds()
+  const state: WindowState = {
+    width: bounds.width,
+    height: bounds.height,
+    x: bounds.x,
+    y: bounds.y,
+    isMaximized: mainWindow.isMaximized()
+  }
+  writeFile(windowStateFile, JSON.stringify(state), 'utf-8').catch((err) => {
+    console.error('Failed to save window state:', err)
+  })
+}
+
+function queueSaveWindowState(): void {
+  if (saveStateTimer) clearTimeout(saveStateTimer)
+  saveStateTimer = setTimeout(saveWindowState, 500)
+}
 
 /**
  * 从命令行参数中提取文件路径
@@ -41,9 +124,14 @@ async function openFileAtPath(filePath: string): Promise<void> {
 }
 
 function createWindow(): void {
+  const windowState = loadWindowState()
+
   mainWindow = new BrowserWindow({
-    width: 1280,
-    height: 800,
+    width: windowState.width,
+    height: windowState.height,
+    ...(windowState.x !== undefined && windowState.y !== undefined
+      ? { x: windowState.x, y: windowState.y }
+      : {}),
     minWidth: 800,
     minHeight: 600,
     show: false,
@@ -64,9 +152,18 @@ function createWindow(): void {
     }
   })
 
+  if (windowState.isMaximized) {
+    mainWindow.maximize()
+  }
+
   mainWindow.on('ready-to-show', () => {
     mainWindow!.show()
   })
+
+  // 窗口尺寸/位置变化时防抖保存；关闭时兜底保存一次
+  mainWindow.on('resize', queueSaveWindowState)
+  mainWindow.on('move', queueSaveWindowState)
+  mainWindow.on('close', saveWindowState)
 
   // 窗口关闭前询问渲染进程是否有未保存修改
   mainWindow.on('close', (e) => {
