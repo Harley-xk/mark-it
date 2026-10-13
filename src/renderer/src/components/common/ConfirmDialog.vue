@@ -5,6 +5,8 @@ defineProps<{
   visible: boolean
   title?: string
   message?: string
+  saveText?: string
+  discardText?: string
 }>()
 
 const emit = defineEmits<{
@@ -29,8 +31,12 @@ const app = useAppStore()
             {{ message || '当前文件有未保存的修改，是否保存？' }}
           </div>
           <div class="confirm-actions">
-            <button class="btn btn-danger" @click="emit('discard')">放弃修改</button>
-            <button class="btn btn-primary" @click="emit('save')">保存</button>
+            <button class="btn btn-danger" @click="emit('discard')">
+              {{ discardText || '放弃修改' }}
+            </button>
+            <button class="btn btn-primary" @click="emit('save')">
+              {{ saveText || '保存' }}
+            </button>
           </div>
         </div>
       </div>
@@ -111,6 +117,7 @@ const app = useAppStore()
   color: rgba(255, 255, 255, 0.6);
   margin-bottom: 20px;
   line-height: 1.5;
+  white-space: pre-line;
 }
 
 .light .confirm-body {

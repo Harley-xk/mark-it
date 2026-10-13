@@ -212,6 +212,16 @@ ipcMain.handle('file:save', async (_e, filePath: string, content: string) => {
   return true
 })
 
+ipcMain.handle('file:read', async (_e, filePath: string) => {
+  try {
+    const content = await readFile(filePath, 'utf-8')
+    return { path: filePath, content }
+  } catch (err) {
+    console.error('Failed to read file:', err)
+    return null
+  }
+})
+
 ipcMain.handle('dialog:saveFile', async (_e, content: string) => {
   const result = await dialog.showSaveDialog(mainWindow!, {
     filters: [{ name: 'Markdown', extensions: ['md'] }]

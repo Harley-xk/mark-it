@@ -7,12 +7,19 @@ const showConfirm = ref(false)
 const pendingResolve = ref<((action: ConfirmAction) => void) | null>(null)
 const confirmTitle = ref('未保存的修改')
 const confirmMessage = ref('当前文件有未保存的修改，是否保存？')
+const confirmSaveText = ref('保存')
+const confirmDiscardText = ref('放弃修改')
 
 /**
  * 检查未保存修改并弹出确认对话框
+ * labels 可自定义"保存 / 放弃修改"两个按钮的文案
  * 返回用户选择: 'save' | 'discard' | 'cancel'
  */
-export function confirmUnsaved(title?: string, message?: string): Promise<ConfirmAction> {
+export function confirmUnsaved(
+  title?: string,
+  message?: string,
+  labels?: { save?: string; discard?: string }
+): Promise<ConfirmAction> {
   const app = useAppStore()
 
   if (!app.isModified) {
@@ -21,6 +28,8 @@ export function confirmUnsaved(title?: string, message?: string): Promise<Confir
 
   if (title) confirmTitle.value = title
   if (message) confirmMessage.value = message
+  confirmSaveText.value = labels?.save || '保存'
+  confirmDiscardText.value = labels?.discard || '放弃修改'
 
   showConfirm.value = true
 
@@ -48,6 +57,8 @@ export function useConfirmDialog() {
     showConfirm,
     confirmTitle,
     confirmMessage,
+    confirmSaveText,
+    confirmDiscardText,
     resolveConfirm
   }
 }
