@@ -7,10 +7,11 @@ export function useOutline() {
 
   function extractHeadings(content: string): HeadingItem[] {
     const lines = content.split('\n')
-    const headings: { level: number; text: string; id: string }[] = []
+    const headings: { level: number; text: string; id: string; line: number }[] = []
     let inCodeBlock = false
 
-    for (const line of lines) {
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]
       if (line.trimStart().startsWith('```')) {
         inCodeBlock = !inCodeBlock
         continue
@@ -22,14 +23,14 @@ export function useOutline() {
         const level = match[1].length
         const text = match[2].replace(/[#*`~\[\]]/g, '').trim()
         const id = `heading-${headings.length}`
-        headings.push({ level, text, id })
+        headings.push({ level, text, id, line: i + 1 })
       }
     }
 
     return buildTree(headings)
   }
 
-  function buildTree(items: { level: number; text: string; id: string }[]): HeadingItem[] {
+  function buildTree(items: { level: number; text: string; id: string; line: number }[]): HeadingItem[] {
     const root: HeadingItem[] = []
     const stack: HeadingItem[] = []
 

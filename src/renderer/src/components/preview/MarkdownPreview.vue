@@ -29,6 +29,19 @@ const md = new MarkdownIt({
   breaks: true
 })
 
+// 为标题赋予与大纲解析器（useOutline）一致的顺序锚点 id（heading-0, heading-1, ...），
+// 大纲面板点击时通过 document.getElementById 定位滚动
+md.core.ruler.push('heading_anchor_ids', (state) => {
+  let index = 0
+  for (const token of state.tokens) {
+    if (token.type === 'heading_open') {
+      token.attrSet('id', `heading-${index}`)
+      index++
+    }
+  }
+  return true
+})
+
 const renderedHtml = computed(() => {
   const src = editorStore.content
   return md.render(src)

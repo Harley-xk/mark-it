@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { EditorView } from '@codemirror/view'
 import { useAppStore } from '../../stores/app'
 import { useEditorStore } from '../../stores/editor'
+
+type FlatHeading = { id: string; level: number; text: string; line: number }
 
 const app = useAppStore()
 const editorStore = useEditorStore()
@@ -10,19 +13,28 @@ const flatHeadings = computed(() => {
   return flattenHeadings(editorStore.headings)
 })
 
-function flattenHeadings(items: { id: string; level: number; text: string; children: any[] }[]): { id: string; level: number; text: string }[] {
-  const result: { id: string; level: number; text: string }[] = []
+function flattenHeadings(items: { id: string; level: number; text: string; line: number; children: any[] }[]): FlatHeading[] {
+  const result: FlatHeading[] = []
   for (const item of items) {
-    result.push({ id: item.id, level: item.level, text: item.text })
+    result.push({ id: item.id, level: item.level, text: item.text, line: item.line })
     result.push(...flattenHeadings(item.children))
   }
   return result
 }
 
-function scrollToHeading(id: string) {
-  const el = document.getElementById(id)
+function scrollToHeading(h: FlatHeading): void {
+  const el = document.getElementById(h.id)
   if (el) {
     el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    return
+  }
+  // 预览未挂载（仅编辑模式）时，改为滚动编辑器到标题所在行
+  const view = editorStore.editorView
+  if (view) {
+    const lineNo = Math.min(h.line, view.state.doc.lines)
+    view.dispatch({
+      effects: EditorView.scrollIntoView(view.state.doc.line(lineNo).from, { y: 'start' })
+    })
   }
 }
 
@@ -63,7 +75,7 @@ function onResizeUp(): void {
           :key="h.id"
           class="outline-item"
           :style="{ paddingLeft: `${(h.level - 1) * 16 + 12}px` }"
-          @click="scrollToHeading(h.id)"
+          @click="scrollToHeading(h)"
         >
           {{ h.text }}
         </div>
