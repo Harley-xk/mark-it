@@ -6,7 +6,7 @@ import Toolbar from './Toolbar.vue'
 import StatusBar from './StatusBar.vue'
 import SplitPane from './SplitPane.vue'
 import OutlinePanel from '../outline/OutlinePanel.vue'
-import MarkdownEditor from '../editor/MarkdownEditor.vue'
+import EditorPane from '../editor/EditorPane.vue'
 import MarkdownPreview from '../preview/MarkdownPreview.vue'
 import PdfExportDialog from '../export/PdfExportDialog.vue'
 import SettingsDialog from '../settings/SettingsDialog.vue'
@@ -36,15 +36,15 @@ async function onExport(options: any) {
           @update:ratio="app.splitRatio = $event"
         >
           <template #left>
-            <MarkdownEditor v-if="app.layoutMode === 'edit-left'" />
+            <EditorPane v-if="app.layoutMode === 'edit-left'" />
             <MarkdownPreview v-else />
           </template>
           <template #right>
-            <MarkdownEditor v-if="app.layoutMode === 'edit-right'" />
+            <EditorPane v-if="app.layoutMode === 'edit-right'" />
             <MarkdownPreview v-else />
           </template>
         </SplitPane>
-        <MarkdownEditor v-else-if="app.layoutMode === 'edit-only'" class="full-pane" />
+        <EditorPane v-else-if="app.layoutMode === 'edit-only'" class="full-pane" />
         <MarkdownPreview v-else class="full-pane" />
       </div>
     </div>
