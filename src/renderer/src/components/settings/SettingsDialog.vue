@@ -1,15 +1,78 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useAppStore } from '../../stores/app'
 import { useStyleStore } from '../../stores/style'
+import { useUpdateStore } from '../../stores/update'
+import { useFile } from '../../composables/useFile'
+import { confirmUnsaved } from '../../composables/useConfirmUnsaved'
 import type { ThemeMode } from '../../types'
 
 const app = useAppStore()
 const styleStore = useStyleStore()
+const update = useUpdateStore()
+const file = useFile()
+
+const updateStatusText = computed(() => {
+  const s = update.state
+  switch (s.status) {
+    case 'disabled':
+      return '开发模式，不检测更新'
+    case 'idle':
+      return '尚未检测'
+    case 'checking':
+      return '正在检查更新…'
+    case 'not-available':
+      return '已是最新版本'
+    case 'available':
+      return `发现新版本 v${s.latestVersion}`
+    case 'downloading':
+      return `正在下载 ${Math.floor(s.progress?.percent ?? 0)}%`
+    case 'downloaded':
+      return `v${s.latestVersion} 已下载，重启后安装`
+    case 'error':
+      return `更新检查失败：${s.error ?? '未知错误'}`
+    default:
+      return ''
+  }
+})
+
+async function handleUpdateAction(): Promise<void> {
+  const status = update.state.status
+  if (status === 'downloaded') {
+    const action = await confirmUnsaved('安装更新', '当前文件有未保存的修改，是否保存后安装更新？')
+    if (action === 'cancel') return
+    if (action === 'save') await file.saveFile()
+    await update.install()
+    return
+  }
+  if (status === 'available') {
+    await update.download()
+    return
+  }
+  // error 可能是检测失败，重新检测而不是直接下载
+  await update.check()
+}
+
+const updateActionText = computed(() => {
+  switch (update.state.status) {
+    case 'downloaded':
+      return '重启安装'
+    case 'available':
+      return '下载更新'
+    case 'error':
+      return '重试'
+    case 'checking':
+    case 'downloading':
+      return '处理中…'
+    default:
+      return '检查更新'
+  }
+})
 
 const themeOptions: { value: ThemeMode; label: string; icon: string }[] = [
   { value: 'system', label: '跟随系统', icon: 'monitor' },
   { value: 'light', label: '浅色', icon: 'sun' },
-  { value: 'dark', label: '深色', icon: 'moon' },
+  { value: 'dark', label: '深色', icon: 'moon' }
 ]
 
 const isDark = () => app.resolvedTheme === 'dark'
@@ -27,7 +90,7 @@ function handleFileImport() {
       id: `custom-${Date.now()}`,
       name,
       css: text,
-      isBuiltin: false,
+      isBuiltin: false
     })
   }
   input.click()
@@ -40,12 +103,23 @@ function removeStyle(id: string) {
 
 <template>
   <Teleport to="body">
-    <div v-if="app.showSettingsDialog" class="settings-overlay" @click.self="app.showSettingsDialog = false">
+    <div
+      v-if="app.showSettingsDialog"
+      class="settings-overlay"
+      @click.self="app.showSettingsDialog = false"
+    >
       <div class="settings-dialog" :class="app.resolvedTheme">
         <div class="dialog-header">
           <h3>设置</h3>
           <button class="dialog-close" @click="app.showSettingsDialog = false">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
               <line x1="18" y1="6" x2="6" y2="18" />
               <line x1="6" y1="6" x2="18" y2="18" />
             </svg>
@@ -63,7 +137,17 @@ function removeStyle(id: string) {
                 :class="{ active: app.themeMode === opt.value }"
                 @click="app.setThemeMode(opt.value)"
               >
-                <svg v-if="opt.icon === 'sun'" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <svg
+                  v-if="opt.icon === 'sun'"
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
                   <circle cx="12" cy="12" r="5" />
                   <line x1="12" y1="1" x2="12" y2="3" />
                   <line x1="12" y1="21" x2="12" y2="23" />
@@ -74,10 +158,30 @@ function removeStyle(id: string) {
                   <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
                   <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
                 </svg>
-                <svg v-else-if="opt.icon === 'moon'" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <svg
+                  v-else-if="opt.icon === 'moon'"
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
                   <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
                 </svg>
-                <svg v-else width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <svg
+                  v-else
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
                   <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
                   <line x1="8" y1="21" x2="16" y2="21" />
                   <line x1="12" y1="17" x2="12" y2="21" />
@@ -99,19 +203,29 @@ function removeStyle(id: string) {
                 @click="styleStore.setStyle(s.id)"
               >
                 <span class="style-name">{{ s.name }}</span>
-                <button
-                  v-if="!s.isBuiltin"
-                  class="style-remove"
-                  @click.stop="removeStyle(s.id)"
-                >
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <button v-if="!s.isBuiltin" class="style-remove" @click.stop="removeStyle(s.id)">
+                  <svg
+                    width="12"
+                    height="12"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                  >
                     <line x1="18" y1="6" x2="6" y2="18" />
                     <line x1="6" y1="6" x2="18" y2="18" />
                   </svg>
                 </button>
               </div>
               <button class="style-import" @click="handleFileImport">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <svg
+                  width="12"
+                  height="12"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                >
                   <line x1="12" y1="5" x2="12" y2="19" />
                   <line x1="5" y1="12" x2="19" y2="12" />
                 </svg>
@@ -149,6 +263,30 @@ function removeStyle(id: string) {
                 step="20"
               />
               <span class="width-value">{{ app.previewWidth }} px</span>
+            </div>
+          </div>
+
+          <!-- About & Update -->
+          <div class="setting-section">
+            <div class="section-title">关于</div>
+            <div class="about-row">
+              <div class="about-info">
+                <span class="about-name">MarkIt</span>
+                <span class="about-version">v{{ update.state.currentVersion }}</span>
+              </div>
+              <button
+                class="update-btn"
+                :disabled="update.isBusy || update.state.status === 'disabled'"
+                @click="handleUpdateAction"
+              >
+                {{ updateActionText }}
+              </button>
+            </div>
+            <div class="update-status" :class="{ 'is-error': update.state.status === 'error' }">
+              {{ updateStatusText }}
+            </div>
+            <div v-if="update.state.notes && update.hasUpdate" class="update-notes">
+              {{ update.state.notes }}
             </div>
           </div>
         </div>
@@ -211,6 +349,8 @@ function removeStyle(id: string) {
   display: flex;
   flex-direction: column;
   gap: 24px;
+  max-height: calc(100vh - 120px);
+  overflow-y: auto;
 }
 
 .setting-section {
@@ -382,6 +522,78 @@ function removeStyle(id: string) {
   font-variant-numeric: tabular-nums;
 }
 
+/* About & update */
+.about-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+}
+
+.about-info {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.about-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.about-version {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.35);
+  font-variant-numeric: tabular-nums;
+}
+
+.update-btn {
+  padding: 6px 12px;
+  background: rgba(108, 155, 255, 0.12);
+  border: 1px solid rgba(108, 155, 255, 0.3);
+  border-radius: 7px;
+  color: #8fb4ff;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.update-btn:hover:not(:disabled) {
+  background: rgba(108, 155, 255, 0.22);
+}
+
+.update-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.update-status {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.update-status.is-error {
+  color: #ff7b72;
+  word-break: break-all;
+}
+
+.update-notes {
+  max-height: 120px;
+  overflow-y: auto;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.03);
+  font-size: 11px;
+  line-height: 1.6;
+  color: rgba(255, 255, 255, 0.55);
+  white-space: pre-wrap;
+}
+
 /* Light theme */
 .settings-dialog.light {
   background: #ffffff;
@@ -482,5 +694,34 @@ function removeStyle(id: string) {
 
 .settings-dialog.light .width-value {
   color: rgba(0, 0, 0, 0.5);
+}
+
+.settings-dialog.light .about-row {
+  background: rgba(0, 0, 0, 0.02);
+  border-color: rgba(0, 0, 0, 0.06);
+}
+
+.settings-dialog.light .about-name {
+  color: rgba(0, 0, 0, 0.65);
+}
+
+.settings-dialog.light .about-version,
+.settings-dialog.light .update-status {
+  color: rgba(0, 0, 0, 0.4);
+}
+
+.settings-dialog.light .update-btn {
+  background: rgba(59, 130, 246, 0.08);
+  border-color: rgba(59, 130, 246, 0.25);
+  color: #3b82f6;
+}
+
+.settings-dialog.light .update-btn:hover:not(:disabled) {
+  background: rgba(59, 130, 246, 0.16);
+}
+
+.settings-dialog.light .update-notes {
+  background: rgba(0, 0, 0, 0.03);
+  color: rgba(0, 0, 0, 0.55);
 }
 </style>

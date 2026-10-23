@@ -4,6 +4,7 @@ import { readFile, writeFile } from 'fs/promises'
 import { existsSync, readFileSync } from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
+import { initAutoUpdater } from './updater'
 
 let mainWindow: BrowserWindow | null = null
 let pendingFilePath: string | null = null
@@ -103,7 +104,11 @@ function extractFilePath(argv: string[]): string | null {
     if (arg.endsWith('.js') || arg.endsWith('.ts')) continue
     // 绝对路径且文件存在 => 当作文件打开
     if (arg.includes(':') || arg.startsWith('/')) {
-      if (arg.toLowerCase().endsWith('.md') || arg.toLowerCase().endsWith('.markdown') || arg.toLowerCase().endsWith('.txt')) {
+      if (
+        arg.toLowerCase().endsWith('.md') ||
+        arg.toLowerCase().endsWith('.markdown') ||
+        arg.toLowerCase().endsWith('.txt')
+      ) {
         return arg
       }
     }
@@ -231,36 +236,43 @@ ipcMain.handle('dialog:saveFile', async (_e, content: string) => {
   return result.filePath
 })
 
-ipcMain.handle('export:pdf', async (_e, html: string, options: {
-  pageSize: 'A4' | 'Letter'
-  margin: 'narrow' | 'standard' | 'wide'
-  showPageNumbers: boolean
-}) => {
-  const result = await dialog.showSaveDialog(mainWindow!, {
-    filters: [{ name: 'PDF', extensions: ['pdf'] }]
-  })
-  if (result.canceled || !result.filePath) return null
+ipcMain.handle(
+  'export:pdf',
+  async (
+    _e,
+    html: string,
+    options: {
+      pageSize: 'A4' | 'Letter'
+      margin: 'narrow' | 'standard' | 'wide'
+      showPageNumbers: boolean
+    }
+  ) => {
+    const result = await dialog.showSaveDialog(mainWindow!, {
+      filters: [{ name: 'PDF', extensions: ['pdf'] }]
+    })
+    if (result.canceled || !result.filePath) return null
 
-  const pdfWin = new BrowserWindow({
-    width: 800,
-    height: 1100,
-    show: false,
-    webPreferences: { sandbox: false }
-  })
+    const pdfWin = new BrowserWindow({
+      width: 800,
+      height: 1100,
+      show: false,
+      webPreferences: { sandbox: false }
+    })
 
-  await pdfWin.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
-  await new Promise(r => setTimeout(r, 1500))
+    await pdfWin.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
+    await new Promise((r) => setTimeout(r, 1500))
 
-  const sizeMap: Record<string, 'A4' | 'Letter'> = { A4: 'A4', Letter: 'Letter' }
-  const pdf = await pdfWin.webContents.printToPDF({
-    pageSize: sizeMap[options.pageSize] ?? 'A4',
-    printBackground: true
-  })
+    const sizeMap: Record<string, 'A4' | 'Letter'> = { A4: 'A4', Letter: 'Letter' }
+    const pdf = await pdfWin.webContents.printToPDF({
+      pageSize: sizeMap[options.pageSize] ?? 'A4',
+      printBackground: true
+    })
 
-  pdfWin.close()
-  await writeFile(result.filePath, pdf)
-  return result.filePath
-})
+    pdfWin.close()
+    await writeFile(result.filePath, pdf)
+    return result.filePath
+  }
+)
 
 ipcMain.handle('window:minimize', () => mainWindow?.minimize())
 ipcMain.handle('window:maximize', () => {
@@ -292,13 +304,20 @@ if (!gotTheLock) {
   })
 
   app.whenReady().then(() => {
-    electronApp.setAppUserModelId('com.mark-it')
+    electronApp.setAppUserModelId('com.harley.markit')
 
     app.on('browser-window-created', (_, window) => {
       optimizer.watchWindowShortcuts(window)
     })
 
     createWindow()
+
+    // 自动更新：安装前放行关闭守卫（窗口 close 事件默认会被拦截）
+    initAutoUpdater({
+      beforeInstall: () => {
+        allowClose = true
+      }
+    })
 
     // 每 300ms 将真实光标位置换算为页面坐标推送给渲染进程。
     // 鼠标移入标题栏拖拽区 (-webkit-app-region: drag) 或窗口外时，

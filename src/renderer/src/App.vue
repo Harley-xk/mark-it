@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import AppLayout from './components/layout/AppLayout.vue'
 import ConfirmDialog from './components/common/ConfirmDialog.vue'
+import UpdateNotice from './components/update/UpdateNotice.vue'
 import { useOutline } from './composables/useOutline'
 import { useKeyboardShortcuts } from './composables/useKeyboardShortcuts'
 import { useScrollbarState } from './composables/useScrollbarState'
 import { useConfirmDialog, resolveConfirm, confirmUnsaved } from './composables/useConfirmUnsaved'
 import { useEditorStore } from './stores/editor'
 import { useAppStore } from './stores/app'
+import { useUpdateStore } from './stores/update'
 import { useFile } from './composables/useFile'
 
 useOutline()
@@ -15,6 +17,8 @@ useScrollbarState()
 
 const editor = useEditorStore()
 const app = useAppStore()
+const update = useUpdateStore()
+update.init()
 const file = useFile()
 const { showConfirm, confirmTitle, confirmMessage, confirmSaveText, confirmDiscardText } =
   useConfirmDialog()
@@ -29,7 +33,10 @@ function loadFile(result: { path: string; content: string }) {
 
 // 监听主进程发来的文件打开事件（右键"使用 MarkIt 打开" / 命令行传参）
 window.api.onOpenFile(async (result) => {
-  const action = await confirmUnsaved('打开文件', '当前文件有未保存的修改，是否在打开新文件前保存？')
+  const action = await confirmUnsaved(
+    '打开文件',
+    '当前文件有未保存的修改，是否在打开新文件前保存？'
+  )
   if (action === 'cancel') return
   if (action === 'save') await file.saveFile()
   loadFile(result)
@@ -59,6 +66,7 @@ window.api.onCloseRequest(async () => {
     @discard="resolveConfirm('discard')"
     @cancel="resolveConfirm('cancel')"
   />
+  <UpdateNotice />
 </template>
 
 <style>
@@ -68,11 +76,18 @@ window.api.onCloseRequest(async () => {
   box-sizing: border-box;
 }
 
-html, body, #app {
+html,
+body,
+#app {
   width: 100%;
   height: 100%;
   overflow: hidden;
-  font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  font-family:
+    'Segoe UI',
+    -apple-system,
+    BlinkMacSystemFont,
+    system-ui,
+    sans-serif;
 }
 
 body {
