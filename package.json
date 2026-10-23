@@ -1,9 +1,9 @@
 {
   "name": "mark-it",
-  "version": "1.0.0",
-  "description": "An Electron application with Vue and TypeScript",
+  "version": "1.0.1",
+  "description": "MarkIt - 轻量 Markdown 编辑器",
   "main": "./out/main/index.js",
-  "author": "example.com",
+  "author": "witice.top",
   "homepage": "https://electron-vite.org",
   "scripts": {
     "format": "prettier --write .",
@@ -45,6 +45,7 @@
     "eslint-plugin-vue": "^10.6.2",
     "png2icons": "^2.0.1",
     "prettier": "^3.7.4",
+    "resedit": "^1.7.2",
     "sharp": "^0.35.2",
     "typescript": "^5.9.3",
     "vite": "^7.2.6",

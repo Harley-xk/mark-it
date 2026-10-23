@@ -1,7 +1,9 @@
 appId: com.harley.markit
 productName: Mark It
+copyright: Copyright © 2026 witice.top
 directories:
   buildResources: build
+afterSign: ./scripts/after-sign.cjs
 files:
   - '!**/.vscode/*'
   - '!src/*'
@@ -16,17 +18,21 @@ win:
 fileAssociations:
   - ext: md
     name: Markdown
-    description: Markdown Document
+    description: Markdown 文档
     role: Editor
   - ext: markdown
     name: Markdown
-    description: Markdown Document
+    description: Markdown 文档
     role: Editor
 nsis:
   artifactName: ${name}-${version}-setup.${ext}
   shortcutName: ${productName}
   uninstallDisplayName: ${productName}
   createDesktopShortcut: always
+  # 安装包版本信息语言（2052 = 中文简体）与界面语言
+  language: '2052'
+  installerLanguages:
+    - zh_CN
 mac:
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:
