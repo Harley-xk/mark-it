@@ -49,6 +49,7 @@ appImage:
 npmRebuild: false
 publish:
   provider: generic
-  url: https://example.com/auto-updates
+  # apphub 应用管理平台 electron-updater 适配端点（appKey 可公开分发）
+  url: https://appcenter.witice.top/api/update/ah_q100pquj6kxxj9at/stable/electron
 electronDownload:
   mirror: https://npmmirror.com/mirrors/electron/
