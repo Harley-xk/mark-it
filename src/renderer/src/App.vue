@@ -6,8 +6,7 @@ import { useOutline } from './composables/useOutline'
 import { useKeyboardShortcuts } from './composables/useKeyboardShortcuts'
 import { useScrollbarState } from './composables/useScrollbarState'
 import { useConfirmDialog, resolveConfirm, confirmUnsaved } from './composables/useConfirmUnsaved'
-import { useEditorStore } from './stores/editor'
-import { useAppStore } from './stores/app'
+import { useDocumentsStore } from './stores/documents'
 import { useUpdateStore } from './stores/update'
 import { useFile } from './composables/useFile'
 
@@ -15,39 +14,31 @@ useOutline()
 useKeyboardShortcuts()
 useScrollbarState()
 
-const editor = useEditorStore()
-const app = useAppStore()
+const docs = useDocumentsStore()
 const update = useUpdateStore()
 update.init()
 const file = useFile()
 const { showConfirm, confirmTitle, confirmMessage, confirmSaveText, confirmDiscardText } =
   useConfirmDialog()
 
-// 加载文件到编辑器的公共方法
-function loadFile(result: { path: string; content: string }) {
-  editor.setContent(result.content)
-  app.filePath = result.path
-  app.fileName = result.path.split(/[/\\]/).pop() || 'untitled.md'
-  app.isModified = false
-}
-
 // 监听主进程发来的文件打开事件（右键"使用 MarkIt 打开" / 命令行传参）
-window.api.onOpenFile(async (result) => {
-  const action = await confirmUnsaved(
-    '打开文件',
-    '当前文件有未保存的修改，是否在打开新文件前保存？'
-  )
-  if (action === 'cancel') return
-  if (action === 'save') await file.saveFile()
-  loadFile(result)
+// 以新标签页打开，不干扰当前编辑中的文档
+window.api.onOpenFile((result) => {
+  file.openFileFromPath(result)
 })
 
-// 监听窗口关闭请求
+// 监听窗口关闭请求：逐个检查所有标签页的未保存修改
 window.api.onCloseRequest(async () => {
-  if (app.isModified) {
-    const action = await confirmUnsaved('关闭窗口', '当前文件有未保存的修改，是否在关闭前保存？')
+  const modified = docs.docs.filter((doc) => doc.isModified)
+  for (const doc of modified) {
+    const action = await confirmUnsaved(
+      '关闭窗口',
+      `「${doc.name}」有未保存的修改，是否在关闭前保存？`,
+      undefined,
+      true
+    )
     if (action === 'cancel') return
-    if (action === 'save') await file.saveFile()
+    if (action === 'save' && !(await file.saveDocument(doc))) return
   }
   // 销毁 close 监听器后真正关闭
   window.api.close()

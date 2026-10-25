@@ -3,6 +3,7 @@ import { useAppStore } from '../../stores/app'
 import { usePdfExport } from '../../composables/usePdfExport'
 import TitleBar from './TitleBar.vue'
 import Toolbar from './Toolbar.vue'
+import TabBar from './TabBar.vue'
 import StatusBar from './StatusBar.vue'
 import SplitPane from './SplitPane.vue'
 import OutlinePanel from '../outline/OutlinePanel.vue'
@@ -27,6 +28,7 @@ async function onExport(options: any) {
   <div class="app-layout" :class="[app.resolvedTheme]">
     <TitleBar />
     <Toolbar />
+    <TabBar />
     <div class="main-area">
       <OutlinePanel v-if="app.showOutline" />
       <div class="content-area">

@@ -1,49 +1,78 @@
-import { useEditorStore } from '../stores/editor'
-import { useAppStore } from '../stores/app'
+import { useDocumentsStore, type DocumentTab } from '../stores/documents'
 import { confirmUnsaved } from './useConfirmUnsaved'
 
 export function useFile() {
-  const editor = useEditorStore()
-  const app = useAppStore()
+  const docs = useDocumentsStore()
 
-  async function openFile() {
-    const result = await confirmUnsaved('打开文件', '当前文件有未保存的修改，是否在打开新文件前保存？')
-    if (result === 'cancel') return
-    if (result === 'save') await saveFile()
-
-    const fileResult = await window.api.openFile()
-    if (!fileResult) return
-    editor.setContent(fileResult.content)
-    app.filePath = fileResult.path
-    app.fileName = fileResult.path.split(/[/\\]/).pop() || 'untitled.md'
-    app.isModified = false
-  }
-
-  async function saveFile() {
-    if (!app.filePath) {
-      return saveFileAs()
+  /**
+   * 保存指定标签页
+   * @param forceDialog 为 true 时始终弹出"另存为"对话框
+   * @returns 是否保存成功（用户取消另存为返回 false）
+   */
+  async function saveDocument(doc: DocumentTab, forceDialog = false): Promise<boolean> {
+    if (!doc.path || forceDialog) {
+      const path = await window.api.saveFileAs(doc.content)
+      if (!path) return false
+      docs.markSaved(doc.id, path)
+      return true
     }
-    await window.api.saveFile(app.filePath, editor.content)
-    app.isModified = false
+
+    await window.api.saveFile(doc.path, doc.content)
+    docs.markSaved(doc.id)
+    return true
   }
 
-  async function saveFileAs() {
-    const path = await window.api.saveFileAs(editor.content)
-    if (!path) return
-    app.filePath = path
-    app.fileName = path.split(/[/\\]/).pop() || 'untitled.md'
-    app.isModified = false
+  /** 打开文件对话框（支持多选），每个文件对应一个标签页 */
+  async function openFile(): Promise<void> {
+    const files = await window.api.openFiles()
+    if (!files || files.length === 0) return
+    const opened = files.map((file) => docs.openPathDocument(file.path, file.content))
+    // 多选时激活第一个文件
+    if (opened.length > 0) docs.activateDocument(opened[0].id)
   }
 
-  async function newFile() {
-    const result = await confirmUnsaved('新建文件', '当前文件有未保存的修改，是否在新建文件前保存？')
-    if (result === 'cancel') return
-    if (result === 'save') await saveFile()
+  /** 打开主进程发来的文件（右键"使用 MarkIt 打开" / 命令行传参） */
+  function openFileFromPath(result: { path: string; content: string }): void {
+    docs.openPathDocument(result.path, result.content)
+  }
 
-    editor.setContent('')
-    app.filePath = null
-    app.fileName = 'untitled.md'
-    app.isModified = false
+  async function saveFile(): Promise<void> {
+    const doc = docs.activeDoc
+    if (!doc) return
+    await saveDocument(doc)
+  }
+
+  async function saveFileAs(): Promise<void> {
+    const doc = docs.activeDoc
+    if (!doc) return
+    await saveDocument(doc, true)
+  }
+
+  /** 新建标签页，不打扰当前文档 */
+  function newFile(): void {
+    const active = docs.activeDoc
+    // 当前已经是未修改的空白文档时直接复用，避免堆积空标签
+    if (active && active.path === null && !active.isModified && active.content === '') return
+    docs.newDocument('')
+  }
+
+  /** 关闭标签页，先确认该标签页的未保存修改 */
+  async function closeTab(id?: string): Promise<void> {
+    const doc = id ? docs.getDoc(id) : docs.activeDoc
+    if (!doc) return
+
+    if (doc.isModified) {
+      const action = await confirmUnsaved(
+        '关闭文件',
+        `「${doc.name}」有未保存的修改，是否在关闭前保存？`,
+        undefined,
+        true
+      )
+      if (action === 'cancel') return
+      if (action === 'save' && !(await saveDocument(doc))) return
+    }
+
+    docs.closeDocument(doc.id)
   }
 
   /**
@@ -52,28 +81,38 @@ export function useFile() {
    * - 有未保存修改时提示用户谨慎选择：放弃本地修改，或用本地内容覆盖磁盘
    */
   async function refreshFile(): Promise<void> {
-    if (!app.filePath) return
-    const result = await window.api.readFile(app.filePath)
+    const doc = docs.activeDoc
+    if (!doc || !doc.path) return
+    const result = await window.api.readFile(doc.path)
     if (!result) return
 
-    if (app.isModified && editor.content !== result.content) {
+    if (doc.isModified && doc.content !== result.content) {
       const action = await confirmUnsaved(
         '刷新文件',
         '磁盘上的文件已被其他程序修改，而当前编辑内容有未保存的修改：\n\n' +
           '「放弃修改」将丢弃本地修改，加载磁盘上的最新内容；\n' +
           '「保存」将用本地内容覆盖磁盘上的修改。',
-        { save: '保存（覆盖磁盘）', discard: '放弃修改（载入磁盘）' }
+        { save: '保存（覆盖磁盘）', discard: '放弃修改（载入磁盘）' },
+        true
       )
       if (action === 'cancel') return
       if (action === 'save') {
-        await saveFile()
+        await saveDocument(doc)
         return
       }
     }
 
-    editor.setContent(result.content)
-    app.isModified = false
+    docs.replaceContent(doc.id, result.content)
   }
 
-  return { openFile, saveFile, saveFileAs, newFile, refreshFile }
+  return {
+    openFile,
+    openFileFromPath,
+    saveFile,
+    saveFileAs,
+    saveDocument,
+    newFile,
+    closeTab,
+    refreshFile
+  }
 }

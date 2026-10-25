@@ -26,15 +26,22 @@ import { oneDark } from '@codemirror/theme-one-dark'
 import { tags } from '@lezer/highlight'
 import { useEditorStore } from '../../stores/editor'
 import { useAppStore } from '../../stores/app'
+import { useDocumentsStore } from '../../stores/documents'
 import { useScrollSync } from '../../composables/useScrollSync'
 
 const editorStore = useEditorStore()
 const appStore = useAppStore()
+const docs = useDocumentsStore()
 const { registerEditor, unregisterEditor } = useScrollSync()
-let isExternalUpdate = false
 const editorRef = ref<HTMLDivElement>()
 let view: EditorView | null = null
+
+// 主题 compartment 定义在模块级：EditorState 会被缓存并在组件重新挂载后复用，
+// 共享同一个 compartment 才能保证重新配置主题时生效
 const themeCompartment = new Compartment()
+
+// 以编程方式替换文档内容时置位，避免被当成用户输入标记为已修改
+let isExternalUpdate = false
 
 const markitDark = HighlightStyle.define([
   { tag: tags.heading1, color: '#e8e8f0', fontWeight: 'bold', fontSize: '1.4em' },
@@ -106,55 +113,123 @@ function getThemeExtensions(isDark: boolean): Extension[] {
     : [syntaxHighlighting(markitLight), lightEditorTheme]
 }
 
+const updateListener = EditorView.updateListener.of((update) => {
+  const id = docs.activeId
+  if (!id) return
+
+  if (update.docChanged && !isExternalUpdate) {
+    // 内容与字数由 documents store 统一维护
+    docs.updateContent(id, update.state.doc.toString())
+  }
+
+  const pos = update.state.selection.main.head
+  const line = update.state.doc.lineAt(pos)
+  docs.setCursor(id, line.number, pos - line.from + 1)
+})
+
+function buildExtensions(isDark: boolean): Extension[] {
+  return [
+    lineNumbers(),
+    highlightActiveLineGutter(),
+    highlightActiveLine(),
+    history(),
+    foldGutter(),
+    drawSelection(),
+    EditorState.allowMultipleSelections.of(true),
+    indentOnInput(),
+    bracketMatching(),
+    rectangularSelection(),
+    syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
+    markdown({ base: markdownLanguage, codeLanguages: languages }),
+    themeCompartment.of(getThemeExtensions(isDark)),
+    keymap.of([...defaultKeymap, ...historyKeymap, ...foldKeymap, indentWithTab]),
+    updateListener
+  ]
+}
+
+function createState(content: string, isDark: boolean): EditorState {
+  return EditorState.create({ doc: content, extensions: buildExtensions(isDark) })
+}
+
+function restoreScroll(id: string): void {
+  const top = docs.getScrollPosition(id)
+  requestAnimationFrame(() => {
+    if (view) view.scrollDOM.scrollTop = top
+  })
+}
+
 onMounted(() => {
   if (!editorRef.value) return
 
-  const updateListener = EditorView.updateListener.of((update) => {
-    if (update.docChanged && !isExternalUpdate) {
-      editorStore.setContent(update.state.doc.toString())
-      editorStore.setWordCount(update.state.doc.toString().replace(/\s/g, '').length)
-      appStore.isModified = true
-    }
-    const pos = update.state.selection.main.head
-    const line = update.state.doc.lineAt(pos)
-    editorStore.setCursor(line.number, pos - line.from + 1)
-  })
+  const doc = docs.activeDoc
+  if (!doc) return
 
   const isDark = appStore.resolvedTheme === 'dark'
+  const cached = docs.getEditorState(doc.id)
+  const state = cached ?? createState(doc.content, isDark)
 
-  view = new EditorView({
-    state: EditorState.create({
-      doc: editorStore.content,
-      extensions: [
-        lineNumbers(),
-        highlightActiveLineGutter(),
-        highlightActiveLine(),
-        history(),
-        foldGutter(),
-        drawSelection(),
-        EditorState.allowMultipleSelections.of(true),
-        indentOnInput(),
-        bracketMatching(),
-        rectangularSelection(),
-        syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
-        markdown({ base: markdownLanguage, codeLanguages: languages }),
-        themeCompartment.of(getThemeExtensions(isDark)),
-        keymap.of([...defaultKeymap, ...historyKeymap, ...foldKeymap, indentWithTab]),
-        updateListener
-      ]
-    }),
-    parent: editorRef.value
-  })
+  view = new EditorView({ state, parent: editorRef.value })
+
+  if (cached) {
+    // 缓存的状态可能是在另一套主题下创建的
+    view.dispatch({
+      effects: themeCompartment.reconfigure(getThemeExtensions(isDark))
+    })
+  }
 
   editorStore.setEditorView(view)
   registerEditor(view)
+  restoreScroll(doc.id)
 })
 
 onUnmounted(() => {
+  // 只切到"仅预览"布局时组件会被卸载，缓存状态以便恢复撤销历史
+  const activeId = docs.activeId
+  if (view && activeId && docs.getDoc(activeId)) {
+    docs.setEditorState(activeId, view.state)
+    docs.setScrollPosition(activeId, view.scrollDOM.scrollTop)
+  }
+
   unregisterEditor()
   editorStore.setEditorView(null)
   view?.destroy()
+  view = null
 })
+
+// 切换标签：缓存旧标签状态，恢复新标签状态
+watch(
+  () => docs.activeId,
+  (newId, oldId) => {
+    if (!view || !newId) return
+
+    if (oldId && docs.getDoc(oldId)) {
+      docs.setEditorState(oldId, view.state)
+      docs.setScrollPosition(oldId, view.scrollDOM.scrollTop)
+    }
+
+    const doc = docs.getDoc(newId)
+    if (!doc) return
+
+    const isDark = appStore.resolvedTheme === 'dark'
+    const cached = docs.getEditorState(newId)
+
+    isExternalUpdate = true
+    if (cached) {
+      view.setState(cached)
+      view.dispatch({
+        effects: themeCompartment.reconfigure(getThemeExtensions(isDark))
+      })
+    } else {
+      view.setState(createState(doc.content, isDark))
+    }
+    isExternalUpdate = false
+
+    editorStore.setEditorView(view)
+    restoreScroll(newId)
+    view.focus()
+  },
+  { flush: 'sync' }
+)
 
 watch(
   () => appStore.resolvedTheme,
@@ -166,10 +241,12 @@ watch(
   }
 )
 
+// 外部替换当前标签内容（刷新磁盘文件 / 载入文件）时同步到编辑器
 watch(
-  () => editorStore.content,
+  () => docs.activeDoc?.content,
   (newVal) => {
-    if (view && newVal !== view.state.doc.toString()) {
+    if (!view || newVal === undefined || isExternalUpdate) return
+    if (newVal !== view.state.doc.toString()) {
       isExternalUpdate = true
       view.dispatch({
         changes: { from: 0, to: view.state.doc.length, insert: newVal }

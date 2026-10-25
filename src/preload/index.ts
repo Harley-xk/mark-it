@@ -3,7 +3,10 @@ import { electronAPI } from '@electron-toolkit/preload'
 import type { UpdateState } from '../shared/update-types'
 
 const api = {
-  openFile: () => ipcRenderer.invoke('dialog:openFile'),
+  /** 打开文件对话框，支持多选；返回每个文件的内容 */
+
+  openFiles: (): Promise<{ path: string; content: string }[]> =>
+    ipcRenderer.invoke('dialog:openFiles'),
   saveFile: (path: string, content: string) => ipcRenderer.invoke('file:save', path, content),
   readFile: (path: string) => ipcRenderer.invoke('file:read', path),
   saveFileAs: (content: string) => ipcRenderer.invoke('dialog:saveFile', content),

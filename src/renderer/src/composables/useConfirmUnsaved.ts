@@ -13,16 +13,18 @@ const confirmDiscardText = ref('放弃修改')
 /**
  * 检查未保存修改并弹出确认对话框
  * labels 可自定义"保存 / 放弃修改"两个按钮的文案
+ * hasUnsaved 用于检查非当前标签页的修改状态，缺省检查当前标签页
  * 返回用户选择: 'save' | 'discard' | 'cancel'
  */
 export function confirmUnsaved(
   title?: string,
   message?: string,
-  labels?: { save?: string; discard?: string }
+  labels?: { save?: string; discard?: string },
+  hasUnsaved?: boolean
 ): Promise<ConfirmAction> {
   const app = useAppStore()
 
-  if (!app.isModified) {
+  if (!(hasUnsaved ?? app.isModified)) {
     return Promise.resolve('discard')
   }
 

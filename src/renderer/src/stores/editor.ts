@@ -1,70 +1,39 @@
 import { defineStore } from 'pinia'
-import { ref, shallowRef } from 'vue'
+import { computed, shallowRef } from 'vue'
 import type { EditorView } from '@codemirror/view'
 import type { HeadingItem } from '../types'
+import { useDocumentsStore } from './documents'
 
+/**
+ * 编辑器视图状态。
+ * 文档内容/光标/大纲等按标签保存在 documents store 中，
+ * 这里以当前激活标签的视角对外暴露，保持既有调用方式不变。
+ */
 export const useEditorStore = defineStore('editor', () => {
-  const content = ref(`# Welcome to MarkIt
-
-A modern Markdown editor with live preview.
-
-## Features
-
-- **Live Preview** with style switching
-- **Mermaid Diagrams** support
-- **Math Formulas** via KaTeX
-- **Multiple Layout Modes**
-- **Auto-generated Outline**
-- **PDF Export**
-
-## Code Example
-
-\`\`\`typescript
-function greet(name: string): string {
-  return \`Hello, \${name}!\`
-}
-\`\`\`
-
-## Mermaid Diagram
-
-\`\`\`mermaid
-graph LR
-    A[Edit] --> B[Parse]
-    B --> C[Preview]
-\`\`\`
-
-## Table
-
-| Feature | Status |
-|---------|--------|
-| Editor  | Done   |
-| Preview | Done   |
-| Export  | Done   |
-
-> Start writing your Markdown here!
-`)
-
-  const cursorLine = ref(1)
-  const cursorCol = ref(1)
-  const wordCount = ref(0)
-  const headings = ref<HeadingItem[]>([])
+  const documents = useDocumentsStore()
   const editorView = shallowRef<EditorView | null>(null)
 
+  const content = computed(() => documents.activeDoc?.content ?? '')
+  const cursorLine = computed(() => documents.activeDoc?.cursorLine ?? 1)
+  const cursorCol = computed(() => documents.activeDoc?.cursorCol ?? 1)
+  const wordCount = computed(() => documents.activeDoc?.wordCount ?? 0)
+  const headings = computed<HeadingItem[]>(() => documents.activeDoc?.headings ?? [])
+
+  /** 编辑器内输入：更新当前标签内容并标记为已修改 */
   function setContent(val: string) {
-    content.value = val
+    if (documents.activeDoc) documents.updateContent(documents.activeDoc.id, val)
   }
 
   function setCursor(line: number, col: number) {
-    cursorLine.value = line
-    cursorCol.value = col
+    if (documents.activeDoc) documents.setCursor(documents.activeDoc.id, line, col)
   }
 
   function setHeadings(items: HeadingItem[]) {
-    headings.value = items
+    if (documents.activeDoc) documents.setHeadings(documents.activeDoc.id, items)
   }
 
   function setWordCount(count: number) {
-    wordCount.value = count
+    if (documents.activeDoc) documents.setWordCount(documents.activeDoc.id, count)
   }
 
   function setEditorView(view: EditorView | null) {
@@ -72,7 +41,16 @@ graph LR
   }
 
   return {
-    content, cursorLine, cursorCol, wordCount, headings, editorView,
-    setContent, setCursor, setHeadings, setWordCount, setEditorView
+    content,
+    cursorLine,
+    cursorCol,
+    wordCount,
+    headings,
+    editorView,
+    setContent,
+    setCursor,
+    setHeadings,
+    setWordCount,
+    setEditorView
   }
 })
