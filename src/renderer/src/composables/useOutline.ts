@@ -1,9 +1,11 @@
 import { watch } from 'vue'
 import { useEditorStore } from '../stores/editor'
+import { useDocumentsStore } from '../stores/documents'
 import type { HeadingItem } from '../types'
 
 export function useOutline() {
   const editorStore = useEditorStore()
+  const docs = useDocumentsStore()
 
   function extractHeadings(content: string): HeadingItem[] {
     const lines = content.split('\n')
@@ -30,7 +32,9 @@ export function useOutline() {
     return buildTree(headings)
   }
 
-  function buildTree(items: { level: number; text: string; id: string; line: number }[]): HeadingItem[] {
+  function buildTree(
+    items: { level: number; text: string; id: string; line: number }[]
+  ): HeadingItem[] {
     const root: HeadingItem[] = []
     const stack: HeadingItem[] = []
 
@@ -52,10 +56,12 @@ export function useOutline() {
     return root
   }
 
+  // 同时跟踪内容与当前标签：切换标签时即使两个文档内容相同也要重新生成大纲
   watch(
-    () => editorStore.content,
-    (content) => {
-      editorStore.setHeadings(extractHeadings(content))
+    () => [docs.activeId, editorStore.content] as const,
+    () => {
+      if (!docs.activeDoc) return
+      editorStore.setHeadings(extractHeadings(docs.activeDoc.content))
     },
     { immediate: true }
   )

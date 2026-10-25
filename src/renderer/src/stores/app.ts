@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
 import type { LayoutMode, PreviewWidthMode, ThemeMode } from '../types'
+import { useDocumentsStore } from './documents'
 
 function getSystemTheme(): 'light' | 'dark' {
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
@@ -37,6 +38,7 @@ function loadClampedNumber(key: string, fallback: number, min: number, max: numb
 }
 
 export const useAppStore = defineStore('app', () => {
+  const documents = useDocumentsStore()
   const layoutMode = ref<LayoutMode>(loadSavedLayoutMode())
   const themeMode = ref<ThemeMode>(loadSavedTheme())
   const systemIsDark = ref(getSystemTheme() === 'dark')
@@ -45,9 +47,10 @@ export const useAppStore = defineStore('app', () => {
   const splitRatio = ref(loadClampedNumber('markit-split-ratio', 0.5, 0.3, 0.7))
   const previewWidthMode = ref<PreviewWidthMode>(loadSavedPreviewWidthMode())
   const previewWidth = ref(loadClampedNumber('markit-preview-width', 800, 400, 1600))
-  const fileName = ref('untitled.md')
-  const filePath = ref<string | null>(null)
-  const isModified = ref(false)
+  // 文件相关状态取自当前激活的标签页
+  const fileName = computed(() => documents.activeDoc?.name ?? 'untitled.md')
+  const filePath = computed(() => documents.activeDoc?.path ?? null)
+  const isModified = computed(() => documents.activeDoc?.isModified ?? false)
   const showPdfDialog = ref(false)
   const showSettingsDialog = ref(false)
 

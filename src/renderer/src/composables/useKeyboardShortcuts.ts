@@ -1,11 +1,13 @@
 import { onMounted, onUnmounted } from 'vue'
 import { useAppStore } from '../stores/app'
+import { useDocumentsStore } from '../stores/documents'
 import { useEditorStore } from '../stores/editor'
 import { useFile } from './useFile'
 import { applyFormatAction, formatActions } from './useFormatActions'
 
 export function useKeyboardShortcuts() {
   const app = useAppStore()
+  const docs = useDocumentsStore()
   const editor = useEditorStore()
   const file = useFile()
 
@@ -25,6 +27,31 @@ export function useKeyboardShortcuts() {
     if (isCtrl(e) && !e.shiftKey && e.key === 'o') {
       e.preventDefault()
       file.openFile()
+      return
+    }
+
+    // Ctrl+W: 关闭当前标签页
+    if (isCtrl(e) && !e.shiftKey && e.key === 'w') {
+      e.preventDefault()
+      file.closeTab()
+      return
+    }
+
+    // Ctrl+Tab / Ctrl+Shift+Tab: 切换标签页
+    if (isCtrl(e) && e.key === 'Tab') {
+      e.preventDefault()
+      docs.cycleDocument(e.shiftKey ? -1 : 1)
+      return
+    }
+
+    // Ctrl+1..9: 跳到第 N 个标签页
+    if (isCtrl(e) && !e.shiftKey && /^[1-9]$/.test(e.key)) {
+      const index = Number(e.key) - 1
+      const target = docs.docs[index]
+      if (target) {
+        e.preventDefault()
+        docs.activateDocument(target.id)
+      }
       return
     }
 

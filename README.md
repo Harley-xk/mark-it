@@ -21,6 +21,7 @@
 
 ## 特性
 
+- **多标签页** — 同时打开多个文档，每个标签独立保留内容、撤销历史、光标与滚动位置；支持多选打开、中键关闭
 - **实时双栏预览** — 四种布局模式：左编辑右预览 / 左预览右编辑 / 仅编辑 / 仅预览，可拖拽调整分栏比例
 - **Markdown 语法高亮** — 基于 CodeMirror 6，支持代码块多语言高亮、行号、活动行标记
 - **Mermaid 图表** — 自动渲染流程图、序列图、甘特图等，编辑即时更新
@@ -92,15 +93,16 @@ mark-it/
 │   └── renderer/                      # Vue 渲染进程
 │       └── src/
 │           ├── components/
-│           │   ├── layout/            # 布局组件（TitleBar, Toolbar, StatusBar, SplitPane）
+│           │   ├── layout/            # 布局组件（TitleBar, Toolbar, TabBar, StatusBar, SplitPane）
 │           │   ├── editor/            # CodeMirror 编辑器封装
 │           │   ├── preview/           # Markdown 预览渲染
 │           │   ├── outline/           # 自动大纲面板
 │           │   ├── settings/          # 设置对话框
 │           │   └── export/            # PDF 导出对话框
 │           ├── stores/                # Pinia 状态管理
-│           │   ├── app.ts             # 应用全局状态
-│           │   ├── editor.ts          # 编辑器状态
+│           │   ├── app.ts             # 应用全局状态（布局、主题等）
+│           │   ├── documents.ts       # 多标签文档状态
+│           │   ├── editor.ts          # 当前编辑器状态
 │           │   └── style.ts           # 预览样式状态
 │           ├── composables/           # 组合式函数
 │           ├── styles/preview/        # 预览样式 CSS
@@ -114,8 +116,11 @@ mark-it/
 
 | 快捷键 | 功能 |
 |--------|------|
-| `Ctrl+N` | 新建文件 |
-| `Ctrl+O` | 打开文件 |
+| `Ctrl+N` | 新建标签页 |
+| `Ctrl+O` | 打开文件（支持多选） |
+| `Ctrl+W` | 关闭当前标签页 |
+| `Ctrl+Tab` / `Ctrl+Shift+Tab` | 切换标签页 |
+| `Ctrl+1` ~ `Ctrl+9` | 跳到第 N 个标签页 |
 | `Ctrl+S` | 保存文件 |
 | `F5` / `Ctrl+R` | 刷新（重新读取磁盘上的文件） |
 | `Ctrl+B` | 加粗 |

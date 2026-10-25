@@ -7,7 +7,7 @@ import icon from '../../resources/icon.png?asset'
 import { initAutoUpdater } from './updater'
 
 let mainWindow: BrowserWindow | null = null
-let pendingFilePath: string | null = null
+let pendingFilePaths: string[] = []
 let allowClose = false
 
 // --- 窗口大小/位置记忆 ---
@@ -93,10 +93,11 @@ function queueSaveWindowState(): void {
 }
 
 /**
- * 从命令行参数中提取文件路径
+ * 从命令行参数中提取文件路径（可能一次传入多个文件）
  * 开发模式下跳过 electron-vite 注入的参数（以 -/ electron 开头的）
  */
-function extractFilePath(argv: string[]): string | null {
+function extractFilePaths(argv: string[]): string[] {
+  const paths: string[] = []
   for (const arg of argv) {
     // 跳过选项参数和 electron 自身
     if (arg.startsWith('-') || arg === 'electron') continue
@@ -109,11 +110,11 @@ function extractFilePath(argv: string[]): string | null {
         arg.toLowerCase().endsWith('.markdown') ||
         arg.toLowerCase().endsWith('.txt')
       ) {
-        return arg
+        paths.push(arg)
       }
     }
   }
-  return null
+  return paths
 }
 
 /**
@@ -125,6 +126,12 @@ async function openFileAtPath(filePath: string): Promise<void> {
     mainWindow?.webContents.send('open-file-from-argv', { path: filePath, content })
   } catch (err) {
     console.error('Failed to open file from argv:', err)
+  }
+}
+
+function openFilesAtPaths(filePaths: string[]): void {
+  for (const filePath of filePaths) {
+    openFileAtPath(filePath)
   }
 }
 
@@ -192,24 +199,31 @@ function createWindow(): void {
 
   // 窗口加载完毕后，打开待处理的文件
   mainWindow.webContents.on('did-finish-load', () => {
-    if (pendingFilePath) {
-      openFileAtPath(pendingFilePath)
-      pendingFilePath = null
+    if (pendingFilePaths.length > 0) {
+      openFilesAtPaths(pendingFilePaths)
+      pendingFilePaths = []
     }
   })
 }
 
 // --- IPC handlers ---
 
-ipcMain.handle('dialog:openFile', async () => {
+ipcMain.handle('dialog:openFiles', async () => {
   const result = await dialog.showOpenDialog(mainWindow!, {
-    properties: ['openFile'],
+    properties: ['openFile', 'multiSelections'],
     filters: [{ name: 'Markdown', extensions: ['md', 'markdown', 'txt'] }]
   })
-  if (result.canceled || result.filePaths.length === 0) return null
-  const filePath = result.filePaths[0]
-  const content = await readFile(filePath, 'utf-8')
-  return { path: filePath, content }
+  if (result.canceled || result.filePaths.length === 0) return []
+
+  const files: { path: string; content: string }[] = []
+  for (const filePath of result.filePaths) {
+    try {
+      files.push({ path: filePath, content: await readFile(filePath, 'utf-8') })
+    } catch (err) {
+      console.error('Failed to read file:', filePath, err)
+    }
+  }
+  return files
 })
 
 ipcMain.handle('file:save', async (_e, filePath: string, content: string) => {
@@ -293,12 +307,12 @@ if (!gotTheLock) {
 } else {
   // 第二次启动时，把命令行参数中的文件路径发给已有实例
   app.on('second-instance', (_e, argv) => {
-    const filePath = extractFilePath(argv)
+    const filePaths = extractFilePaths(argv)
     if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore()
       mainWindow.focus()
-      if (filePath) {
-        openFileAtPath(filePath)
+      if (filePaths.length > 0) {
+        openFilesAtPaths(filePaths)
       }
     }
   })
@@ -335,13 +349,13 @@ if (!gotTheLock) {
     }, 300)
 
     // 处理首次启动时的命令行文件参数
-    const filePath = extractFilePath(process.argv)
-    if (filePath) {
+    const filePaths = extractFilePaths(process.argv)
+    if (filePaths.length > 0) {
       // 如果窗口已加载完毕，直接打开；否则存为 pending
       if (mainWindow?.webContents.isLoading()) {
-        pendingFilePath = filePath
+        pendingFilePaths = filePaths
       } else {
-        openFileAtPath(filePath)
+        openFilesAtPaths(filePaths)
       }
     }
 
