@@ -73,6 +73,11 @@ export function useFile() {
     }
 
     docs.closeDocument(doc.id)
+
+    // 关闭最后一个标签页时一并关闭主窗口（所有未保存修改已在此前确认）
+    if (docs.docs.length === 0) {
+      window.api.close()
+    }
   }
 
   /**

@@ -117,6 +117,14 @@ export const useDocumentsStore = defineStore('documents', () => {
     return doc
   }
 
+  /**
+   * 启动时的默认占位标签（欢迎页或未编辑的空白页）。
+   * 打开文件时可以直接替换它，避免额外留下一个 untitled 标签
+   */
+  function isPlaceholderTab(doc: DocumentTab): boolean {
+    return doc.path === null && !doc.isModified
+  }
+
   /** 打开磁盘文件：已打开过则直接激活对应标签，避免重复标签 */
   function openPathDocument(filePath: string, content: string): DocumentTab {
     const normalized = normalizePath(filePath)
@@ -124,6 +132,10 @@ export const useDocumentsStore = defineStore('documents', () => {
     if (existing) {
       activeId.value = existing.id
       return existing
+    }
+    // 只有占位标签时直接替换，而不是在其旁边新建标签
+    if (docs.value.length === 1 && isPlaceholderTab(docs.value[0])) {
+      removeDocument(0)
     }
     return addDocument(filePath, content)
   }
@@ -142,20 +154,24 @@ export const useDocumentsStore = defineStore('documents', () => {
     }
   }
 
+  /** 移除指定下标的标签并清理其缓存状态 */
+  function removeDocument(index: number): void {
+    const [removed] = docs.value.splice(index, 1)
+    if (!removed) return
+    editorStates.delete(removed.id)
+    scrollPositions.delete(removed.id)
+  }
+
   function closeDocument(id: string): void {
     const index = docs.value.findIndex((d) => d.id === id)
     if (index === -1) return
 
     const wasActive = activeId.value === id
-    docs.value.splice(index, 1)
-    editorStates.delete(id)
-    scrollPositions.delete(id)
+    removeDocument(index)
 
     if (docs.value.length === 0) {
-      // 始终保留一个空白标签，避免整个编辑区进入无文档状态
-      const blank = createTab(null, '')
-      docs.value.push(blank)
-      activeId.value = blank.id
+      // 最后一个标签已关闭：由调用方（useFile.closeTab）关闭主窗口
+      activeId.value = ''
       return
     }
 
