@@ -65,40 +65,44 @@ function onMiddleClick(id: string, e: MouseEvent): void {
           </svg>
         </button>
       </div>
+
+      <button class="tab-new" title="新建 (Ctrl+N)" @click="file.newFile()">
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.8"
+          stroke-linecap="round"
+        >
+          <line x1="12" y1="5" x2="12" y2="19" />
+          <line x1="5" y1="12" x2="19" y2="12" />
+        </svg>
+      </button>
     </div>
-    <button class="tab-new" title="新建 (Ctrl+N)" @click="file.newFile()">
-      <svg
-        width="14"
-        height="14"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="1.8"
-        stroke-linecap="round"
-      >
-        <line x1="12" y1="5" x2="12" y2="19" />
-        <line x1="5" y1="12" x2="19" y2="12" />
-      </svg>
-    </button>
+
+    <!-- 标签右侧留白用于拖动窗口 -->
+    <div class="drag-space"></div>
   </div>
 </template>
 
 <style scoped>
 .tab-bar {
-  height: 34px;
-  flex-shrink: 0;
+  flex: 1;
+  min-width: 0;
+  height: 100%;
   display: flex;
   align-items: stretch;
-  background: rgba(255, 255, 255, 0.015);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-  -webkit-app-region: no-drag;
-  user-select: none;
 }
 
 .tab-scroll {
-  flex: 1;
-  display: flex;
+  flex: 0 1 auto;
   min-width: 0;
+  max-width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: flex-end;
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
@@ -108,33 +112,44 @@ function onMiddleClick(id: string, e: MouseEvent): void {
   display: none;
 }
 
+.drag-space {
+  flex: 1;
+  min-width: 8px;
+  height: 100%;
+  -webkit-app-region: drag;
+}
+
+/* Chrome 风格标签：顶部圆角、贴住标题栏底部 */
 .tab {
   flex: 0 0 auto;
   position: relative;
   display: flex;
   align-items: center;
   gap: 6px;
-  min-width: 96px;
+  height: 30px;
+  min-width: 100px;
   max-width: 200px;
-  padding: 0 28px 0 12px;
-  border-right: 1px solid rgba(255, 255, 255, 0.04);
-  color: rgba(255, 255, 255, 0.45);
+  margin: 0 1px;
+  padding: 0 30px 0 12px;
+  border-radius: 8px 8px 0 0;
+  color: rgba(255, 255, 255, 0.5);
   font-size: 12px;
-  cursor: pointer;
+  cursor: default;
+  -webkit-app-region: no-drag;
   transition:
-    background 0.15s ease,
-    color 0.15s ease;
+    background 0.12s ease,
+    color 0.12s ease;
 }
 
 .tab:hover {
-  background: rgba(255, 255, 255, 0.045);
-  color: rgba(255, 255, 255, 0.8);
+  background: rgba(255, 255, 255, 0.07);
+  color: rgba(255, 255, 255, 0.85);
 }
 
 .tab.active {
-  background: rgba(255, 255, 255, 0.07);
-  color: #e0e0e0;
-  box-shadow: inset 0 2px 0 #6c9bff;
+  background: rgba(255, 255, 255, 0.11);
+  color: #fff;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
 .tab-name {
@@ -155,7 +170,7 @@ function onMiddleClick(id: string, e: MouseEvent): void {
 
 .tab-close {
   position: absolute;
-  right: 5px;
+  right: 6px;
   top: 50%;
   transform: translateY(-50%);
   width: 18px;
@@ -165,7 +180,7 @@ function onMiddleClick(id: string, e: MouseEvent): void {
   justify-content: center;
   padding: 0;
   border: none;
-  border-radius: 4px;
+  border-radius: 50%;
   background: transparent;
   color: inherit;
   cursor: pointer;
@@ -181,69 +196,32 @@ function onMiddleClick(id: string, e: MouseEvent): void {
 }
 
 .tab-close:hover {
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.14);
   color: #fff;
 }
 
 .tab-new {
   flex: 0 0 auto;
-  width: 34px;
+  width: 30px;
+  height: 30px;
+  /* 与标签底部对齐，悬停背景与标签齐平 */
+  margin: 0 6px 0 4px;
   display: flex;
   align-items: center;
   justify-content: center;
   border: none;
-  border-left: 1px solid rgba(255, 255, 255, 0.04);
+  border-radius: 8px;
   background: transparent;
-  color: rgba(255, 255, 255, 0.4);
+  color: rgba(255, 255, 255, 0.5);
   cursor: pointer;
+  -webkit-app-region: no-drag;
   transition:
-    background 0.15s ease,
-    color 0.15s ease;
+    background 0.12s ease,
+    color 0.12s ease;
 }
 
 .tab-new:hover {
-  background: rgba(255, 255, 255, 0.06);
-  color: rgba(255, 255, 255, 0.85);
-}
-
-/* Light theme */
-:global(.light) .tab-bar {
-  background: #ffffff;
-  border-bottom-color: rgba(0, 0, 0, 0.06);
-}
-
-:global(.light) .tab {
-  border-right-color: rgba(0, 0, 0, 0.05);
-  color: rgba(0, 0, 0, 0.5);
-}
-
-:global(.light) .tab:hover {
-  background: rgba(0, 0, 0, 0.035);
-  color: rgba(0, 0, 0, 0.8);
-}
-
-:global(.light) .tab.active {
-  background: rgba(59, 130, 246, 0.07);
-  color: #1a1a2e;
-  box-shadow: inset 0 2px 0 #3b82f6;
-}
-
-:global(.light) .tab-dot {
-  background: #3b82f6;
-}
-
-:global(.light) .tab-close:hover {
-  background: rgba(0, 0, 0, 0.08);
-  color: #000;
-}
-
-:global(.light) .tab-new {
-  border-left-color: rgba(0, 0, 0, 0.05);
-  color: rgba(0, 0, 0, 0.4);
-}
-
-:global(.light) .tab-new:hover {
-  background: rgba(0, 0, 0, 0.04);
-  color: rgba(0, 0, 0, 0.8);
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.9);
 }
 </style>

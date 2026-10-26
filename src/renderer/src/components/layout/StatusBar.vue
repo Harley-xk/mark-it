@@ -19,6 +19,10 @@ const app = useAppStore()
       <span class="status-item">UTF-8</span>
       <span class="status-sep">|</span>
       <span class="status-item">{{ app.layoutMode === 'edit-left' ? '左编辑 右预览' : app.layoutMode === 'edit-right' ? '左预览 右编辑' : app.layoutMode === 'edit-only' ? '仅编辑' : '仅预览' }}</span>
+      <template v-if="app.zoomPercent !== 100">
+        <span class="status-sep">|</span>
+        <span class="status-item" title="Ctrl/Cmd + 0 恢复 100%">缩放 {{ app.zoomPercent }}%</span>
+      </template>
     </div>
   </div>
 </template>

@@ -53,6 +53,9 @@ export const useAppStore = defineStore('app', () => {
   const isModified = computed(() => documents.activeDoc?.isModified ?? false)
   const showPdfDialog = ref(false)
   const showSettingsDialog = ref(false)
+  // 整窗缩放比例由主进程维护，这里仅用于状态栏展示
+  const zoomFactor = ref(1)
+  const zoomPercent = computed(() => Math.round(zoomFactor.value * 100))
 
   const resolvedTheme = computed<'light' | 'dark'>(() =>
     themeMode.value === 'system' ? (systemIsDark.value ? 'dark' : 'light') : themeMode.value
@@ -130,6 +133,8 @@ export const useAppStore = defineStore('app', () => {
     isModified,
     showPdfDialog,
     showSettingsDialog,
+    zoomFactor,
+    zoomPercent,
     isSplitMode,
     showEditor,
     showPreview,

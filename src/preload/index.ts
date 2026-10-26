@@ -3,6 +3,8 @@ import { electronAPI } from '@electron-toolkit/preload'
 import type { UpdateState } from '../shared/update-types'
 
 const api = {
+  /** 当前运行平台（渲染进程用于给系统窗口按钮留位） */
+  platform: process.platform,
   /** 打开文件对话框，支持多选；返回每个文件的内容 */
 
   openFiles: (): Promise<{ path: string; content: string }[]> =>
@@ -21,6 +23,21 @@ const api = {
   minimize: () => ipcRenderer.invoke('window:minimize'),
   maximize: () => ipcRenderer.invoke('window:maximize'),
   close: () => ipcRenderer.invoke('window:close'),
+  isFullscreen: (): Promise<boolean> => ipcRenderer.invoke('window:is-fullscreen'),
+  /** 当前整窗缩放比例（1 表示 100%） */
+  getZoom: (): Promise<number> => ipcRenderer.invoke('window:get-zoom'),
+  /** 监听整窗缩放比例变化（Ctrl/Cmd + = / - / 0） */
+  onZoomChange: (callback: (factor: number) => void) => {
+    ipcRenderer.on('window:zoom-changed', (_e, factor) => callback(factor))
+  },
+  /** 监听全屏状态变化（全屏时系统窗口按钮不可见，标题栏无需留位） */
+  onFullscreenChange: (callback: (fullscreen: boolean) => void) => {
+    ipcRenderer.on('window:fullscreen', (_e, fullscreen) => callback(fullscreen))
+  },
+  /** macOS Cmd+W：主进程拦截菜单快捷键后转交渲染进程关闭标签页 */
+  onCloseTabShortcut: (callback: () => void) => {
+    ipcRenderer.on('shortcut:close-tab', () => callback())
+  },
   /** 监听主进程发来的文件打开事件（右键打开 / 命令行传参） */
   onOpenFile: (callback: (result: { path: string; content: string }) => void) => {
     ipcRenderer.on('open-file-from-argv', (_e, data) => callback(data))
