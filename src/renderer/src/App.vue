@@ -5,6 +5,7 @@ import UpdateNotice from './components/update/UpdateNotice.vue'
 import { useOutline } from './composables/useOutline'
 import { useKeyboardShortcuts } from './composables/useKeyboardShortcuts'
 import { useScrollbarState } from './composables/useScrollbarState'
+import { useWindowZoom } from './composables/useWindowZoom'
 import { useConfirmDialog, resolveConfirm, confirmUnsaved } from './composables/useConfirmUnsaved'
 import { useDocumentsStore } from './stores/documents'
 import { useUpdateStore } from './stores/update'
@@ -13,6 +14,7 @@ import { useFile } from './composables/useFile'
 useOutline()
 useKeyboardShortcuts()
 useScrollbarState()
+useWindowZoom()
 
 const docs = useDocumentsStore()
 const update = useUpdateStore()
@@ -25,6 +27,11 @@ const { showConfirm, confirmTitle, confirmMessage, confirmSaveText, confirmDisca
 // 以新标签页打开，不干扰当前编辑中的文档
 window.api.onOpenFile((result) => {
   file.openFileFromPath(result)
+})
+
+// macOS Cmd+W 被系统菜单占用，由主进程拦截后转交这里关闭标签页
+window.api.onCloseTabShortcut(() => {
+  file.closeTab()
 })
 
 // 监听窗口关闭请求：逐个检查所有标签页的未保存修改

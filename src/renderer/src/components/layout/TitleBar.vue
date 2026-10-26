@@ -1,68 +1,53 @@
 <script setup lang="ts">
-import { useAppStore } from '../../stores/app'
+import { onMounted, ref } from 'vue'
+import TabBar from './TabBar.vue'
 
-const app = useAppStore()
+// Windows 的系统窗口按钮以 overlay 形式绘制在右上角，需预留宽度；
+// macOS 的交通灯在左上角，改为左侧留白
+const platform = window.api.platform
+const isFullscreen = ref(false)
+
+onMounted(async () => {
+  isFullscreen.value = await window.api.isFullscreen()
+  window.api.onFullscreenChange((value) => {
+    isFullscreen.value = value
+  })
+})
 </script>
 
 <template>
-  <div class="title-bar">
-    <div class="drag-region">
-      <span class="app-title">MarkIt</span>
-      <span v-if="app.isModified" class="modified-dot"></span>
-      <span class="file-name">{{ app.fileName }}</span>
-    </div>
+  <div class="title-bar" :class="[platform, { fullscreen: isFullscreen }]">
+    <TabBar />
   </div>
 </template>
 
 <style scoped>
 .title-bar {
   height: 36px;
+  flex-shrink: 0;
   display: flex;
-  align-items: center;
-  background: rgba(255, 255, 255, 0.03);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  align-items: stretch;
+  background: rgba(0, 0, 0, 0.14);
+  /* 左侧留白，避免第一个标签紧贴窗口边缘 */
+  padding-left: 8px;
+  /* Windows / Linux 的窗口控制按钮 overlay 宽度 */
+  padding-right: 140px;
   -webkit-app-region: drag;
   user-select: none;
 }
 
-.drag-region {
-  padding-left: 16px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 100%;
-  flex: 1;
+.title-bar.darwin {
+  padding-left: 88px;
+  padding-right: 0;
 }
 
-.app-title {
-  font-size: 12px;
-  font-weight: 600;
-  color: rgba(255, 255, 255, 0.5);
-  letter-spacing: 0.5px;
+.title-bar.linux {
+  padding-right: 0;
 }
 
-.file-name {
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.7);
-}
-
-.modified-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #6c9bff;
-}
-
-:global(.light) .title-bar {
-  background: #ffffff;
-  border-bottom-color: rgba(0, 0, 0, 0.06);
-}
-
-:global(.light) .app-title {
-  color: rgba(0, 0, 0, 0.4);
-}
-
-:global(.light) .file-name {
-  color: rgba(0, 0, 0, 0.6);
+/* 全屏时系统窗口按钮不可见，移除两侧预留 */
+.title-bar.fullscreen {
+  padding-left: 8px;
+  padding-right: 8px;
 }
 </style>

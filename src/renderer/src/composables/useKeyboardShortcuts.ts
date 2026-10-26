@@ -38,7 +38,9 @@ export function useKeyboardShortcuts() {
     }
 
     // Ctrl+Tab / Ctrl+Shift+Tab: 切换标签页
-    if (isCtrl(e) && e.key === 'Tab') {
+    // 注意：必须只匹配 Ctrl —— macOS 的 Cmd+Tab 是系统应用切换器，
+    // 用 isCtrl（会匹配 metaKey）会拦截系统快捷键
+    if (e.ctrlKey && e.key === 'Tab') {
       e.preventDefault()
       docs.cycleDocument(e.shiftKey ? -1 : 1)
       return

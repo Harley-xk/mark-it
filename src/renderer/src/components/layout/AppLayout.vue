@@ -3,7 +3,6 @@ import { useAppStore } from '../../stores/app'
 import { usePdfExport } from '../../composables/usePdfExport'
 import TitleBar from './TitleBar.vue'
 import Toolbar from './Toolbar.vue'
-import TabBar from './TabBar.vue'
 import StatusBar from './StatusBar.vue'
 import SplitPane from './SplitPane.vue'
 import OutlinePanel from '../outline/OutlinePanel.vue'
@@ -28,7 +27,6 @@ async function onExport(options: any) {
   <div class="app-layout" :class="[app.resolvedTheme]">
     <TitleBar />
     <Toolbar />
-    <TabBar />
     <div class="main-area">
       <OutlinePanel v-if="app.showOutline" />
       <div class="content-area">
@@ -98,16 +96,35 @@ async function onExport(options: any) {
 <style>
 /* ── Light theme overrides (global, non-scoped) ── */
 
-/* TitleBar */
+/* TitleBar & Tabs */
 .light .title-bar {
+  background: #e8eaed;
+}
+.light .title-bar .tab {
+  color: rgba(0, 0, 0, 0.6);
+}
+.light .title-bar .tab:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: rgba(0, 0, 0, 0.85);
+}
+.light .title-bar .tab.active {
   background: #ffffff;
-  border-bottom-color: rgba(0, 0, 0, 0.06);
+  color: #1a1a2e;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
 }
-.light .app-title {
-  color: rgba(0, 0, 0, 0.65);
+.light .title-bar .tab-dot {
+  background: #3b82f6;
 }
-.light .file-name {
-  color: rgba(0, 0, 0, 0.8);
+.light .title-bar .tab-close:hover {
+  background: rgba(0, 0, 0, 0.08);
+  color: #000;
+}
+.light .title-bar .tab-new {
+  color: rgba(0, 0, 0, 0.5);
+}
+.light .title-bar .tab-new:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: rgba(0, 0, 0, 0.85);
 }
 
 /* Toolbar */

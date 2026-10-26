@@ -18,10 +18,31 @@ interface WindowState {
   x?: number
   y?: number
   isMaximized: boolean
+  /** 页面缩放比例（1 表示 100%） */
+  zoomFactor: number
+}
+
+// --- 整窗缩放 ---
+
+const ZOOM_STEP = 0.1
+const MIN_ZOOM_FACTOR = 0.5
+const MAX_ZOOM_FACTOR = 3
+/** 当前缩放比例，主进程为准（页面重载会重置 webContents 的缩放，需要据此恢复） */
+let currentZoomFactor = 1
+
+/** 归一到 10% 步长并限制在允许范围内 */
+function normalizeZoomFactor(value: number): number {
+  if (!Number.isFinite(value)) return 1
+  return Math.min(MAX_ZOOM_FACTOR, Math.max(MIN_ZOOM_FACTOR, Math.round(value * 10) / 10))
 }
 
 const windowStateFile = join(app.getPath('userData'), 'window-state.json')
-const defaultWindowState: WindowState = { width: 1280, height: 800, isMaximized: false }
+const defaultWindowState: WindowState = {
+  width: 1280,
+  height: 800,
+  isMaximized: false,
+  zoomFactor: 1
+}
 let saveStateTimer: ReturnType<typeof setTimeout> | null = null
 
 function loadWindowState(): WindowState {
@@ -41,6 +62,7 @@ function loadWindowState(): WindowState {
       // 不小于窗口最小尺寸限制
       width: Math.max(800, state.width),
       height: Math.max(600, state.height),
+      zoomFactor: normalizeZoomFactor(typeof state.zoomFactor === 'number' ? state.zoomFactor : 1),
       isMaximized: state.isMaximized === true
     }
 
@@ -80,6 +102,7 @@ function saveWindowState(): void {
     height: bounds.height,
     x: bounds.x,
     y: bounds.y,
+    zoomFactor: currentZoomFactor,
     isMaximized: mainWindow.isMaximized()
   }
   writeFile(windowStateFile, JSON.stringify(state), 'utf-8').catch((err) => {
@@ -90,6 +113,20 @@ function saveWindowState(): void {
 function queueSaveWindowState(): void {
   if (saveStateTimer) clearTimeout(saveStateTimer)
   saveStateTimer = setTimeout(saveWindowState, 500)
+}
+
+/** 应用缩放比例（整个页面一起缩放）并通知渲染进程、持久化 */
+function applyZoomFactor(factor: number): void {
+  currentZoomFactor = normalizeZoomFactor(factor)
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.setZoomFactor(currentZoomFactor)
+    mainWindow.webContents.send('window:zoom-changed', currentZoomFactor)
+  }
+  queueSaveWindowState()
+}
+
+function zoomBy(delta: number): void {
+  applyZoomFactor(currentZoomFactor + delta)
 }
 
 /**
@@ -137,6 +174,8 @@ function openFilesAtPaths(filePaths: string[]): void {
 
 function createWindow(): void {
   const windowState = loadWindowState()
+  const isMac = process.platform === 'darwin'
+  currentZoomFactor = windowState.zoomFactor
 
   mainWindow = new BrowserWindow({
     width: windowState.width,
@@ -148,13 +187,23 @@ function createWindow(): void {
     minHeight: 600,
     show: false,
     autoHideMenuBar: true,
-    frame: false,
-    titleBarStyle: 'hidden',
-    titleBarOverlay: {
-      color: '#00000000',
-      symbolColor: '#888',
-      height: 36
-    },
+    // macOS 需要保留窗口边框才能显示交通灯，不能使用 frame: false；
+    // Windows/Linux 使用无边框窗口 + 系统窗口按钮 overlay
+    ...(isMac
+      ? {
+          titleBarStyle: 'hidden',
+          // 与 36px 标题栏垂直居中
+          trafficLightPosition: { x: 16, y: 12 }
+        }
+      : {
+          frame: false,
+          titleBarStyle: 'hidden',
+          titleBarOverlay: {
+            color: '#00000000',
+            symbolColor: '#888',
+            height: 36
+          }
+        }),
     vibrancy: 'under-window',
     backgroundMaterial: 'acrylic',
     ...(process.platform === 'linux' ? { icon } : {}),
@@ -167,6 +216,49 @@ function createWindow(): void {
   if (windowState.isMaximized) {
     mainWindow.maximize()
   }
+
+  // 键盘事件先于页面和菜单快捷键到达这里：
+  // 1) macOS 默认菜单的 Cmd+W 会关闭窗口并吞掉渲染进程的 keydown，
+  //    拦截后转交渲染进程关闭当前标签页；
+  // 2) 整窗缩放 Ctrl/Cmd + = / -，Ctrl/Cmd + 0 恢复 100%。
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    if (input.type !== 'keyDown') return
+
+    if (
+      isMac &&
+      input.meta &&
+      !input.control &&
+      !input.alt &&
+      !input.shift &&
+      input.key.toLowerCase() === 'w'
+    ) {
+      event.preventDefault()
+      mainWindow?.webContents.send('shortcut:close-tab')
+      return
+    }
+
+    // macOS 用 Cmd，Windows/Linux 用 Ctrl
+    const zoomModifier = isMac ? input.meta : input.control
+    if (!zoomModifier || input.alt) return
+
+    if (input.key === '+' || input.key === '=') {
+      event.preventDefault()
+      zoomBy(ZOOM_STEP)
+    } else if (input.key === '-' || input.key === '_') {
+      event.preventDefault()
+      zoomBy(-ZOOM_STEP)
+    } else if (input.key === '0' && !input.shift) {
+      event.preventDefault()
+      applyZoomFactor(1)
+    }
+  })
+
+  mainWindow.on('enter-full-screen', () => {
+    mainWindow?.webContents.send('window:fullscreen', true)
+  })
+  mainWindow.on('leave-full-screen', () => {
+    mainWindow?.webContents.send('window:fullscreen', false)
+  })
 
   mainWindow.on('ready-to-show', () => {
     mainWindow!.show()
@@ -197,8 +289,12 @@ function createWindow(): void {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
 
-  // 窗口加载完毕后，打开待处理的文件
   mainWindow.webContents.on('did-finish-load', () => {
+    // 页面加载后恢复缩放比例（刷新/重载会把 webContents 的缩放重置为 100%）
+    mainWindow?.webContents.setZoomFactor(currentZoomFactor)
+    mainWindow?.webContents.send('window:zoom-changed', currentZoomFactor)
+
+    // 打开待处理的文件
     if (pendingFilePaths.length > 0) {
       openFilesAtPaths(pendingFilePaths)
       pendingFilePaths = []
@@ -288,6 +384,8 @@ ipcMain.handle(
   }
 )
 
+ipcMain.handle('window:is-fullscreen', () => mainWindow?.isFullScreen() ?? false)
+ipcMain.handle('window:get-zoom', () => currentZoomFactor)
 ipcMain.handle('window:minimize', () => mainWindow?.minimize())
 ipcMain.handle('window:maximize', () => {
   if (mainWindow?.isMaximized()) mainWindow.unmaximize()
