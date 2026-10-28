@@ -1,5 +1,5 @@
 import { app, shell, BrowserWindow, ipcMain, dialog, screen } from 'electron'
-import { join } from 'path'
+import { dirname, join } from 'path'
 import { readFile, writeFile } from 'fs/promises'
 import { existsSync, readFileSync } from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
@@ -337,6 +337,17 @@ ipcMain.handle('file:read', async (_e, filePath: string) => {
     console.error('Failed to read file:', err)
     return null
   }
+})
+
+/** 在系统文件管理器中定位文件；文件已被删除时退回到所在目录 */
+ipcMain.handle('file:reveal', (_e, filePath: string) => {
+  if (typeof filePath !== 'string' || filePath.length === 0) return false
+  if (existsSync(filePath)) {
+    shell.showItemInFolder(filePath)
+  } else {
+    void shell.openPath(dirname(filePath))
+  }
+  return true
 })
 
 /** 保存预览中导出的图片（Mermaid 图表下载） */

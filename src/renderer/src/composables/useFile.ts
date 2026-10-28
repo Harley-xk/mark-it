@@ -48,6 +48,13 @@ export function useFile() {
     await saveDocument(doc, true)
   }
 
+  /** 在系统文件管理器中定位当前文档（未保存的新建文档不可用） */
+  async function showInFolder(): Promise<void> {
+    const doc = docs.activeDoc
+    if (!doc?.path) return
+    await window.api.showItemInFolder(doc.path)
+  }
+
   /** 新建标签页，不打扰当前文档 */
   function newFile(): void {
     const active = docs.activeDoc
@@ -118,6 +125,7 @@ export function useFile() {
     saveDocument,
     newFile,
     closeTab,
-    refreshFile
+    refreshFile,
+    showInFolder
   }
 }
