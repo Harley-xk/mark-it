@@ -1,0 +1,281 @@
+name: Release
+
+# 三平台并行构建 → 统一上传到 apphub 同一草稿版本 → 人工审批后发布
+#
+# 触发方式：
+#   1. 推送 v* 标签（推荐，版本号来自标签）
+#   2. 手动 workflow_dispatch（可指定版本号与更新说明）
+#
+# 首次使用前需在仓库 Settings 中配置：
+#   - Secrets：APPHUB_USERNAME / APPHUB_PASSWORD / APPHUB_SIGN_SECRET
+#   - Environments：新建 release，并添加 Required reviewers（发布确认门）
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '版本号（semver，例如 1.4.0；留空则取标签名）'
+        required: false
+        type: string
+      notes:
+        description: '更新说明（留空则按上一个 tag / 发布提交自动生成）'
+        required: false
+        type: string
+      force:
+        description: '标记为强制更新'
+        required: false
+        default: false
+        type: boolean
+      replace:
+        description: '替换已存在的平台包（重跑同一版本时勾选）'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ inputs.version || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: '22'
+  CONFIG: .apphub-release.ci.json
+
+jobs:
+  validate:
+    name: Validate version
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Resolve and validate version
+        id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [ -n "$INPUT_VERSION" ]; then
+            VERSION="$INPUT_VERSION"
+          else
+            VERSION="${REF_NAME#v}"
+          fi
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.]+)?$ ]]; then
+            echo "::error::版本号不是合法 semver：$VERSION"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "版本号：$VERSION"
+
+  build:
+    name: Build ${{ matrix.name }}
+    needs: validate
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            name: windows-x64
+            command: npm run build:win
+            paths: |
+              dist/*-setup.exe
+              dist/*-setup.exe.blockmap
+          - os: macos-latest
+            name: macos-universal
+            command: npm run build && npx electron-builder --mac --universal
+            paths: |
+              dist/*.dmg
+              dist/*-universal.zip
+              dist/*-universal.zip.blockmap
+          - os: ubuntu-latest
+            name: linux-x64
+            command: npm run build && npx electron-builder --linux
+            paths: |
+              dist/*.AppImage
+              dist/*.AppImage.blockmap
+              dist/*.deb
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    env:
+      # 未配置代码签名证书时，避免 electron-builder 自动发现并尝试签名
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci
+
+      - name: Set version
+        run: npm version "${{ needs.validate.outputs.version }}" --no-git-tag-version --allow-same-version
+
+      - name: Build
+        run: ${{ matrix.command }}
+
+      - name: Ensure release credentials are not packaged
+        shell: bash
+        run: |
+          set -euo pipefail
+          found=$(find dist -name app.asar -print)
+          if [ -z "$found" ]; then
+            echo "::error::未找到 app.asar，无法校验打包内容"
+            exit 1
+          fi
+          if grep -a -q -e 'apphub-release' -e 'signSecret' $found; then
+            echo "::error::app.asar 中包含发版凭据相关文件，已阻断发布"
+            exit 1
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: ${{ matrix.paths }}
+          if-no-files-found: error
+          retention-days: 14
+
+  draft:
+    name: Upload to apphub draft
+    needs: [validate, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      APPHUB_USERNAME: ${{ secrets.APPHUB_USERNAME }}
+      APPHUB_PASSWORD: ${{ secrets.APPHUB_PASSWORD }}
+      APPHUB_SIGN_SECRET: ${{ secrets.APPHUB_SIGN_SECRET }}
+      VERSION: ${{ needs.validate.outputs.version }}
+      REPLACE: ${{ inputs.replace }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: List artifacts
+        run: ls -lh dist
+
+      - name: Resolve release notes
+        id: notes
+        env:
+          INPUT_NOTES: ${{ inputs.notes }}
+        run: |
+          set -euo pipefail
+          if [ -n "$INPUT_NOTES" ]; then
+            NOTES="$INPUT_NOTES"
+          else
+            git fetch --tags --force
+            PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || true)
+            if [ -n "$PREV_TAG" ]; then
+              NOTES=$(git log "$PREV_TAG..HEAD" --no-merges --pretty='- %s' | grep -v '^- chore(release)' || true)
+            else
+              PREV_RELEASE=$(git log --grep='^chore(release)' -n1 --format=%H -- . || true)
+              if [ -n "$PREV_RELEASE" ]; then
+                NOTES=$(git log "$PREV_RELEASE..HEAD" --no-merges --pretty='- %s' | grep -v '^- chore(release)' || true)
+              else
+                NOTES=$(git log -n10 --no-merges --pretty='- %s')
+              fi
+            fi
+          fi
+          if [ -z "$NOTES" ]; then
+            echo "::error::无法生成更新说明，请手动填写 notes"
+            exit 1
+          fi
+          echo "----- 更新说明 -----"
+          echo "$NOTES"
+          {
+            echo 'notes<<APPHUB_NOTES_EOF'
+            echo "$NOTES"
+            echo 'APPHUB_NOTES_EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create draft version
+        env:
+          NOTES: ${{ steps.notes.outputs.notes }}
+          FORCE: ${{ inputs.force }}
+        run: |
+          set -euo pipefail
+          args=(create-version --config "$CONFIG" --version "$VERSION" --title "v$VERSION" --notes="$NOTES")
+          if [ "$FORCE" = "true" ]; then
+            args+=(--force)
+          fi
+          node scripts/release/apphub.mjs "${args[@]}"
+
+      - name: Upload Windows
+        run: |
+          set -euo pipefail
+          file=$(ls dist/*-setup.exe | head -n1)
+          map=$(ls dist/*-setup.exe.blockmap 2>/dev/null | head -n1 || true)
+          args=(upload --config "$CONFIG" --version "$VERSION" --platform windows --arch x64 --file "$file")
+          if [ -n "$map" ]; then args+=(--blockmap "$map"); fi
+          if [ "$REPLACE" = "true" ]; then args+=(--replace); fi
+          node scripts/release/apphub.mjs "${args[@]}"
+
+      - name: Upload macOS
+        run: |
+          set -euo pipefail
+          # macOS 自动更新（electron-updater/Squirrel.Mac）只认 zip，dmg 仅保留为构建产物
+          file=$(ls dist/*-universal.zip | head -n1)
+          map=$(ls dist/*-universal.zip.blockmap 2>/dev/null | head -n1 || true)
+          args=(upload --config "$CONFIG" --version "$VERSION" --platform macos --arch universal --file "$file")
+          if [ -n "$map" ]; then args+=(--blockmap "$map"); fi
+          if [ "$REPLACE" = "true" ]; then args+=(--replace); fi
+          node scripts/release/apphub.mjs "${args[@]}"
+
+      - name: Upload Linux
+        run: |
+          set -euo pipefail
+          file=$(ls dist/*.AppImage | head -n1)
+          map=$(ls dist/*.AppImage.blockmap 2>/dev/null | head -n1 || true)
+          args=(upload --config "$CONFIG" --version "$VERSION" --platform linux --arch x64 --file "$file")
+          if [ -n "$map" ]; then args+=(--blockmap "$map"); fi
+          if [ "$REPLACE" = "true" ]; then args+=(--replace); fi
+          node scripts/release/apphub.mjs "${args[@]}"
+
+  publish:
+    name: Publish (manual approval)
+    needs: [validate, draft]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # 需在仓库 Settings → Environments 新建 release 并配置 Required reviewers，
+    # 否则该任务会直接执行、客户端立即可见。
+    environment: release
+    env:
+      APPHUB_USERNAME: ${{ secrets.APPHUB_USERNAME }}
+      APPHUB_PASSWORD: ${{ secrets.APPHUB_PASSWORD }}
+      APPHUB_SIGN_SECRET: ${{ secrets.APPHUB_SIGN_SECRET }}
+      VERSION: ${{ needs.validate.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Publish version
+        run: node scripts/release/apphub.mjs publish --config "$CONFIG" --version "$VERSION"
+
+      - name: Verify update detection
+        run: |
+          set -euo pipefail
+          for spec in "windows x64" "macos universal" "linux x64"; do
+            read -r platform arch <<< "$spec"
+            echo "----- verify $platform/$arch -----"
+            node scripts/release/apphub.mjs verify --config "$CONFIG" --expect "$VERSION" --platform "$platform" --arch "$arch"
+          done

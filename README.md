@@ -146,6 +146,36 @@ npm run build:mac
 npm run build:linux
 ```
 
+### 多平台自动发版（GitHub Actions）
+
+[.github/workflows/release.yml](.github/workflows/release.yml) 会在 Windows / macOS / Linux 三个原生 runner 上并行构建，把三个平台的产物上传到 apphub 的同一个草稿版本，经人工审批后统一发布。
+
+触发方式：
+
+- 推送 `v*` 标签（版本号取自标签，如 `v1.4.0`）
+- 在 Actions 页面手动运行 `Release`，可指定版本号、更新说明、强制更新与换包
+
+首次使用前需配置：
+
+1. 仓库 **Settings → Secrets and variables → Actions** 添加：`APPHUB_USERNAME`、`APPHUB_PASSWORD`、`APPHUB_SIGN_SECRET`
+2. 仓库 **Settings → Environments** 新建 `release`，添加 **Required reviewers**（发布确认门；未配置时发布会直接执行）
+
+产物约定：
+
+| 平台 | 架构 | 上传到 apphub | 同时保留 |
+|---|---|---|---|
+| Windows | x64 | NSIS 安装包 + blockmap | — |
+| macOS | universal | zip（自动更新只认 zip） | dmg（首次安装用） |
+| Linux | x64 | AppImage + blockmap | deb |
+
+发版 CLI 已收进 [scripts/release/apphub.mjs](scripts/release/apphub.mjs)，CI 使用的无凭据配置为 [.apphub-release.ci.json](.apphub-release.ci.json)。本地发版仍可使用仓库根目录下被 gitignore 的 `.apphub-release.json`。
+
+注意事项：
+
+- **macOS 签名**：当前未配置 Apple Developer 证书与公证，未签名应用会被 Gatekeeper 拦截，Squirrel.Mac 也不会执行自动更新；启用签名前 macOS 只能手动安装。
+- **Linux 自动更新**：仅 AppImage 支持，deb 供手动安装；`snap` 已从默认 target 移除。
+- **首次多平台发布后**：请确认 `verify` 对 `macos` / `linux` 均返回通过，以验证 apphub 更新端点的平台支持。
+
 ## 技术栈
 
 | 技术 | 用途 |
