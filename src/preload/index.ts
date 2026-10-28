@@ -13,6 +13,8 @@ const api = {
   saveFile: (path: string, content: string) => ipcRenderer.invoke('file:save', path, content),
   readFile: (path: string) => ipcRenderer.invoke('file:read', path),
   saveFileAs: (content: string) => ipcRenderer.invoke('dialog:saveFile', content),
+  /** 在系统文件管理器中定位当前文件 */
+  showItemInFolder: (path: string): Promise<boolean> => ipcRenderer.invoke('file:reveal', path),
   /** 保存图片（Mermaid 图表下载），返回保存路径；用户取消时为 null */
   saveImage: (
     fileName: string,

@@ -87,6 +87,27 @@ const layouts: { mode: LayoutMode; icon: string; tip: string }[] = [
           <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
         </svg>
       </button>
+      <button
+        class="tb-btn"
+        title="打开文件所在目录"
+        :disabled="!app.filePath"
+        @click="file.showInFolder()"
+      >
+        <svg
+          width="15"
+          height="15"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.8"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path
+            d="M6 14l1.45-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.55 6a2 2 0 0 1-1.94 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.93a2 2 0 0 1 1.66.9l.82 1.2a2 2 0 0 0 1.66.9H18a2 2 0 0 1 2 2v2"
+          />
+        </svg>
+      </button>
     </div>
 
     <div class="toolbar-separator"></div>
