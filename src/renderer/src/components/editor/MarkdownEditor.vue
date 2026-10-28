@@ -147,8 +147,27 @@ function buildExtensions(isDark: boolean): Extension[] {
   ]
 }
 
-function createState(content: string, isDark: boolean): EditorState {
-  return EditorState.create({ doc: content, extensions: buildExtensions(isDark) })
+/** 把 1 基的行列换算为文档偏移量（恢复会话中的光标位置） */
+function cursorOffset(content: string, line: number, col: number): number {
+  const lines = content.split('\n')
+  const target = Math.min(Math.max(line, 1), lines.length)
+  let offset = 0
+  for (let i = 0; i < target - 1; i++) offset += lines[i].length + 1
+  return offset + Math.min(Math.max(col - 1, 0), lines[target - 1]?.length ?? 0)
+}
+
+function createState(
+  content: string,
+  isDark: boolean,
+  cursor?: { cursorLine: number; cursorCol: number }
+): EditorState {
+  return EditorState.create({
+    doc: content,
+    extensions: buildExtensions(isDark),
+    ...(cursor
+      ? { selection: { anchor: cursorOffset(content, cursor.cursorLine, cursor.cursorCol) } }
+      : {})
+  })
 }
 
 function restoreScroll(id: string): void {
@@ -166,7 +185,7 @@ onMounted(() => {
 
   const isDark = appStore.resolvedTheme === 'dark'
   const cached = docs.getEditorState(doc.id)
-  const state = cached ?? createState(doc.content, isDark)
+  const state = cached ?? createState(doc.content, isDark, doc)
 
   view = new EditorView({ state, parent: editorRef.value })
 
@@ -220,7 +239,7 @@ watch(
         effects: themeCompartment.reconfigure(getThemeExtensions(isDark))
       })
     } else {
-      view.setState(createState(doc.content, isDark))
+      view.setState(createState(doc.content, isDark, doc))
     }
     isExternalUpdate = false
 

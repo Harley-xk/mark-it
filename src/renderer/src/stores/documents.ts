@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import type { EditorState } from '@codemirror/state'
 import type { HeadingItem } from '../types'
+import type { SessionTab } from '../../../shared/session-types'
 
 export interface DocumentTab {
   id: string
@@ -144,6 +145,30 @@ export const useDocumentsStore = defineStore('documents', () => {
     return addDocument(filePath, content)
   }
 
+  /**
+   * 用上次会话的标签页替换当前内容（更新重启后恢复）。
+   * 返回 false 表示会话为空、保持现有标签页不变
+   */
+  function restoreSession(tabs: SessionTab[], activeIndex: number): boolean {
+    if (tabs.length === 0) return false
+
+    editorStates.clear()
+    scrollPositions.clear()
+
+    const restored = tabs.map((tab) => {
+      const doc = createTab(tab.path, tab.content, tab.name)
+      doc.isModified = tab.isModified
+      doc.cursorLine = tab.cursorLine > 0 ? tab.cursorLine : 1
+      doc.cursorCol = tab.cursorCol > 0 ? tab.cursorCol : 1
+      return doc
+    })
+
+    docs.value = restored
+    const index = Math.min(Math.max(Math.floor(activeIndex) || 0, 0), restored.length - 1)
+    activeId.value = restored[index].id
+    return true
+  }
+
   function getDoc(id: string): DocumentTab | null {
     return docs.value.find((d) => d.id === id) ?? null
   }
@@ -262,6 +287,7 @@ export const useDocumentsStore = defineStore('documents', () => {
     addDocument,
     openPathDocument,
     newDocument,
+    restoreSession,
     getDoc,
     activateDocument,
     closeDocument,

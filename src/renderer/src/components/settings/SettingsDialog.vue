@@ -4,6 +4,7 @@ import { useAppStore } from '../../stores/app'
 import { useStyleStore } from '../../stores/style'
 import { useUpdateStore } from '../../stores/update'
 import { useFile } from '../../composables/useFile'
+import { flushSession } from '../../composables/useSession'
 import { confirmUnsaved } from '../../composables/useConfirmUnsaved'
 import type { ThemeMode } from '../../types'
 
@@ -42,6 +43,8 @@ async function handleUpdateAction(): Promise<void> {
     const action = await confirmUnsaved('安装更新', '当前文件有未保存的修改，是否保存后安装更新？')
     if (action === 'cancel') return
     if (action === 'save') await file.saveFile()
+    // 更新会重启应用：先保存会话，重启后恢复原来的文档
+    await flushSession()
     await update.install()
     return
   }

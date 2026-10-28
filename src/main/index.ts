@@ -37,6 +37,8 @@ function normalizeZoomFactor(value: number): number {
 }
 
 const windowStateFile = join(app.getPath('userData'), 'window-state.json')
+/** 上次打开的标签页（含未保存内容），更新重启后据此恢复文档 */
+const sessionFile = join(app.getPath('userData'), 'session.json')
 const defaultWindowState: WindowState = {
   width: 1280,
   height: 800,
@@ -350,6 +352,27 @@ ipcMain.handle(
     return result.filePath
   }
 )
+
+/** 会话（标签页）读写：用于更新重启后恢复上次打开的文档 */
+ipcMain.handle('session:load', async () => {
+  try {
+    if (!existsSync(sessionFile)) return null
+    return JSON.parse(await readFile(sessionFile, 'utf-8'))
+  } catch (err) {
+    console.error('Failed to load session:', err)
+    return null
+  }
+})
+
+ipcMain.handle('session:save', async (_e, data: unknown) => {
+  try {
+    await writeFile(sessionFile, JSON.stringify(data), 'utf-8')
+    return true
+  } catch (err) {
+    console.error('Failed to save session:', err)
+    return false
+  }
+})
 
 ipcMain.handle('dialog:saveFile', async (_e, content: string) => {
   const result = await dialog.showSaveDialog(mainWindow!, {
