@@ -10,11 +10,14 @@ import { useConfirmDialog, resolveConfirm, confirmUnsaved } from './composables/
 import { useDocumentsStore } from './stores/documents'
 import { useUpdateStore } from './stores/update'
 import { useFile } from './composables/useFile'
+import { useSession } from './composables/useSession'
 
 useOutline()
 useKeyboardShortcuts()
 useScrollbarState()
 useWindowZoom()
+// 负责启动时恢复上次打开的文档，并在关闭/更新重启前保存会话
+const { flush: flushSession } = useSession()
 
 const docs = useDocumentsStore()
 const update = useUpdateStore()
@@ -22,12 +25,6 @@ update.init()
 const file = useFile()
 const { showConfirm, confirmTitle, confirmMessage, confirmSaveText, confirmDiscardText } =
   useConfirmDialog()
-
-// 监听主进程发来的文件打开事件（右键"使用 MarkIt 打开" / 命令行传参）
-// 以新标签页打开，不干扰当前编辑中的文档
-window.api.onOpenFile((result) => {
-  file.openFileFromPath(result)
-})
 
 // macOS Cmd+W 被系统菜单占用，由主进程拦截后转交这里关闭标签页
 window.api.onCloseTabShortcut(() => {
@@ -47,6 +44,8 @@ window.api.onCloseRequest(async () => {
     if (action === 'cancel') return
     if (action === 'save' && !(await file.saveDocument(doc))) return
   }
+  // 记录当前标签页，下次启动恢复
+  await flushSession()
   // 销毁 close 监听器后真正关闭
   window.api.close()
 })

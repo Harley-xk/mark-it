@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import type { UpdateState } from '../shared/update-types'
+import type { SessionData } from '../shared/session-types'
 
 const api = {
   /** 当前运行平台（渲染进程用于给系统窗口按钮留位） */
@@ -55,6 +56,11 @@ const api = {
   /** 主进程光标位置轮询（滚动条悬停状态判定兜底） */
   onCursorPos: (callback: (pos: { x: number; y: number }) => void) => {
     ipcRenderer.on('cursor-pos', (_e, pos) => callback(pos))
+  },
+  /** 会话读写（更新重启后恢复上次打开的标签页） */
+  session: {
+    load: (): Promise<SessionData | null> => ipcRenderer.invoke('session:load'),
+    save: (data: SessionData): Promise<boolean> => ipcRenderer.invoke('session:save', data)
   },
   /** 自动更新：读取状态 / 检测 / 下载 / 安装 / 订阅状态变化 */
   update: {

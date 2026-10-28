@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { useAppStore } from '../../stores/app'
 import { useUpdateStore } from '../../stores/update'
 import { useFile } from '../../composables/useFile'
+import { flushSession } from '../../composables/useSession'
 import { confirmUnsaved } from '../../composables/useConfirmUnsaved'
 
 const app = useAppStore()
@@ -34,6 +35,8 @@ async function handleInstall(): Promise<void> {
   const action = await confirmUnsaved('安装更新', '当前文件有未保存的修改，是否保存后安装更新？')
   if (action === 'cancel') return
   if (action === 'save') await file.saveFile()
+  // 更新会重启应用：先保存会话，重启后重新打开原来的文档
+  await flushSession()
   await update.install()
 }
 
