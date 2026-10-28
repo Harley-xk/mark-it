@@ -6,7 +6,12 @@ directories:
 afterSign: ./scripts/after-sign.cjs
 files:
   - '!**/.vscode/*'
+  - '!**/.github/*'
   - '!src/*'
+  # 发版配置可能含账号/签名密钥，绝不能打进安装包
+  - '!.apphub-release*.json'
+  - '!scripts'
+  - '!scripts/**'
   - '!electron.vite.config.{js,ts,mjs,cjs}'
   - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
   - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
@@ -34,6 +39,11 @@ nsis:
   installerLanguages:
     - zh_CN
 mac:
+  target:
+    - dmg
+    - zip
+  # dmg 供首次安装，zip 供 electron-updater 自动更新（mac 更新包必须是 zip）
+  artifactName: ${name}-${version}-${arch}.${ext}
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:
     - NSCameraUsageDescription: Application requests access to the device's camera.
@@ -44,11 +54,11 @@ mac:
 dmg:
   artifactName: ${name}-${version}.${ext}
 linux:
+  # snap 需要 snapcraft，GitHub 托管 runner 上不可用；如需 snap 请在本地单独构建
   target:
     - AppImage
-    - snap
     - deb
-  maintainer: electronjs.org
+  maintainer: witice.top
   category: Utility
 appImage:
   artifactName: ${name}-${version}.${ext}
