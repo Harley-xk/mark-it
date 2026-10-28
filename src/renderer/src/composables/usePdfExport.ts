@@ -1,6 +1,7 @@
 import { ref } from 'vue'
 import { useEditorStore } from '../stores/editor'
 import { useAppStore } from '../stores/app'
+import { collectMermaidBlocks } from '../utils/mermaid'
 import MarkdownIt from 'markdown-it'
 
 export function usePdfExport() {
@@ -13,7 +14,7 @@ export function usePdfExport() {
   async function renderMermaidToSvg(html: string): Promise<string> {
     const container = document.createElement('div')
     container.innerHTML = html
-    const blocks = container.querySelectorAll('code.language-mermaid')
+    const blocks = collectMermaidBlocks(container)
     if (blocks.length === 0) return html
 
     try {
@@ -22,6 +23,8 @@ export function usePdfExport() {
         startOnLoad: false,
         theme: 'default',
         securityLevel: 'loose',
+        // 与预览一致：标签用 SVG <text>，避免 foreignObject 在 PDF 中显示异常
+        htmlLabels: false
       })
 
       for (const block of blocks) {

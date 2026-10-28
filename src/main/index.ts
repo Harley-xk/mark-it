@@ -337,6 +337,20 @@ ipcMain.handle('file:read', async (_e, filePath: string) => {
   }
 })
 
+/** 保存预览中导出的图片（Mermaid 图表下载） */
+ipcMain.handle(
+  'dialog:saveImage',
+  async (_e, fileName: string, data: Uint8Array, extension: 'svg' | 'png') => {
+    const result = await dialog.showSaveDialog(mainWindow!, {
+      defaultPath: fileName,
+      filters: [{ name: extension.toUpperCase(), extensions: [extension] }]
+    })
+    if (result.canceled || !result.filePath) return null
+    await writeFile(result.filePath, Buffer.from(data))
+    return result.filePath
+  }
+)
+
 ipcMain.handle('dialog:saveFile', async (_e, content: string) => {
   const result = await dialog.showSaveDialog(mainWindow!, {
     filters: [{ name: 'Markdown', extensions: ['md'] }]

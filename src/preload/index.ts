@@ -12,6 +12,12 @@ const api = {
   saveFile: (path: string, content: string) => ipcRenderer.invoke('file:save', path, content),
   readFile: (path: string) => ipcRenderer.invoke('file:read', path),
   saveFileAs: (content: string) => ipcRenderer.invoke('dialog:saveFile', content),
+  /** 保存图片（Mermaid 图表下载），返回保存路径；用户取消时为 null */
+  saveImage: (
+    fileName: string,
+    data: Uint8Array,
+    extension: 'svg' | 'png'
+  ): Promise<string | null> => ipcRenderer.invoke('dialog:saveImage', fileName, data, extension),
   exportPdf: (
     html: string,
     options: {
