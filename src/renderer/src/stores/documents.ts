@@ -16,6 +16,13 @@ export interface DocumentTab {
   headings: HeadingItem[]
 }
 
+export interface ScrollPosition {
+  /** 像素滚动位置（兜底） */
+  top: number
+  /** 顶部可见行在文档中的起始偏移（切换标签后按此精确定位） */
+  anchor: number
+}
+
 const WELCOME_CONTENT = `# Welcome to MarkIt
 
 A modern Markdown editor with live preview.
@@ -83,7 +90,7 @@ export const useDocumentsStore = defineStore('documents', () => {
   // CodeMirror 的 EditorState 体积大且不可序列化，放在响应式系统之外，
   // 用于保留每个标签的撤销历史、选区与滚动位置
   const editorStates = new Map<string, EditorState>()
-  const scrollPositions = new Map<string, number>()
+  const scrollPositions = new Map<string, ScrollPosition>()
 
   const activeDoc = computed<DocumentTab | null>(
     () => docs.value.find((d) => d.id === activeId.value) ?? null
@@ -267,12 +274,12 @@ export const useDocumentsStore = defineStore('documents', () => {
     return editorStates.get(id) ?? null
   }
 
-  function setScrollPosition(id: string, top: number): void {
-    scrollPositions.set(id, top)
+  function setScrollPosition(id: string, position: ScrollPosition): void {
+    scrollPositions.set(id, position)
   }
 
-  function getScrollPosition(id: string): number {
-    return scrollPositions.get(id) ?? 0
+  function getScrollPosition(id: string): ScrollPosition {
+    return scrollPositions.get(id) ?? { top: 0, anchor: 0 }
   }
 
   // 初始标签：欢迎示例文档

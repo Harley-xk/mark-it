@@ -9,6 +9,9 @@ import {
   formatMermaidError,
   getMermaidLanguage
 } from '../../utils/mermaid'
+import { parseFrontmatter, renderFrontmatterTable } from '../../utils/frontmatter'
+import { saveDiagram, serializeSvg } from '../../utils/diagram-export'
+import DiagramPreviewModal from './DiagramPreviewModal.vue'
 import MarkdownIt from 'markdown-it'
 
 const editorStore = useEditorStore()
@@ -48,71 +51,38 @@ md.core.ruler.push('heading_anchor_ids', (state) => {
 })
 
 const renderedHtml = computed(() => {
-  const src = editorStore.content
-  return md.render(src)
+  const { entries, body } = parseFrontmatter(editorStore.content)
+  // frontmatter 不再作为 YAML 文本渲染，改为顶部的文档信息表格
+  const frontmatter = entries.length > 0 ? renderFrontmatterTable(entries) : ''
+  return frontmatter + md.render(body)
 })
 
 const MIN_SCALE = 0.25
 const MAX_SCALE = 4
 const ZOOM_STEP = 1.25
 
-const SVG_NS = 'http://www.w3.org/2000/svg'
-const XLINK_NS = 'http://www.w3.org/1999/xlink'
+// 图表弹窗预览
+const diagramModalVisible = ref(false)
+const diagramPreview = ref({
+  svgXml: '',
+  width: 800,
+  height: 600,
+  background: '#ffffff'
+})
 
-/** 序列化 SVG 并补上独立查看所需的尺寸与命名空间 */
-function serializeSvg(svgEl: SVGSVGElement): { xml: string; width: number; height: number } {
-  const clone = svgEl.cloneNode(true) as SVGSVGElement
-  const viewBox = clone
-    .getAttribute('viewBox')
-    ?.split(/[\s,]+/)
-    .map(Number)
-  const width = viewBox?.[2] || clone.clientWidth || 800
-  const height = viewBox?.[3] || clone.clientHeight || 600
-
-  clone.setAttribute('xmlns', SVG_NS)
-  clone.setAttribute('xmlns:xlink', XLINK_NS)
-  clone.setAttribute('width', String(width))
-  clone.setAttribute('height', String(height))
-  // mermaid 会给 svg 设置 max-width，单独查看/导出时不需要
-  clone.style.maxWidth = ''
-
-  return { xml: new XMLSerializer().serializeToString(clone), width, height }
-}
-
-/** 把 SVG 绘制到 2x 画布并编码为 PNG（htmlLabels 已关闭，画布不会被 foreignObject 污染） */
-async function svgToPng(svgEl: SVGSVGElement, background: string): Promise<Uint8Array> {
+function openDiagramPreview(svgEl: SVGSVGElement): void {
   const { xml, width, height } = serializeSvg(svgEl)
-  const url = URL.createObjectURL(new Blob([xml], { type: 'image/svg+xml;charset=utf-8' }))
-
-  try {
-    const image = new Image()
-    await new Promise<void>((resolve, reject) => {
-      image.onload = () => resolve()
-      image.onerror = () => reject(new Error('SVG 图片加载失败'))
-      image.src = url
-    })
-
-    const scale = 2
-    const canvas = document.createElement('canvas')
-    canvas.width = Math.max(1, Math.ceil(width * scale))
-    canvas.height = Math.max(1, Math.ceil(height * scale))
-
-    const ctx = canvas.getContext('2d')
-    if (!ctx) throw new Error('无法创建画布')
-    ctx.fillStyle = background
-    ctx.fillRect(0, 0, canvas.width, canvas.height)
-    ctx.drawImage(image, 0, 0, canvas.width, canvas.height)
-
-    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'))
-    if (!blob) throw new Error('PNG 编码失败')
-    return new Uint8Array(await blob.arrayBuffer())
-  } finally {
-    URL.revokeObjectURL(url)
+  diagramPreview.value = {
+    svgXml: xml,
+    width,
+    height,
+    background: isDark.value ? '#1e1e24' : '#ffffff'
   }
+  diagramModalVisible.value = true
 }
 
 /**
- * 包装 mermaid 输出的 SVG：增加缩放 / 下载控件。
+ * 包装 mermaid 输出的 SVG：增加缩放 / 预览 / 下载控件。
  * 缩放通过 CSS zoom 实现，容器滚动即可查看超出范围的部分。
  */
 function createDiagramView(svgText: string, background: string): HTMLElement {
@@ -166,16 +136,15 @@ function createDiagramView(svgText: string, background: string): HTMLElement {
     const svgEl = currentSvg()
     if (!svgEl) return
     try {
-      const fileName = `mermaid-${Date.now()}.${extension}`
-      if (extension === 'svg') {
-        const { xml } = serializeSvg(svgEl)
-        await window.api.saveImage(fileName, new TextEncoder().encode(xml), 'svg')
-      } else {
-        await window.api.saveImage(fileName, await svgToPng(svgEl, background), 'png')
-      }
+      await saveDiagram(svgEl, extension, background)
     } catch (err) {
       console.error('Failed to export diagram:', err)
     }
+  }
+
+  function preview(): void {
+    const svgEl = currentSvg()
+    if (svgEl) openDiagramPreview(svgEl)
   }
 
   zoomLabel.addEventListener('click', (event) => {
@@ -188,9 +157,19 @@ function createDiagramView(svgText: string, background: string): HTMLElement {
     createButton('−', '缩小', () => applyScale(scale / ZOOM_STEP)),
     zoomLabel,
     createButton('＋', '放大', () => applyScale(scale * ZOOM_STEP)),
+    createButton('预览', '弹窗预览（可缩放 / 滚动 / 下载）', preview),
     createButton('SVG', '下载为 SVG', () => void download('svg')),
     createButton('PNG', '下载为 PNG', () => void download('png'))
   )
+
+  // 双击图表快速打开弹窗预览
+  viewport.title = '双击放大预览'
+  viewport.addEventListener('dblclick', (event) => {
+    if (!(event.target as Element | null)?.closest('svg')) return
+    event.preventDefault()
+    const svgEl = currentSvg()
+    if (svgEl) openDiagramPreview(svgEl)
+  })
 
   // Ctrl/Cmd + 滚轮缩放图表（不触发整窗缩放）
   viewport.addEventListener(
@@ -293,6 +272,15 @@ onUnmounted(() => {
       <component :is="'style'">{{ currentCss }}</component>
       <div class="preview-content" :style="contentStyle" v-html="renderedHtml"></div>
     </div>
+
+    <DiagramPreviewModal
+      :visible="diagramModalVisible"
+      :svg-xml="diagramPreview.svgXml"
+      :width="diagramPreview.width"
+      :height="diagramPreview.height"
+      :background="diagramPreview.background"
+      @close="diagramModalVisible = false"
+    />
   </div>
 </template>
 

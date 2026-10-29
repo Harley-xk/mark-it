@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch } from 'vue'
+import { ref, onMounted, onBeforeUnmount, onUnmounted, watch } from 'vue'
 import { EditorState, Compartment, type Extension } from '@codemirror/state'
 import {
   EditorView,
@@ -127,6 +127,20 @@ const updateListener = EditorView.updateListener.of((update) => {
   docs.setCursor(id, line.number, pos - line.from + 1)
 })
 
+/**
+ * 编辑区内默认禁止"拖动选中文字"。
+ * CodeMirror 默认允许按住选中文本拖动（原生拖放会执行 move.drop），
+ * 鼠标拖选时一旦从已有选区起手，就会把整段文本搬到落点，表现为
+ * "文字被拖动换了位置、代码块被重排"。按住 Ctrl/Cmd 拖动仍可复制。
+ */
+const blockTextDrag = EditorView.domEventHandlers({
+  dragstart: (event) => {
+    if (event.ctrlKey || event.metaKey) return false
+    event.preventDefault()
+    return true
+  }
+})
+
 function buildExtensions(isDark: boolean): Extension[] {
   return [
     lineNumbers(),
@@ -143,6 +157,7 @@ function buildExtensions(isDark: boolean): Extension[] {
     markdown({ base: markdownLanguage, codeLanguages: languages }),
     themeCompartment.of(getThemeExtensions(isDark)),
     keymap.of([...defaultKeymap, ...historyKeymap, ...foldKeymap, indentWithTab]),
+    blockTextDrag,
     updateListener
   ]
 }
@@ -170,11 +185,35 @@ function createState(
   })
 }
 
+function saveScroll(id: string): void {
+  if (!view) return
+  const top = view.scrollDOM.scrollTop
+  // 顶部可见行的文档偏移（+8 与 CodeMirror 内部的滚动锚点保持一致）
+  const anchor = view.lineBlockAtHeight(top + 8).from
+  docs.setScrollPosition(id, { top, anchor })
+}
+
 function restoreScroll(id: string): void {
-  const top = docs.getScrollPosition(id)
-  requestAnimationFrame(() => {
-    if (view) view.scrollDOM.scrollTop = top
-  })
+  if (!view) return
+  const saved = docs.getScrollPosition(id)
+
+  if (saved.anchor > 0) {
+    // 必须按"文档位置"而不是像素恢复：setState 之后 CodeMirror 的高度表是按
+    // 默认行高估算的（14px，实际约 19.6px），直接写 scrollTop 会被 CM 以估算
+    // 出的错误锚点行二次修正，造成可视内容与高度表错位——此时点击光标会落到
+    // 相邻行、拖选范围错乱。scrollIntoView 在测量完成后按真实 DOM 定位。
+    view.dispatch({
+      effects: EditorView.scrollIntoView(saved.anchor, { y: 'start' })
+    })
+  } else {
+    view.scrollDOM.scrollTop = saved.top
+  }
+  view.requestMeasure()
+}
+
+/** 窗口重新可见 / 获得焦点时强制复测，修正隐藏期间可能失效的行高缓存 */
+function refreshMeasure(): void {
+  view?.requestMeasure()
 }
 
 onMounted(() => {
@@ -199,14 +238,28 @@ onMounted(() => {
   editorStore.setEditorView(view)
   registerEditor(view)
   restoreScroll(doc.id)
+
+  window.addEventListener('focus', refreshMeasure)
+  document.addEventListener('visibilitychange', refreshMeasure)
+  // 首帧布局完成后再复测一次：窗口 show 前挂载时测量可能不在最终布局上
+  requestAnimationFrame(refreshMeasure)
+})
+
+// 卸载前 DOM 还挂在文档上，只有此时才能读到真实的滚动位置；
+// onUnmounted 时元素已从 DOM 移除，scrollTop 会变成 0
+onBeforeUnmount(() => {
+  const activeId = docs.activeId
+  if (view && activeId && docs.getDoc(activeId)) saveScroll(activeId)
 })
 
 onUnmounted(() => {
+  window.removeEventListener('focus', refreshMeasure)
+  document.removeEventListener('visibilitychange', refreshMeasure)
+
   // 只切到"仅预览"布局时组件会被卸载，缓存状态以便恢复撤销历史
   const activeId = docs.activeId
   if (view && activeId && docs.getDoc(activeId)) {
     docs.setEditorState(activeId, view.state)
-    docs.setScrollPosition(activeId, view.scrollDOM.scrollTop)
   }
 
   unregisterEditor()
@@ -223,7 +276,7 @@ watch(
 
     if (oldId && docs.getDoc(oldId)) {
       docs.setEditorState(oldId, view.state)
-      docs.setScrollPosition(oldId, view.scrollDOM.scrollTop)
+      saveScroll(oldId)
     }
 
     const doc = docs.getDoc(newId)
@@ -244,8 +297,10 @@ watch(
     isExternalUpdate = false
 
     editorStore.setEditorView(view)
-    restoreScroll(newId)
+    // 先聚焦再恢复滚动：聚焦 contenteditable 时浏览器会把光标滚进可视区，
+    // 顺序反了会覆盖刚恢复的滚动位置
     view.focus()
+    restoreScroll(newId)
   },
   { flush: 'sync' }
 )
