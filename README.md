@@ -148,17 +148,14 @@ npm run build:linux
 
 ### 多平台自动发版（GitHub Actions）
 
-[.github/workflows/release.yml](.github/workflows/release.yml) 会在 Windows / macOS / Linux 三个原生 runner 上并行构建，把三个平台的产物上传到 apphub 的同一个草稿版本，经人工审批后统一发布。
+[.github/workflows/release.yml](.github/workflows/release.yml) 会在 Windows / macOS / Linux 三个原生 runner 上并行构建，把三个平台的产物上传到 apphub 的同一个草稿版本，随后自动发布并验证。
 
 触发方式：
 
 - 推送 `v*` 标签（版本号取自标签，如 `v1.4.0`）
 - 在 Actions 页面手动运行 `Release`，可指定版本号、更新说明、强制更新与换包
 
-首次使用前需配置：
-
-1. 仓库 **Settings → Secrets and variables → Actions** 添加：`APPHUB_USERNAME`、`APPHUB_PASSWORD`、`APPHUB_SIGN_SECRET`
-2. 仓库 **Settings → Environments** 新建 `release`，添加 **Required reviewers**（发布确认门；未配置时发布会直接执行）
+首次使用前只需配置 Secrets（**Settings → Secrets and variables → Actions**）：`APPHUB_USERNAME`、`APPHUB_PASSWORD`、`APPHUB_SIGN_SECRET`。发布没有人工审批门，草稿上传完成后客户端立即可见。
 
 产物约定：
 

@@ -1,14 +1,14 @@
 name: Release
 
-# 三平台并行构建 → 统一上传到 apphub 同一草稿版本 → 人工审批后发布
+# 三平台并行构建 → 统一上传到 apphub 同一草稿版本 → 自动发布并验证
 #
 # 触发方式：
 #   1. 推送 v* 标签（推荐，版本号来自标签）
 #   2. 手动 workflow_dispatch（可指定版本号与更新说明）
 #
-# 首次使用前需在仓库 Settings 中配置：
-#   - Secrets：APPHUB_USERNAME / APPHUB_PASSWORD / APPHUB_SIGN_SECRET
-#   - Environments：新建 release，并添加 Required reviewers（发布确认门）
+# 首次使用前需在仓库 Settings 中配置 Secrets：
+#   APPHUB_USERNAME / APPHUB_PASSWORD / APPHUB_SIGN_SECRET
+# 发布无人工审批门：草稿上传完成后立即对客户端可见。
 
 on:
   push:
@@ -249,13 +249,10 @@ jobs:
           node scripts/release/apphub.mjs "${args[@]}"
 
   publish:
-    name: Publish (manual approval)
+    name: Publish
     needs: [validate, draft]
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    # 需在仓库 Settings → Environments 新建 release 并配置 Required reviewers，
-    # 否则该任务会直接执行、客户端立即可见。
-    environment: release
     env:
       APPHUB_USERNAME: ${{ secrets.APPHUB_USERNAME }}
       APPHUB_PASSWORD: ${{ secrets.APPHUB_PASSWORD }}
