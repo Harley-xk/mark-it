@@ -227,6 +227,76 @@ body {
   color: rgba(0, 0, 0, 0.5);
 }
 
+/* ── YAML frontmatter 文档信息表 ── */
+
+.preview-content .frontmatter-block {
+  margin: 0 0 1.6em;
+}
+
+.preview-content .frontmatter-title {
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.45);
+  user-select: none;
+}
+
+.preview-content .frontmatter-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.preview-content .frontmatter-table th {
+  padding: 8px 14px;
+  text-align: left;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.62);
+  background: rgba(108, 155, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.preview-content .frontmatter-table td {
+  padding: 8px 14px;
+  vertical-align: top;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #d4d4d8;
+}
+
+.preview-content .frontmatter-table .fm-key {
+  width: 160px;
+  white-space: nowrap;
+  font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+  font-size: 12px;
+  color: #9db4ff;
+}
+
+.preview-content .frontmatter-table .fm-value {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.light .preview-content .frontmatter-title {
+  color: rgba(0, 0, 0, 0.45);
+}
+
+.light .preview-content .frontmatter-table th {
+  color: rgba(0, 0, 0, 0.62);
+  background: rgba(59, 130, 246, 0.06);
+  border-color: rgba(0, 0, 0, 0.08);
+}
+
+.light .preview-content .frontmatter-table td {
+  color: #374151;
+  border-color: rgba(0, 0, 0, 0.08);
+}
+
+.light .preview-content .frontmatter-table .fm-key {
+  color: #3b5bdb;
+}
+
 /* 图表渲染失败的提示（原始代码块仍保留在上方） */
 .preview-content .mermaid-error {
   margin: 8px 0 1.2em;

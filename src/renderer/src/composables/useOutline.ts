@@ -1,6 +1,7 @@
 import { watch } from 'vue'
 import { useEditorStore } from '../stores/editor'
 import { useDocumentsStore } from '../stores/documents'
+import { parseFrontmatter } from '../utils/frontmatter'
 import type { HeadingItem } from '../types'
 
 export function useOutline() {
@@ -8,7 +9,9 @@ export function useOutline() {
   const docs = useDocumentsStore()
 
   function extractHeadings(content: string): HeadingItem[] {
-    const lines = content.split('\n')
+    // 与预览保持一致：frontmatter 不参与正文解析（其中的 # 注释不能被当成标题）
+    const { body, bodyStartLine } = parseFrontmatter(content)
+    const lines = body.split('\n')
     const headings: { level: number; text: string; id: string; line: number }[] = []
     let inCodeBlock = false
 
@@ -25,7 +28,8 @@ export function useOutline() {
         const level = match[1].length
         const text = match[2].replace(/[#*`~\[\]]/g, '').trim()
         const id = `heading-${headings.length}`
-        headings.push({ level, text, id, line: i + 1 })
+        // 行号补上 frontmatter 占用的行数，供仅编辑模式滚动编辑器使用
+        headings.push({ level, text, id, line: i + 1 + bodyStartLine })
       }
     }
 

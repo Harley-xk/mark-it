@@ -2,6 +2,7 @@ import { ref } from 'vue'
 import { useEditorStore } from '../stores/editor'
 import { useAppStore } from '../stores/app'
 import { collectMermaidBlocks } from '../utils/mermaid'
+import { parseFrontmatter, renderFrontmatterTable } from '../utils/frontmatter'
 import MarkdownIt from 'markdown-it'
 
 export function usePdfExport() {
@@ -58,7 +59,10 @@ export function usePdfExport() {
   }) {
     exporting.value = true
     try {
-      let htmlBody = md.render(editor.content)
+      // 与预览保持一致：frontmatter 渲染为文档信息表格，不输出原始 YAML
+      const { entries, body } = parseFrontmatter(editor.content)
+      const frontmatter = entries.length > 0 ? renderFrontmatterTable(entries) : ''
+      let htmlBody = frontmatter + md.render(body)
       htmlBody = await renderMermaidToSvg(htmlBody)
 
       const html = `<!DOCTYPE html>
@@ -77,6 +81,9 @@ export function usePdfExport() {
   table { width: 100%; border-collapse: collapse; margin: 1em 0; }
   th { background: #f6f6f6; font-weight: 600; text-align: left; padding: 8px 12px; border: 1px solid #ddd; }
   td { padding: 6px 12px; border: 1px solid #ddd; }
+  .frontmatter-title { font-size: 12px; color: #666; margin-bottom: 6px; }
+  .frontmatter-table .fm-key { width: 160px; color: #555; font-family: Consolas, monospace; font-size: 12px; }
+  .frontmatter-table .fm-value { white-space: pre-wrap; word-break: break-word; }
   img { max-width: 100%; }
   a { color: #0366d6; }
   svg { max-width: 100%; height: auto; }
