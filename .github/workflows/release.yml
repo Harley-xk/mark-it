@@ -185,7 +185,7 @@ jobs:
             if [ -n "$PREV_TAG" ]; then
               NOTES=$(git log "$PREV_TAG..HEAD" --no-merges --pretty='- %s' | grep -v '^- chore(release)' || true)
             else
-              PREV_RELEASE=$(git log --grep='^chore(release)' -n1 --format=%H -- . || true)
+              PREV_RELEASE=$(git log --grep='^chore(release)' -n1 --format=%H HEAD^ -- . 2>/dev/null || true)
               if [ -n "$PREV_RELEASE" ]; then
                 NOTES=$(git log "$PREV_RELEASE..HEAD" --no-merges --pretty='- %s' | grep -v '^- chore(release)' || true)
               else
@@ -194,8 +194,7 @@ jobs:
             fi
           fi
           if [ -z "$NOTES" ]; then
-            echo "::error::无法生成更新说明，请手动填写 notes"
-            exit 1
+            NOTES="维护版本更新"
           fi
           echo "----- 更新说明 -----"
           echo "$NOTES"
