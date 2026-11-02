@@ -11,7 +11,9 @@ export function useOutline() {
   function extractHeadings(content: string): HeadingItem[] {
     // 与预览保持一致：frontmatter 不参与正文解析（其中的 # 注释不能被当成标题）
     const { body, bodyStartLine } = parseFrontmatter(content)
-    const lines = body.split('\n')
+    // 按行拆分时同时处理 CRLF：留下行尾 \r 会让下面的标题正则匹配失败，
+    // 使使用 Windows 换行的文档整个大纲为空
+    const lines = body.split(/\r?\n/)
     const headings: { level: number; text: string; id: string; line: number }[] = []
     let inCodeBlock = false
 

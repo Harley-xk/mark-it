@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { useEditorStore } from '../../stores/editor'
+import { useDocumentsStore } from '../../stores/documents'
 import { useAppStore } from '../../stores/app'
 import { useStyleStore } from '../../stores/style'
 import { useScrollSync } from '../../composables/useScrollSync'
@@ -11,10 +12,12 @@ import {
 } from '../../utils/mermaid'
 import { parseFrontmatter, renderFrontmatterTable } from '../../utils/frontmatter'
 import { saveDiagram, serializeSvg } from '../../utils/diagram-export'
+import { installLocalImageRule, resolveImageSrc, resolveLocalPath } from '../../utils/local-image'
 import DiagramPreviewModal from './DiagramPreviewModal.vue'
 import MarkdownIt from 'markdown-it'
 
 const editorStore = useEditorStore()
+const documentsStore = useDocumentsStore()
 const appStore = useAppStore()
 const styleStore = useStyleStore()
 const { registerPreview, unregisterPreview } = useScrollSync()
@@ -37,6 +40,9 @@ const md = new MarkdownIt({
   breaks: true
 })
 
+// 相对路径图片按当前文档所在目录解析（通过 markit-file 协议读取本地文件）
+installLocalImageRule(md, () => documentsStore.activeDoc?.path)
+
 // 为标题赋予与大纲解析器（useOutline）一致的顺序锚点 id（heading-0, heading-1, ...），
 // 大纲面板点击时通过 document.getElementById 定位滚动
 md.core.ruler.push('heading_anchor_ids', (state) => {
@@ -56,6 +62,39 @@ const renderedHtml = computed(() => {
   const frontmatter = entries.length > 0 ? renderFrontmatterTable(entries) : ''
   return frontmatter + md.render(body)
 })
+
+const EXTERNAL_LINK = /^(?:https?|mailto):/i
+const LINK_SCHEME = /^[a-zA-Z][a-zA-Z0-9+.-]*:/
+/** Windows 盘符（如 D:\docs\a.md）不是协议 */
+const WINDOWS_DRIVE_PATH = /^[a-zA-Z]:[\\/]/
+
+/**
+ * 预览区链接点击分流：页内锚点保持浏览器原生跳转；
+ * 网络链接交给默认浏览器；本地文件链接在资源管理器中定位，无法定位则不处理。
+ * 其余协议（ftp、tel、javascript 等）一律忽略，避免主窗口被导航走。
+ */
+function handlePreviewLinkClick(event: MouseEvent): void {
+  if (event.defaultPrevented || event.button !== 0) return
+  if (!(event.target instanceof Element)) return
+  const anchor = event.target.closest('a')
+  if (!(anchor instanceof HTMLAnchorElement)) return
+
+  const href = anchor.getAttribute('href')?.trim()
+  if (!href || href.startsWith('#')) return
+
+  event.preventDefault()
+
+  if (EXTERNAL_LINK.test(href)) {
+    void window.api.openExternal(href)
+    return
+  }
+
+  const isFileUrl = /^file:/i.test(href)
+  if (!isFileUrl && LINK_SCHEME.test(href) && !WINDOWS_DRIVE_PATH.test(href)) return
+
+  const localPath = resolveLocalPath(href, documentsStore.activeDoc?.path)
+  if (localPath) void window.api.showItemInFolder(localPath)
+}
 
 const MIN_SCALE = 0.25
 const MAX_SCALE = 4
@@ -100,6 +139,23 @@ function createDiagramView(svgText: string, background: string): HTMLElement {
   canvas.innerHTML = svgText
   viewport.appendChild(canvas)
 
+  // mermaid 输出 width="100%" 并带 max-width，放进可滚动的 flex 容器后会被压缩到
+  // 容器宽度（甚至塌缩），导致初始尺寸过小、完全看不清。这里固定为 SVG 的原始尺寸，
+  // 超出可视区域时由 viewport 滚动查看，缩放仍从 100% 开始。
+  const svgEl = canvas.querySelector('svg')
+  if (svgEl) {
+    const viewBox = svgEl.getAttribute('viewBox')?.trim().split(/[\s,]+/).map(Number)
+    const naturalWidth = viewBox?.length === 4 ? viewBox[2] : 0
+    const naturalHeight = viewBox?.length === 4 ? viewBox[3] : 0
+    if (naturalWidth > 0 && naturalHeight > 0) {
+      svgEl.setAttribute('width', String(naturalWidth))
+      svgEl.setAttribute('height', String(naturalHeight))
+      svgEl.style.width = `${naturalWidth}px`
+      svgEl.style.height = `${naturalHeight}px`
+    }
+    svgEl.style.maxWidth = 'none'
+  }
+
   let scale = 1
 
   const zoomLabel = document.createElement('button')
@@ -111,7 +167,6 @@ function createDiagramView(svgText: string, background: string): HTMLElement {
     scale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, next))
     canvas.style.setProperty('zoom', String(scale))
     zoomLabel.textContent = `${Math.round(scale * 100)}%`
-    wrapper.classList.toggle('zoomed', scale > 1)
   }
 
   function createButton(text: string, title: string, onClick: () => void): HTMLButtonElement {
@@ -187,6 +242,21 @@ function createDiagramView(svgText: string, background: string): HTMLElement {
   return wrapper
 }
 
+/** 兼容 Markdown 内嵌 HTML 的 <img src>：v-html 渲染后统一改写相对路径 */
+function resolveHtmlImages(): void {
+  const content = previewRef.value?.querySelector('.preview-content')
+  if (!content) return
+  const docPath = documentsStore.activeDoc?.path
+  for (const img of content.querySelectorAll('img')) {
+    // 记住原始地址，切换文档（内容相同但目录不同）时可以重新解析
+    const rawSrc = img.dataset.markitSrc ?? img.getAttribute('src')
+    if (!rawSrc || rawSrc.startsWith('markit-file:')) continue
+    img.dataset.markitSrc = rawSrc
+    const resolved = resolveImageSrc(rawSrc, docPath)
+    if (resolved) img.setAttribute('src', resolved)
+  }
+}
+
 async function renderMermaid(): Promise<void> {
   if (!previewRef.value) return
   const blocks = collectMermaidBlocks(previewRef.value)
@@ -243,6 +313,7 @@ async function scheduleRender(): Promise<void> {
     .then(async () => {
       // 已有更新的内容时丢弃本次（等待中的）渲染
       if (token !== renderToken) return
+      resolveHtmlImages()
       await renderMermaid()
     })
     .catch((err) => {
@@ -254,6 +325,15 @@ async function scheduleRender(): Promise<void> {
 watch(renderedHtml, () => {
   void scheduleRender()
 })
+
+// 文档目录变化（切换标签 / 另存为）时，HTML <img> 需要按新目录重新解析
+watch(
+  () => documentsStore.activeDoc?.path,
+  async () => {
+    await nextTick()
+    resolveHtmlImages()
+  }
+)
 
 onMounted(async () => {
   await scheduleRender()
@@ -270,7 +350,12 @@ onUnmounted(() => {
     <div ref="previewRef" class="preview-container">
       <!-- eslint-disable-next-line vue/no-v-html -->
       <component :is="'style'">{{ currentCss }}</component>
-      <div class="preview-content" :style="contentStyle" v-html="renderedHtml"></div>
+      <div
+        class="preview-content"
+        :style="contentStyle"
+        v-html="renderedHtml"
+        @click="handlePreviewLinkClick"
+      ></div>
     </div>
 
     <DiagramPreviewModal
