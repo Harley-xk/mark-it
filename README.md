@@ -115,7 +115,7 @@
 
 ## 截图
 
-![MarkIt 使用手册与实时预览](preview.png)
+![MarkIt 使用手册与实时预览](preview-manual.png)
 
 ## 快速开始
 
