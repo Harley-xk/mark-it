@@ -8,6 +8,13 @@ const scrollRegistry = {
 }
 
 export function useScrollSync() {
+  // 每个组件实例只登记/注销自己注册的元素。布局切换时新旧实例的挂载/卸载
+  // 顺序不固定（预览还要等异步渲染完成后才注册），注销时若无条件清空全局
+  // 登记，会把另一个实例刚注册的元素一并清掉——表现为切换一次布局后
+  // 编辑区与预览区永久失去滚动联动。
+  let registeredView: EditorView | null = null
+  let registeredPreview: HTMLElement | null = null
+
   function onEditorScroll() {
     if (scrollRegistry.isSyncing || !scrollRegistry.previewEl || !scrollRegistry.editorView) return
     scrollRegistry.isSyncing = true
@@ -47,27 +54,36 @@ export function useScrollSync() {
   }
 
   function registerEditor(view: EditorView) {
+    if (registeredView && registeredView !== view) {
+      registeredView.scrollDOM.removeEventListener('scroll', onEditorScroll)
+    }
+    registeredView = view
     scrollRegistry.editorView = view
     view.scrollDOM.addEventListener('scroll', onEditorScroll, { passive: true })
   }
 
   function unregisterEditor() {
-    if (scrollRegistry.editorView) {
-      scrollRegistry.editorView.scrollDOM.removeEventListener('scroll', onEditorScroll)
-      scrollRegistry.editorView = null
-    }
+    if (!registeredView) return
+    registeredView.scrollDOM.removeEventListener('scroll', onEditorScroll)
+    // 只有全局登记仍指向本实例时才清空，避免误伤更新的实例
+    if (scrollRegistry.editorView === registeredView) scrollRegistry.editorView = null
+    registeredView = null
   }
 
   function registerPreview(el: HTMLElement) {
+    if (registeredPreview && registeredPreview !== el) {
+      registeredPreview.removeEventListener('scroll', onPreviewScroll)
+    }
+    registeredPreview = el
     scrollRegistry.previewEl = el
     el.addEventListener('scroll', onPreviewScroll, { passive: true })
   }
 
   function unregisterPreview() {
-    if (scrollRegistry.previewEl) {
-      scrollRegistry.previewEl.removeEventListener('scroll', onPreviewScroll)
-      scrollRegistry.previewEl = null
-    }
+    if (!registeredPreview) return
+    registeredPreview.removeEventListener('scroll', onPreviewScroll)
+    if (scrollRegistry.previewEl === registeredPreview) scrollRegistry.previewEl = null
+    registeredPreview = null
   }
 
   return { suspendSync, registerEditor, unregisterEditor, registerPreview, unregisterPreview }
