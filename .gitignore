@@ -8,3 +8,6 @@ dist-verify
 
 # apphub 发版配置仅保留在本地
 .apphub-release.json
+
+# 本地测试文档
+测试案例/
