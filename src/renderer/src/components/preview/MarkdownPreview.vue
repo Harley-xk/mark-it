@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch, onMounted, onUnmounted, nextTick } from 'vue'
+import { computed, ref, watch, onMounted, onBeforeUnmount, onUnmounted, nextTick } from 'vue'
 import { useEditorStore } from '../../stores/editor'
 import { useDocumentsStore } from '../../stores/documents'
 import { useAppStore } from '../../stores/app'
@@ -20,7 +20,7 @@ const editorStore = useEditorStore()
 const documentsStore = useDocumentsStore()
 const appStore = useAppStore()
 const styleStore = useStyleStore()
-const { registerPreview, unregisterPreview } = useScrollSync()
+const { suspendSync, registerPreview, unregisterPreview } = useScrollSync()
 const previewRef = ref<HTMLDivElement>()
 let mermaidInitialized = false
 let currentMermaidTheme: string | null = null
@@ -335,9 +335,44 @@ watch(
   }
 )
 
+/** 预览区是共用的滚动容器，必须按标签分别记录位置，否则新文档会沿用上一个文档的偏移 */
+function savePreviewScroll(id: string): void {
+  const el = previewRef.value
+  if (el) documentsStore.setPreviewScrollPosition(id, el.scrollTop)
+}
+
+function restorePreviewScroll(id: string): void {
+  const el = previewRef.value
+  if (!el) return
+  // 程序化滚动会触发 scroll 事件，暂时屏蔽与编辑区的同步，
+  // 避免把编辑区刚恢复好的位置反向覆盖掉
+  suspendSync()
+  el.scrollTop = documentsStore.getPreviewScrollPosition(id)
+}
+
+watch(
+  () => documentsStore.activeId,
+  async (newId, oldId) => {
+    // 关闭标签同样会改变 activeId，此时旧标签已移除，不必再记录位置
+    if (oldId && documentsStore.getDoc(oldId)) savePreviewScroll(oldId)
+    if (!newId) return
+    await nextTick()
+    restorePreviewScroll(newId)
+  }
+)
+
 onMounted(async () => {
   await scheduleRender()
-  if (previewRef.value) registerPreview(previewRef.value)
+  if (previewRef.value) {
+    registerPreview(previewRef.value)
+    restorePreviewScroll(documentsStore.activeId)
+  }
+})
+
+// 卸载前 DOM 还挂在文档上，只有此时才能读到真实的滚动位置
+onBeforeUnmount(() => {
+  const id = documentsStore.activeId
+  if (id) savePreviewScroll(id)
 })
 
 onUnmounted(() => {

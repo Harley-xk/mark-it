@@ -1,6 +1,7 @@
 import { onMounted, watch } from 'vue'
 import { useDocumentsStore } from '../stores/documents'
 import { useFile } from './useFile'
+import { markSessionReady } from './session-ready'
 import type { SessionData } from '../../../shared/session-types'
 
 const SAVE_DEBOUNCE_MS = 800
@@ -85,6 +86,7 @@ export function useSession(): { flush: () => Promise<void> } {
       console.error('Failed to restore session:', err)
     } finally {
       restoreDone = true
+      markSessionReady()
       for (const pending of pendingOpenFiles.splice(0)) {
         file.openFileFromPath(pending)
       }

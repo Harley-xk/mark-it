@@ -1,5 +1,6 @@
 import { useDocumentsStore, type DocumentTab } from '../stores/documents'
 import { confirmUnsaved } from './useConfirmUnsaved'
+import { whenSessionReady } from './session-ready'
 
 export function useFile() {
   const docs = useDocumentsStore()
@@ -26,9 +27,15 @@ export function useFile() {
   async function openFile(): Promise<void> {
     const files = await window.api.openFiles()
     if (!files || files.length === 0) return
+    // 会话恢复会整体替换标签页；等待恢复完成，避免刚打开的文件被启动恢复覆盖
+    await whenSessionReady()
+    const before = new Set(docs.docs.map((doc) => doc.id))
     const opened = files.map((file) => docs.openPathDocument(file.path, file.content))
-    // 多选时激活第一个文件
-    if (opened.length > 0) docs.activateDocument(opened[0].id)
+    // 多选时优先激活新打开的最后一个文件；全部已在标签页中时激活最后一项，
+    // 保证打开动作结束后看到的总是本次操作对应的标签
+    const fresh = opened.filter((doc) => !before.has(doc.id))
+    const target = fresh.length > 0 ? fresh[fresh.length - 1] : opened[opened.length - 1]
+    if (target) docs.activateDocument(target.id)
   }
 
   /** 打开主进程发来的文件（右键"使用 MarkIt 打开" / 命令行传参） */
@@ -63,11 +70,11 @@ export function useFile() {
     docs.newDocument('')
   }
 
-  /** 关闭标签页，先确认该标签页的未保存修改 */
-  async function closeTab(id?: string): Promise<void> {
-    const doc = id ? docs.getDoc(id) : docs.activeDoc
-    if (!doc) return
-
+  /**
+   * 关闭单个标签页（关闭前确认未保存修改）。
+   * @returns 是否已关闭；用户取消或保存失败时返回 false
+   */
+  async function closeOne(doc: DocumentTab): Promise<boolean> {
     if (doc.isModified) {
       const action = await confirmUnsaved(
         '关闭文件',
@@ -75,11 +82,44 @@ export function useFile() {
         undefined,
         true
       )
-      if (action === 'cancel') return
-      if (action === 'save' && !(await saveDocument(doc))) return
+      if (action === 'cancel') return false
+      if (action === 'save' && !(await saveDocument(doc))) return false
     }
 
     docs.closeDocument(doc.id)
+    return true
+  }
+
+  /**
+   * 批量关闭标签页（关闭其他 / 关闭左侧 / 关闭右侧）。
+   * 逐个确认未保存修改，任一标签取消时停止，后续标签保持打开。
+   * @param ids 要关闭的标签，按传入顺序处理
+   * @param keepId 关闭后应保持激活的标签（通常是右键选中的标签）
+   */
+  async function closeTabs(ids: string[], keepId?: string): Promise<void> {
+    // 关闭前先把激活标签移到不会被关闭的标签上，避免关闭过程中
+    // 激活标签在将要关闭的标签之间来回跳转
+    if (keepId && docs.getDoc(keepId) && ids.includes(docs.activeId)) {
+      docs.activateDocument(keepId)
+    }
+
+    for (const id of ids) {
+      const doc = docs.getDoc(id)
+      if (!doc) continue
+      if (!(await closeOne(doc))) return
+    }
+
+    // 关闭最后一个标签页时一并关闭主窗口（所有未保存修改已在此前确认）
+    if (docs.docs.length === 0) {
+      window.api.close()
+    }
+  }
+
+  /** 关闭标签页，先确认该标签页的未保存修改 */
+  async function closeTab(id?: string): Promise<void> {
+    const doc = id ? docs.getDoc(id) : docs.activeDoc
+    if (!doc) return
+    if (!(await closeOne(doc))) return
 
     // 关闭最后一个标签页时一并关闭主窗口（所有未保存修改已在此前确认）
     if (docs.docs.length === 0) {
@@ -125,6 +165,7 @@ export function useFile() {
     saveDocument,
     newFile,
     closeTab,
+    closeTabs,
     refreshFile,
     showInFolder
   }
