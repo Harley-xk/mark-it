@@ -205,8 +205,14 @@ function restoreScroll(id: string): void {
     view.dispatch({
       effects: EditorView.scrollIntoView(saved.anchor, { y: 'start' })
     })
-  } else {
+  } else if (saved.top > 0) {
     view.scrollDOM.scrollTop = saved.top
+  } else {
+    // 新文档 / 从未滚动过：必须显式滚到开头。setState 后滚动容器会保留上一个
+    // 标签的像素偏移，直接赋值 scrollTop 可能因容器尚未重新渲染而无效
+    view.dispatch({
+      effects: EditorView.scrollIntoView(0, { y: 'start' })
+    })
   }
   view.requestMeasure()
 }

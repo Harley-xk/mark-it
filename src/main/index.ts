@@ -30,7 +30,7 @@ protocol.registerSchemesAsPrivileged([
 ])
 
 let mainWindow: BrowserWindow | null = null
-let pendingFilePaths: string[] = []
+const pendingFilePaths: string[] = []
 let allowClose = false
 
 // --- 窗口大小/位置记忆 ---
@@ -180,12 +180,18 @@ function extractFilePaths(argv: string[]): string[] {
 }
 
 /**
- * 打开指定文件：读取内容并发送到渲染进程
+ * 打开指定文件：读取内容并发送到渲染进程。
+ * 页面加载完成前渲染进程还没注册监听，先缓存到 pendingFilePaths，
+ * 否则「用 MarkIt 打开」在启动瞬间/二次启动时会丢失（表现为新文档没有打开）
  */
 async function openFileAtPath(filePath: string): Promise<void> {
+  if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isLoading()) {
+    if (!pendingFilePaths.includes(filePath)) pendingFilePaths.push(filePath)
+    return
+  }
   try {
     const content = await readFile(filePath, 'utf-8')
-    mainWindow?.webContents.send('open-file-from-argv', { path: filePath, content })
+    mainWindow.webContents.send('open-file-from-argv', { path: filePath, content })
   } catch (err) {
     console.error('Failed to open file from argv:', err)
   }
@@ -327,10 +333,9 @@ function createWindow(): void {
     mainWindow?.webContents.setZoomFactor(currentZoomFactor)
     mainWindow?.webContents.send('window:zoom-changed', currentZoomFactor)
 
-    // 打开待处理的文件
+    // 打开待处理的文件（先取走再发送，发送时如仍处于加载中会重新入队）
     if (pendingFilePaths.length > 0) {
-      openFilesAtPaths(pendingFilePaths)
-      pendingFilePaths = []
+      openFilesAtPaths(pendingFilePaths.splice(0))
     }
   })
 }
@@ -603,16 +608,8 @@ if (!gotTheLock) {
       })
     }, 300)
 
-    // 处理首次启动时的命令行文件参数
-    const filePaths = extractFilePaths(process.argv)
-    if (filePaths.length > 0) {
-      // 如果窗口已加载完毕，直接打开；否则存为 pending
-      if (mainWindow?.webContents.isLoading()) {
-        pendingFilePaths = filePaths
-      } else {
-        openFilesAtPaths(filePaths)
-      }
-    }
+    // 处理首次启动时的命令行文件参数（页面未加载完成时由 openFileAtPath 暂存）
+    openFilesAtPaths(extractFilePaths(process.argv))
 
     app.on('activate', function () {
       if (BrowserWindow.getAllWindows().length === 0) createWindow()

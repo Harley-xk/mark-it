@@ -34,6 +34,18 @@ export function useScrollSync() {
     requestAnimationFrame(() => { scrollRegistry.isSyncing = false })
   }
 
+  /**
+   * 暂时屏蔽双向同步：用于切换标签时由代码设置滚动位置，
+   * 避免恢复程序自己写入的滚动被同步逻辑反向覆盖。
+   * 滚动事件在本帧的绘制步骤中触发，rAF 时解除即可覆盖到。
+   */
+  function suspendSync(): void {
+    scrollRegistry.isSyncing = true
+    requestAnimationFrame(() => {
+      scrollRegistry.isSyncing = false
+    })
+  }
+
   function registerEditor(view: EditorView) {
     scrollRegistry.editorView = view
     view.scrollDOM.addEventListener('scroll', onEditorScroll, { passive: true })
@@ -58,5 +70,5 @@ export function useScrollSync() {
     }
   }
 
-  return { registerEditor, unregisterEditor, registerPreview, unregisterPreview }
+  return { suspendSync, registerEditor, unregisterEditor, registerPreview, unregisterPreview }
 }

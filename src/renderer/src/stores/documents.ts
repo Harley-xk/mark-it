@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import type { EditorState } from '@codemirror/state'
 import type { HeadingItem } from '../types'
 import type { SessionTab } from '../../../shared/session-types'
+import WELCOME_CONTENT from '../assets/welcome.md?raw'
 
 export interface DocumentTab {
   id: string
@@ -22,46 +23,6 @@ export interface ScrollPosition {
   /** 顶部可见行在文档中的起始偏移（切换标签后按此精确定位） */
   anchor: number
 }
-
-const WELCOME_CONTENT = `# Welcome to MarkIt
-
-A modern Markdown editor with live preview.
-
-## Features
-
-- **Live Preview** with style switching
-- **Mermaid Diagrams** support
-- **Math Formulas** via KaTeX
-- **Multiple Layout Modes**
-- **Auto-generated Outline**
-- **PDF Export**
-
-## Code Example
-
-\`\`\`typescript
-function greet(name: string): string {
-  return \`Hello, \${name}!\`
-}
-\`\`\`
-
-## Mermaid Diagram
-
-\`\`\`mermaid
-graph LR
-    A[Edit] --> B[Parse]
-    B --> C[Preview]
-\`\`\`
-
-## Table
-
-| Feature | Status |
-|---------|--------|
-| Editor  | Done   |
-| Preview | Done   |
-| Export  | Done   |
-
-> Start writing your Markdown here!
-`
 
 let docSequence = 0
 
@@ -91,6 +52,8 @@ export const useDocumentsStore = defineStore('documents', () => {
   // 用于保留每个标签的撤销历史、选区与滚动位置
   const editorStates = new Map<string, EditorState>()
   const scrollPositions = new Map<string, ScrollPosition>()
+  // 预览区与编辑区是两套独立的滚动容器，预览按像素单独记录
+  const previewScrollPositions = new Map<string, number>()
 
   const activeDoc = computed<DocumentTab | null>(
     () => docs.value.find((d) => d.id === activeId.value) ?? null
@@ -161,6 +124,7 @@ export const useDocumentsStore = defineStore('documents', () => {
 
     editorStates.clear()
     scrollPositions.clear()
+    previewScrollPositions.clear()
 
     const restored = tabs.map((tab) => {
       const doc = createTab(tab.path, tab.content, tab.name)
@@ -192,6 +156,7 @@ export const useDocumentsStore = defineStore('documents', () => {
     if (!removed) return
     editorStates.delete(removed.id)
     scrollPositions.delete(removed.id)
+    previewScrollPositions.delete(removed.id)
   }
 
   function closeDocument(id: string): void {
@@ -282,6 +247,15 @@ export const useDocumentsStore = defineStore('documents', () => {
     return scrollPositions.get(id) ?? { top: 0, anchor: 0 }
   }
 
+  function setPreviewScrollPosition(id: string, top: number): void {
+    previewScrollPositions.set(id, top)
+  }
+
+  /** 预览区滚动位置（像素）；没有记录（新文档）时从顶部开始 */
+  function getPreviewScrollPosition(id: string): number {
+    return previewScrollPositions.get(id) ?? 0
+  }
+
   // 初始标签：欢迎示例文档
   const initial = createTab(null, WELCOME_CONTENT)
   docs.value.push(initial)
@@ -308,6 +282,8 @@ export const useDocumentsStore = defineStore('documents', () => {
     setEditorState,
     getEditorState,
     setScrollPosition,
-    getScrollPosition
+    getScrollPosition,
+    setPreviewScrollPosition,
+    getPreviewScrollPosition
   }
 })
