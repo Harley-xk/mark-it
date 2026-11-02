@@ -1,16 +1,22 @@
 import { ref } from 'vue'
 import { useEditorStore } from '../stores/editor'
+import { useDocumentsStore } from '../stores/documents'
 import { useAppStore } from '../stores/app'
 import { collectMermaidBlocks } from '../utils/mermaid'
 import { parseFrontmatter, renderFrontmatterTable } from '../utils/frontmatter'
+import { installLocalImageRule } from '../utils/local-image'
 import MarkdownIt from 'markdown-it'
 
 export function usePdfExport() {
   const editor = useEditorStore()
+  const documents = useDocumentsStore()
   const app = useAppStore()
   const exporting = ref(false)
 
   const md = new MarkdownIt({ html: true, linkify: true, breaks: true })
+
+  // 与预览一致：相对路径图片按当前文档目录解析
+  installLocalImageRule(md, () => documents.activeDoc?.path)
 
   async function renderMermaidToSvg(html: string): Promise<string> {
     const container = document.createElement('div')

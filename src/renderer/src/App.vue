@@ -139,18 +139,16 @@ body {
 
 .mermaid-viewport {
   display: flex;
-  justify-content: center;
+  /* 图比容器窄时由 canvas 的 auto 外边距居中；超出时自动回落到左对齐，
+     保证左侧内容可以滚动到（flex 的 justify-content: center 会裁掉左半部分） */
+  justify-content: flex-start;
   max-height: 70vh;
   overflow: auto;
 }
 
-/* 放大后从左上角开始排列，保证滚动条可以覆盖整张图 */
-.mermaid-diagram.zoomed .mermaid-viewport {
-  justify-content: flex-start;
-}
-
 .mermaid-canvas {
   flex: 0 0 auto;
+  margin: 0 auto;
 }
 
 .mermaid-toolbar {

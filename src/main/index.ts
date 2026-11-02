@@ -1,10 +1,33 @@
-import { app, shell, BrowserWindow, ipcMain, dialog, screen } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, dialog, screen, protocol, net } from 'electron'
 import { dirname, join } from 'path'
+import { fileURLToPath, pathToFileURL } from 'url'
 import { readFile, writeFile } from 'fs/promises'
 import { existsSync, readFileSync } from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { initAutoUpdater } from './updater'
+
+/**
+ * 文档内相对路径图片的自定义协议。
+ * 渲染进程把本地绝对路径编码到查询参数里，主进程据此读取文件，
+ * 这样开发模式（http://localhost）与打包后（file://）都能加载图片。
+ */
+const LOCAL_FILE_SCHEME = 'markit-file'
+/** 该协议只用于预览图片，限制扩展名避免被 Markdown 内容当作任意文件读取通道 */
+const IMAGE_FILE_EXTENSION = /\.(?:png|jpe?g|gif|webp|bmp|svg|avif|ico|tiff?)$/i
+
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: LOCAL_FILE_SCHEME,
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      stream: true,
+      bypassCSP: true
+    }
+  }
+])
 
 let mainWindow: BrowserWindow | null = null
 let pendingFilePaths: string[] = []
@@ -281,8 +304,16 @@ function createWindow(): void {
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url)
+    openLinkExternally(details.url)
     return { action: 'deny' }
+  })
+
+  // 兜底：预览中的链接若没被渲染进程拦截，也不能把主窗口导航到外部地址
+  // （导航后应用界面丢失且无法返回，表现为窗口卡死）
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (isAppUrl(url)) return
+    event.preventDefault()
+    openLinkExternally(url)
   })
 
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
@@ -302,6 +333,57 @@ function createWindow(): void {
       pendingFilePaths = []
     }
   })
+}
+
+// --- 文档内链接处理 ---
+
+/** 允许交给系统默认程序打开的外部协议 */
+const EXTERNAL_LINK_PROTOCOL = /^(?:https?|mailto):$/i
+
+/** 应用自身页面地址（只有这类导航可以留在主窗口内） */
+function isAppUrl(url: string): boolean {
+  const devUrl = process.env['ELECTRON_RENDERER_URL']
+  if (is.dev && devUrl) return url.startsWith(devUrl)
+  return url.startsWith(pathToFileURL(join(__dirname, '../renderer/')).href)
+}
+
+/**
+ * 在系统文件管理器中定位本地文件；文件不存在时退回到所在目录。
+ * 目录也不存在则不执行任何操作。
+ */
+function revealPath(targetPath: string): boolean {
+  if (!targetPath) return false
+  try {
+    if (existsSync(targetPath)) {
+      shell.showItemInFolder(targetPath)
+      return true
+    }
+    const parent = dirname(targetPath)
+    if (existsSync(parent)) {
+      void shell.openPath(parent)
+      return true
+    }
+  } catch (err) {
+    console.error('Failed to reveal path:', targetPath, err)
+  }
+  return false
+}
+
+/** 按链接类型分流：网络地址交给默认浏览器，file:// 定位到文件所在目录 */
+function openLinkExternally(url: string): boolean {
+  try {
+    const parsed = new URL(url)
+    if (EXTERNAL_LINK_PROTOCOL.test(parsed.protocol)) {
+      void shell.openExternal(url)
+      return true
+    }
+    if (parsed.protocol === 'file:') {
+      return revealPath(fileURLToPath(parsed))
+    }
+  } catch {
+    // 非法地址直接忽略，绝不交给主窗口导航
+  }
+  return false
 }
 
 // --- IPC handlers ---
@@ -341,13 +423,14 @@ ipcMain.handle('file:read', async (_e, filePath: string) => {
 
 /** 在系统文件管理器中定位文件；文件已被删除时退回到所在目录 */
 ipcMain.handle('file:reveal', (_e, filePath: string) => {
-  if (typeof filePath !== 'string' || filePath.length === 0) return false
-  if (existsSync(filePath)) {
-    shell.showItemInFolder(filePath)
-  } else {
-    void shell.openPath(dirname(filePath))
-  }
-  return true
+  if (typeof filePath !== 'string') return false
+  return revealPath(filePath)
+})
+
+/** 用系统默认程序打开外部链接（仅 http/https/mailto，其余协议忽略） */
+ipcMain.handle('shell:openExternal', (_e, url: string) => {
+  if (typeof url !== 'string') return false
+  return openLinkExternally(url)
 })
 
 /** 保存预览中导出的图片（Mermaid 图表下载） */
@@ -418,6 +501,17 @@ ipcMain.handle(
     })
 
     await pdfWin.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
+    // 等待文档内图片加载完成，避免导出时图片还是空白
+    await pdfWin.webContents.executeJavaScript(
+      `Promise.all(Array.from(document.images).map((img) =>
+        img.complete
+          ? null
+          : new Promise((resolve) => {
+              img.addEventListener('load', resolve, { once: true })
+              img.addEventListener('error', resolve, { once: true })
+            })
+      ))`
+    )
     await new Promise((r) => setTimeout(r, 1500))
 
     const sizeMap: Record<string, 'A4' | 'Letter'> = { A4: 'A4', Letter: 'Letter' }
@@ -465,6 +559,21 @@ if (!gotTheLock) {
 
   app.whenReady().then(() => {
     electronApp.setAppUserModelId('com.harley.markit')
+
+    // 预览中的相对路径图片：markit-file://local/?p=<绝对路径>
+    protocol.handle(LOCAL_FILE_SCHEME, (request) => {
+      try {
+        const filePath = new URL(request.url).searchParams.get('p')
+        if (!filePath) return new Response('Missing path', { status: 400 })
+        if (!IMAGE_FILE_EXTENSION.test(filePath)) {
+          return new Response('Unsupported file type', { status: 415 })
+        }
+        return net.fetch(pathToFileURL(filePath).toString())
+      } catch (err) {
+        console.error('Failed to load local image:', err)
+        return new Response('Not found', { status: 404 })
+      }
+    })
 
     app.on('browser-window-created', (_, window) => {
       optimizer.watchWindowShortcuts(window)

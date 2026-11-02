@@ -15,6 +15,8 @@ const api = {
   saveFileAs: (content: string) => ipcRenderer.invoke('dialog:saveFile', content),
   /** 在系统文件管理器中定位当前文件 */
   showItemInFolder: (path: string): Promise<boolean> => ipcRenderer.invoke('file:reveal', path),
+  /** 用系统默认程序打开外部链接（http/https/mailto） */
+  openExternal: (url: string): Promise<boolean> => ipcRenderer.invoke('shell:openExternal', url),
   /** 保存图片（Mermaid 图表下载），返回保存路径；用户取消时为 null */
   saveImage: (
     fileName: string,
