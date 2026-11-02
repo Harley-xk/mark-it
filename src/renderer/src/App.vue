@@ -164,8 +164,10 @@ body {
   background: rgba(30, 30, 42, 0.9);
   border: 1px solid rgba(255, 255, 255, 0.1);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
-  /* 默认淡显，保证功能可发现；悬停时完全显示 */
-  opacity: 0.6;
+  /* 默认隐藏，鼠标悬停或键盘聚焦到工具栏时显示 */
+  opacity: 0;
+  /* 隐藏时不拦截图表区域的点击，显示后再恢复交互 */
+  pointer-events: none;
   transition: opacity 0.15s ease;
   user-select: none;
 }
@@ -173,6 +175,7 @@ body {
 .mermaid-diagram:hover .mermaid-toolbar,
 .mermaid-toolbar:focus-within {
   opacity: 1;
+  pointer-events: auto;
 }
 
 .mermaid-toolbar-btn {
@@ -198,6 +201,15 @@ body {
 .mermaid-toolbar-btn:hover {
   background: rgba(255, 255, 255, 0.1);
   color: #fff;
+}
+
+.mermaid-icon-btn {
+  padding: 0 4px;
+}
+
+.mermaid-icon-btn svg {
+  display: block;
+  flex-shrink: 0;
 }
 
 .mermaid-zoom-label {

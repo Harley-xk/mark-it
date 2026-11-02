@@ -183,6 +183,26 @@ function createDiagramView(svgText: string, background: string): HTMLElement {
     return button
   }
 
+  // 图标按钮：createButton 用 textContent 填充，无法承载 SVG，这里单独走 innerHTML
+  function createIconButton(
+    svgMarkup: string,
+    title: string,
+    onClick: () => void
+  ): HTMLButtonElement {
+    const button = document.createElement('button')
+    button.type = 'button'
+    button.classList.add('mermaid-toolbar-btn', 'mermaid-icon-btn')
+    button.innerHTML = svgMarkup
+    button.title = title
+    button.setAttribute('aria-label', title)
+    button.addEventListener('click', (event) => {
+      event.preventDefault()
+      event.stopPropagation()
+      onClick()
+    })
+    return button
+  }
+
   function currentSvg(): SVGSVGElement | null {
     return canvas.querySelector('svg')
   }
@@ -212,7 +232,26 @@ function createDiagramView(svgText: string, background: string): HTMLElement {
     createButton('−', '缩小', () => applyScale(scale / ZOOM_STEP)),
     zoomLabel,
     createButton('＋', '放大', () => applyScale(scale * ZOOM_STEP)),
-    createButton('预览', '弹窗预览（可缩放 / 滚动 / 下载）', preview),
+    createIconButton(
+      `<svg
+        width="14"
+        height="14"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.8"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        aria-hidden="true"
+      >
+        <polyline points="15 3 21 3 21 9" />
+        <polyline points="9 21 3 21 3 15" />
+        <line x1="21" y1="3" x2="14" y2="10" />
+        <line x1="3" y1="21" x2="10" y2="14" />
+      </svg>`,
+      '弹窗预览（可缩放 / 滚动 / 下载）',
+      preview
+    ),
     createButton('SVG', '下载为 SVG', () => void download('svg')),
     createButton('PNG', '下载为 PNG', () => void download('png'))
   )
