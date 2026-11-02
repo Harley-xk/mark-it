@@ -1,6 +1,7 @@
 name: Release
 
 # 三平台并行构建 → 统一上传到 apphub 同一草稿版本 → 自动发布并验证
+#            → 同步产物到同版本 GitHub Release
 #
 # 触发方式：
 #   1. 推送 v* 标签（推荐，版本号来自标签）
@@ -147,6 +148,9 @@ jobs:
     needs: [validate, build]
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    outputs:
+      # 复用自动生成的更新说明作为 GitHub Release 正文，避免两处口径不一致
+      notes: ${{ steps.notes.outputs.notes }}
     env:
       APPHUB_USERNAME: ${{ secrets.APPHUB_USERNAME }}
       APPHUB_PASSWORD: ${{ secrets.APPHUB_PASSWORD }}
@@ -275,3 +279,51 @@ jobs:
             echo "----- verify $platform/$arch -----"
             node scripts/release/apphub.mjs verify --config "$CONFIG" --expect "$VERSION" --platform "$platform" --arch "$arch"
           done
+
+  github-release:
+    name: Publish to GitHub Release
+    needs: [validate, draft, publish]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # 仅在 GITHUB_TOKEN 作用域内生效，用于创建 tag / Release 并上传产物
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ needs.validate.outputs.version }}
+      TAG: v${{ needs.validate.outputs.version }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: List artifacts
+        run: ls -lh dist
+
+      - name: Create or update GitHub Release
+        env:
+          NOTES: ${{ needs.draft.outputs.notes }}
+        run: |
+          set -euo pipefail
+          # 预发布版本（1.4.0-beta.1）标记为 prerelease，不会被当成 latest
+          flags=()
+          if [[ "$VERSION" == *-* ]]; then
+            flags+=(--prerelease)
+          fi
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG 已存在：刷新说明并覆盖同名产物"
+            gh release edit "$TAG" --title "$TAG" --notes "$NOTES" "${flags[@]}"
+            gh release upload "$TAG" dist/* --clobber
+            exit 0
+          fi
+
+          echo "创建 Release $TAG"
+          # 手动触发时通常还没有 tag，由 gh 在目标提交上补建
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" dist/* --title "$TAG" --notes "$NOTES" "${flags[@]}"
+          else
+            gh release create "$TAG" dist/* --title "$TAG" --notes "$NOTES" \
+              --target "$GITHUB_SHA" "${flags[@]}"
+          fi
