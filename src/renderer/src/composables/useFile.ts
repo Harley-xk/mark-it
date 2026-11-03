@@ -1,6 +1,10 @@
 import { useDocumentsStore, type DocumentTab } from '../stores/documents'
 import { confirmUnsaved } from './useConfirmUnsaved'
 import { whenSessionReady } from './session-ready'
+import WELCOME_CONTENT from '../assets/welcome.md?raw'
+
+/** 内置使用手册的标签名 */
+const MANUAL_NAME = '使用手册.md'
 
 export function useFile() {
   const docs = useDocumentsStore()
@@ -68,6 +72,18 @@ export function useFile() {
     // 当前已经是未修改的空白文档时直接复用，避免堆积空标签
     if (active && active.path === null && !active.isModified && active.content === '') return
     docs.newDocument('')
+  }
+
+  /** 打开内置使用手册：没有手册标签时新建，已存在则直接激活，避免重复堆积 */
+  async function openManual(): Promise<void> {
+    // 会话恢复会整体替换标签页，等恢复完成后再查找/新建，避免刚打开的手册被覆盖
+    await whenSessionReady()
+    const existing = docs.docs.find((doc) => doc.path === null && doc.name === MANUAL_NAME)
+    if (existing) {
+      docs.activateDocument(existing.id)
+      return
+    }
+    docs.addDocument(null, WELCOME_CONTENT, MANUAL_NAME)
   }
 
   /**
@@ -164,6 +180,7 @@ export function useFile() {
     saveFileAs,
     saveDocument,
     newFile,
+    openManual,
     closeTab,
     closeTabs,
     refreshFile,
