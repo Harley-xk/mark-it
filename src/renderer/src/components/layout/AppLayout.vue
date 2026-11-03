@@ -149,13 +149,6 @@ async function onExport(options: any) {
 .light .toolbar-separator {
   background: rgba(0, 0, 0, 0.08);
 }
-.light .export-btn {
-  color: rgba(59, 130, 246, 0.6);
-}
-.light .export-btn:hover {
-  color: #3b82f6;
-  background: rgba(59, 130, 246, 0.06);
-}
 
 /* StatusBar */
 .light .status-bar {

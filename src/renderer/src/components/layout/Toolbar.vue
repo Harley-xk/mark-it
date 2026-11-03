@@ -108,6 +108,23 @@ const layouts: { mode: LayoutMode; icon: string; tip: string }[] = [
           />
         </svg>
       </button>
+      <button class="tb-btn" title="导出 PDF (Ctrl+P)" @click="app.showPdfDialog = true">
+        <svg
+          width="15"
+          height="15"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.8"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+          <polyline points="14 2 14 8 20 8" />
+          <path d="M12 11v7" />
+          <polyline points="9 15 12 18 15 15" />
+        </svg>
+      </button>
     </div>
 
     <div class="toolbar-separator"></div>
@@ -158,26 +175,8 @@ const layouts: { mode: LayoutMode; icon: string; tip: string }[] = [
 
     <div class="toolbar-spacer"></div>
 
-    <!-- Export & Settings -->
+    <!-- Settings -->
     <div class="toolbar-group">
-      <button class="tb-btn export-btn" title="导出 PDF (Ctrl+P)" @click="app.showPdfDialog = true">
-        <svg
-          width="15"
-          height="15"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="1.8"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-        >
-          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-          <polyline points="14 2 14 8 20 8" />
-          <line x1="16" y1="13" x2="8" y2="13" />
-          <line x1="16" y1="17" x2="8" y2="17" />
-          <polyline points="10 9 9 9 8 9" />
-        </svg>
-      </button>
       <button class="tb-btn" title="设置 (Ctrl+,)" @click="app.showSettingsDialog = true">
         <svg
           width="15"
@@ -266,15 +265,6 @@ const layouts: { mode: LayoutMode; icon: string; tip: string }[] = [
 
 .icon-btn {
   font-size: 15px;
-}
-
-.export-btn {
-  color: rgba(108, 155, 255, 0.6);
-}
-
-.export-btn:hover {
-  color: #6c9bff;
-  background: rgba(108, 155, 255, 0.08);
 }
 
 /* Light theme */
