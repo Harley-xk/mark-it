@@ -99,6 +99,33 @@ function handlePreviewLinkClick(event: MouseEvent): void {
 const MIN_SCALE = 0.25
 const MAX_SCALE = 4
 const ZOOM_STEP = 1.25
+/** 自动适应容器时允许的最小缩放：再小会影响阅读，此时保留滚动条查看 */
+const MIN_FIT_SCALE = 0.6
+/** 适应尺寸时预留的余量，避免取整误差让刚好放得下的图表又冒出滚动条 */
+const FIT_GUTTER = 4
+
+// 容器尺寸变化（窗口缩放、侧栏折叠、预览宽度切换）时重新适应图表尺寸
+const fitCallbacks = new Map<Element, () => void>()
+let fitObserver: ResizeObserver | null = null
+
+function observeViewportSize(el: Element, onResize: () => void): void {
+  if (typeof ResizeObserver === 'undefined') return
+  if (!fitObserver) {
+    fitObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.target.isConnected) fitCallbacks.get(entry.target)?.()
+      }
+    })
+  }
+  fitCallbacks.set(el, onResize)
+  fitObserver.observe(el)
+}
+
+/** 预览内容每次重渲染都会替换掉旧图表，先释放上一批观察器 */
+function clearViewportObservers(): void {
+  fitObserver?.disconnect()
+  fitCallbacks.clear()
+}
 
 // 图表弹窗预览
 const diagramModalVisible = ref(false)
@@ -141,12 +168,14 @@ function createDiagramView(svgText: string, background: string): HTMLElement {
 
   // mermaid 输出 width="100%" 并带 max-width，放进可滚动的 flex 容器后会被压缩到
   // 容器宽度（甚至塌缩），导致初始尺寸过小、完全看不清。这里固定为 SVG 的原始尺寸，
-  // 超出可视区域时由 viewport 滚动查看，缩放仍从 100% 开始。
+  // 再由 autoFit 按容器大小缩小，只有缩放后仍然过大时才出现滚动条。
+  let naturalWidth = 0
+  let naturalHeight = 0
   const svgEl = canvas.querySelector('svg')
   if (svgEl) {
     const viewBox = svgEl.getAttribute('viewBox')?.trim().split(/[\s,]+/).map(Number)
-    const naturalWidth = viewBox?.length === 4 ? viewBox[2] : 0
-    const naturalHeight = viewBox?.length === 4 ? viewBox[3] : 0
+    naturalWidth = viewBox?.length === 4 ? viewBox[2] : 0
+    naturalHeight = viewBox?.length === 4 ? viewBox[3] : 0
     if (naturalWidth > 0 && naturalHeight > 0) {
       svgEl.setAttribute('width', String(naturalWidth))
       svgEl.setAttribute('height', String(naturalHeight))
@@ -157,6 +186,8 @@ function createDiagramView(svgText: string, background: string): HTMLElement {
   }
 
   let scale = 1
+  /** 用户手动缩放后不再自动适应，避免调整窗口时覆盖用户的选择 */
+  let autoFit = true
 
   const zoomLabel = document.createElement('button')
   zoomLabel.type = 'button'
@@ -167,6 +198,38 @@ function createDiagramView(svgText: string, background: string): HTMLElement {
     scale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, next))
     canvas.style.setProperty('zoom', String(scale))
     zoomLabel.textContent = `${Math.round(scale * 100)}%`
+  }
+
+  /** viewport 的 max-height（px）；未设置时视为不限高 */
+  function viewportMaxHeight(): number {
+    if (!viewport.isConnected) return Infinity
+    const raw = Number.parseFloat(getComputedStyle(viewport).maxHeight)
+    return Number.isFinite(raw) ? raw : Infinity
+  }
+
+  /** 完整放入视口所需的缩放比例；只缩小不放大 */
+  function fitScale(): number {
+    if (naturalWidth <= 0 || naturalHeight <= 0) return 1
+    const availableWidth = viewport.clientWidth - FIT_GUTTER
+    if (availableWidth <= 0) return 1
+    const availableHeight = viewportMaxHeight() - FIT_GUTTER
+    return Math.min(1, availableWidth / naturalWidth, availableHeight / naturalHeight)
+  }
+
+  /**
+   * 自动适应视口：略微溢出时缩小到能完整展示；需要缩得太小（影响阅读）时
+   * 停在 MIN_FIT_SCALE，保留下来的超出部分由滚动条查看。
+   */
+  function fitToViewport(): void {
+    // 图表尚未挂载或预览区被隐藏时测不到尺寸，交给后续的尺寸观察回调
+    if (!viewport.isConnected || viewport.clientWidth <= 0) return
+    applyScale(Math.max(MIN_FIT_SCALE, fitScale()))
+  }
+
+  /** 手动缩放：退出自动适应模式 */
+  function zoomBy(factor: number): void {
+    autoFit = false
+    applyScale(scale * factor)
   }
 
   function createButton(text: string, title: string, onClick: () => void): HTMLButtonElement {
@@ -225,13 +288,14 @@ function createDiagramView(svgText: string, background: string): HTMLElement {
   zoomLabel.addEventListener('click', (event) => {
     event.preventDefault()
     event.stopPropagation()
+    autoFit = false
     applyScale(1)
   })
 
   toolbar.append(
-    createButton('−', '缩小', () => applyScale(scale / ZOOM_STEP)),
+    createButton('−', '缩小', () => zoomBy(1 / ZOOM_STEP)),
     zoomLabel,
-    createButton('＋', '放大', () => applyScale(scale * ZOOM_STEP)),
+    createButton('＋', '放大', () => zoomBy(ZOOM_STEP)),
     createIconButton(
       `<svg
         width="14"
@@ -244,10 +308,8 @@ function createDiagramView(svgText: string, background: string): HTMLElement {
         stroke-linejoin="round"
         aria-hidden="true"
       >
-        <polyline points="15 3 21 3 21 9" />
-        <polyline points="9 21 3 21 3 15" />
-        <line x1="21" y1="3" x2="14" y2="10" />
-        <line x1="3" y1="21" x2="10" y2="14" />
+        <circle cx="11" cy="11" r="7" />
+        <line x1="16.5" y1="16.5" x2="21" y2="21" />
       </svg>`,
       '弹窗预览（可缩放 / 滚动 / 下载）',
       preview
@@ -271,13 +333,20 @@ function createDiagramView(svgText: string, background: string): HTMLElement {
     (event) => {
       if (!event.ctrlKey && !event.metaKey) return
       event.preventDefault()
-      applyScale(event.deltaY < 0 ? scale * ZOOM_STEP : scale / ZOOM_STEP)
+      zoomBy(event.deltaY < 0 ? ZOOM_STEP : 1 / ZOOM_STEP)
     },
     { passive: false }
   )
 
   wrapper.append(toolbar, viewport)
   applyScale(1)
+
+  // 图表插入文档后才有真实尺寸，ResizeObserver 的首轮回调会完成第一次适应；
+  // 之后容器尺寸变化（窗口、侧栏、预览宽度）也会重新计算。
+  observeViewportSize(viewport, () => {
+    if (autoFit) fitToViewport()
+  })
+
   return wrapper
 }
 
@@ -298,6 +367,8 @@ function resolveHtmlImages(): void {
 
 async function renderMermaid(): Promise<void> {
   if (!previewRef.value) return
+  // 旧图表会随预览内容一起被替换，先停止观察它们
+  clearViewportObservers()
   const blocks = collectMermaidBlocks(previewRef.value)
   if (blocks.length === 0) return
 
@@ -412,6 +483,7 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   const id = documentsStore.activeId
   if (id) savePreviewScroll(id)
+  clearViewportObservers()
 })
 
 onUnmounted(() => {
