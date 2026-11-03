@@ -31,6 +31,13 @@ protocol.registerSchemesAsPrivileged([
 
 let mainWindow: BrowserWindow | null = null
 const pendingFilePaths: string[] = []
+/**
+ * 渲染进程是否已注册文件打开监听（收到 renderer:ready 前一律排队）。
+ * 不能用 webContents.isLoading() 判断：Electron 的 did-finish-load 触发时
+ * isLoading() 仍可能为 true，此时发送会丢失/再次排队，表现为「首次双击
+ * 打开文件时只恢复上次会话标签，文件未打开」
+ */
+let rendererReady = false
 let allowClose = false
 
 // --- 窗口大小/位置记忆 ---
@@ -181,25 +188,31 @@ function extractFilePaths(argv: string[]): string[] {
 
 /**
  * 打开指定文件：读取内容并发送到渲染进程。
- * 页面加载完成前渲染进程还没注册监听，先缓存到 pendingFilePaths，
+ * 渲染进程注册好监听（renderer:ready）前先缓存到 pendingFilePaths，
  * 否则「用 MarkIt 打开」在启动瞬间/二次启动时会丢失（表现为新文档没有打开）
  */
 async function openFileAtPath(filePath: string): Promise<void> {
-  if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isLoading()) {
+  if (!rendererReady || !mainWindow || mainWindow.isDestroyed()) {
     if (!pendingFilePaths.includes(filePath)) pendingFilePaths.push(filePath)
     return
   }
   try {
     const content = await readFile(filePath, 'utf-8')
+    // 读取期间页面可能开始重载，此时发送会丢，重新排队等下一次 ready
+    if (!rendererReady || !mainWindow || mainWindow.isDestroyed()) {
+      if (!pendingFilePaths.includes(filePath)) pendingFilePaths.push(filePath)
+      return
+    }
     mainWindow.webContents.send('open-file-from-argv', { path: filePath, content })
   } catch (err) {
     console.error('Failed to open file from argv:', err)
   }
 }
 
-function openFilesAtPaths(filePaths: string[]): void {
+/** 按传入顺序依次打开（多个文件时最后一个是激活标签） */
+async function openFilesAtPaths(filePaths: string[]): Promise<void> {
   for (const filePath of filePaths) {
-    openFileAtPath(filePath)
+    await openFileAtPath(filePath)
   }
 }
 
@@ -207,6 +220,8 @@ function createWindow(): void {
   const windowState = loadWindowState()
   const isMac = process.platform === 'darwin'
   currentZoomFactor = windowState.zoomFactor
+  // 新窗口的渲染进程尚未注册监听，恢复打开的文件需重新排队等待 ready
+  rendererReady = false
 
   mainWindow = new BrowserWindow({
     width: windowState.width,
@@ -328,15 +343,15 @@ function createWindow(): void {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
 
+  // 页面重载后渲染进程的监听会丢失，需等待它重新上报 ready 再放行排队文件
+  mainWindow.webContents.on('did-start-loading', () => {
+    rendererReady = false
+  })
+
   mainWindow.webContents.on('did-finish-load', () => {
     // 页面加载后恢复缩放比例（刷新/重载会把 webContents 的缩放重置为 100%）
     mainWindow?.webContents.setZoomFactor(currentZoomFactor)
     mainWindow?.webContents.send('window:zoom-changed', currentZoomFactor)
-
-    // 打开待处理的文件（先取走再发送，发送时如仍处于加载中会重新入队）
-    if (pendingFilePaths.length > 0) {
-      openFilesAtPaths(pendingFilePaths.splice(0))
-    }
   })
 }
 
@@ -392,6 +407,16 @@ function openLinkExternally(url: string): boolean {
 }
 
 // --- IPC handlers ---
+
+/**
+ * 渲染进程已注册文件打开监听。此前排队的文件（首次启动的命令行参数、
+ * 启动期间到达的 second-instance 文件）在这里统一放行
+ */
+ipcMain.on('renderer:ready', () => {
+  rendererReady = true
+  const queued = pendingFilePaths.splice(0)
+  if (queued.length > 0) void openFilesAtPaths(queued)
+})
 
 ipcMain.handle('dialog:openFiles', async () => {
   const result = await dialog.showOpenDialog(mainWindow!, {
