@@ -11,6 +11,15 @@ export default defineConfig({
         '@renderer': resolve('src/renderer/src')
       }
     },
-    plugins: [vue()]
+    plugins: [vue()],
+    build: {
+      rollupOptions: {
+        input: {
+          index: resolve(__dirname, 'src/renderer/index.html'),
+          // 独立的更新详情窗口
+          update: resolve(__dirname, 'src/renderer/update.html')
+        }
+      }
+    }
   }
 })

@@ -10,7 +10,7 @@ export const useUpdateStore = defineStore('update', () => {
   })
   /** 是否展示更新提示卡片（设置页始终展示状态，不依赖此值） */
   const showNotice = ref(false)
-  /** 用户选择「稍后」的版本，同一版本不再自动弹出（进度事件会持续刷新状态） */
+  /** 用户选择「跳过」的版本，同一版本不再自动弹出（进度事件会持续刷新状态） */
   const dismissedVersion = ref<string | null>(null)
   let initialized = false
 
@@ -41,7 +41,7 @@ export const useUpdateStore = defineStore('update', () => {
   }
 
   async function check(): Promise<void> {
-    // 手动检测：清除「稍后」记录，有更新时重新提示
+    // 手动检测：清除「跳过」记录，有更新时重新提示
     dismissedVersion.value = null
     apply(await window.api.update.check())
     if (state.value.status === 'available' || state.value.status === 'downloading') {
@@ -55,6 +55,16 @@ export const useUpdateStore = defineStore('update', () => {
 
   async function install(): Promise<boolean> {
     return window.api.update.install()
+  }
+
+  /** 打开更新详情窗口 */
+  async function openWindow(): Promise<void> {
+    await window.api.update.openWindow()
+  }
+
+  /** 更新详情窗口请求安装：交给主窗口处理未保存内容 */
+  async function requestInstall(): Promise<boolean> {
+    return window.api.update.requestInstall()
   }
 
   function dismiss(): void {
@@ -73,6 +83,8 @@ export const useUpdateStore = defineStore('update', () => {
     check,
     download,
     install,
+    openWindow,
+    requestInstall,
     dismiss
   }
 })

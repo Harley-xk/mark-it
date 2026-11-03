@@ -69,12 +69,24 @@ const api = {
     load: (): Promise<SessionData | null> => ipcRenderer.invoke('session:load'),
     save: (data: SessionData): Promise<boolean> => ipcRenderer.invoke('session:save', data)
   },
-  /** 自动更新：读取状态 / 检测 / 下载 / 安装 / 订阅状态变化 */
+  /** 自动更新：读取状态 / 检测 / 下载 / 安装 / 更新窗口 / 订阅状态变化 */
   update: {
     getState: (): Promise<UpdateState> => ipcRenderer.invoke('update:get-state'),
     check: (): Promise<UpdateState> => ipcRenderer.invoke('update:check'),
     download: (): Promise<UpdateState> => ipcRenderer.invoke('update:download'),
     install: (): Promise<boolean> => ipcRenderer.invoke('update:install'),
+    /** 打开独立的更新详情窗口 */
+    openWindow: (): Promise<void> => ipcRenderer.invoke('update:open-window'),
+    /** 更新窗口内关闭自身（窗口随之销毁，用 send 避免 invoke 的回复丢失） */
+    closeWindow: (): void => {
+      ipcRenderer.send('update:close-window')
+    },
+    /** 请求主窗口处理未保存内容后安装（由更新详情窗口调用） */
+    requestInstall: (): Promise<boolean> => ipcRenderer.invoke('update:request-install'),
+    /** 主进程转来的安装请求（主窗口监听） */
+    onInstallRequest: (callback: () => void) => {
+      ipcRenderer.on('update:install-request', () => callback())
+    },
     onState: (callback: (state: UpdateState) => void) => {
       ipcRenderer.on('update:state', (_e, state: UpdateState) => callback(state))
     }

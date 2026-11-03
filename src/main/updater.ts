@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain } from 'electron'
 import { autoUpdater, type UpdateInfo, type ProgressInfo } from 'electron-updater'
 import { is } from '@electron-toolkit/utils'
+import { join } from 'path'
 import type { UpdateState } from '../shared/update-types'
 
 /**
@@ -47,6 +48,9 @@ let state: UpdateState = {
 
 let initialized = false
 let beforeInstall: (() => void) | null = null
+let getMainWindow: (() => BrowserWindow | null) | null = null
+/** 更新详情窗口（唯一实例，重复打开时聚焦已有窗口） */
+let updateWindow: BrowserWindow | null = null
 
 function setState(patch: Partial<UpdateState>): void {
   state = { ...state, ...patch }
@@ -99,6 +103,59 @@ function installUpdate(): boolean {
   // 应用侧关闭守卫会阻止窗口关闭；安装前放行，避免安装器卡住
   beforeInstall?.()
   setImmediate(() => autoUpdater.quitAndInstall(false, true))
+  return true
+}
+
+/** 打开（或聚焦）独立的更新详情窗口 */
+function openUpdateWindow(): void {
+  if (updateWindow && !updateWindow.isDestroyed()) {
+    if (updateWindow.isMinimized()) updateWindow.restore()
+    updateWindow.show()
+    updateWindow.focus()
+    return
+  }
+
+  updateWindow = new BrowserWindow({
+    width: 560,
+    height: 680,
+    minWidth: 460,
+    minHeight: 520,
+    show: false,
+    frame: false,
+    autoHideMenuBar: true,
+    center: true,
+    backgroundColor: '#1c1c27',
+    title: 'MarkIt 更新',
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.js'),
+      sandbox: false
+    }
+  })
+
+  updateWindow.once('ready-to-show', () => updateWindow?.show())
+  updateWindow.on('closed', () => {
+    updateWindow = null
+  })
+
+  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+    updateWindow.loadURL(`${process.env['ELECTRON_RENDERER_URL']}/update.html`)
+  } else {
+    updateWindow.loadFile(join(__dirname, '../renderer/update.html'))
+  }
+}
+
+/**
+ * 更新窗口请求安装：由主窗口负责处理未保存内容并保存会话，
+ * 完成后主窗口再调用 update:install 真正退出安装。
+ */
+function requestInstallFromUpdateWindow(): boolean {
+  if (state.status !== 'downloaded') return false
+  const win = getMainWindow?.()
+  if (!win || win.isDestroyed()) return false
+  if (win.isMinimized()) win.restore()
+  win.show()
+  win.focus()
+  win.webContents.send('update:install-request')
   return true
 }
 
@@ -165,10 +222,16 @@ function bindEvents(): void {
  * 初始化自动更新：配置 feed、注册 IPC、启动后静默检测一次。
  * 必须在 app ready 之后调用。
  */
-export function initAutoUpdater(options: { beforeInstall?: () => void } = {}): void {
+export function initAutoUpdater(
+  options: {
+    beforeInstall?: () => void
+    getMainWindow?: () => BrowserWindow | null
+  } = {}
+): void {
   if (initialized) return
   initialized = true
   beforeInstall = options.beforeInstall ?? null
+  getMainWindow = options.getMainWindow ?? null
 
   state = { ...state, currentVersion: app.getVersion(), status: is.dev ? 'disabled' : 'idle' }
 
@@ -181,6 +244,12 @@ export function initAutoUpdater(options: { beforeInstall?: () => void } = {}): v
   ipcMain.handle('update:check', () => checkForUpdates())
   ipcMain.handle('update:download', () => downloadUpdate())
   ipcMain.handle('update:install', () => installUpdate())
+  ipcMain.handle('update:open-window', () => openUpdateWindow())
+  // 更新窗口自己的关闭按钮：只关闭发送请求的窗口
+  ipcMain.on('update:close-window', (event) => {
+    BrowserWindow.fromWebContents(event.sender)?.close()
+  })
+  ipcMain.handle('update:request-install', () => requestInstallFromUpdateWindow())
 
   if (!is.dev) {
     // 启动后延迟静默检测，避免与首屏渲染 / 文件加载抢资源

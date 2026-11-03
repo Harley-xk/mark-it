@@ -615,7 +615,8 @@ if (!gotTheLock) {
     initAutoUpdater({
       beforeInstall: () => {
         allowClose = true
-      }
+      },
+      getMainWindow: () => mainWindow
     })
 
     // 每 300ms 将真实光标位置换算为页面坐标推送给渲染进程。

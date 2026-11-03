@@ -31,23 +31,37 @@ window.api.onCloseTabShortcut(() => {
   file.closeTab()
 })
 
-// 监听窗口关闭请求：逐个检查所有标签页的未保存修改
-window.api.onCloseRequest(async () => {
-  const modified = docs.docs.filter((doc) => doc.isModified)
-  for (const doc of modified) {
+/**
+ * 退出/重启前处理所有标签页的未保存修改并保存会话。
+ * 返回 false 表示用户取消或保存失败，应中止后续操作。
+ */
+async function saveAllBeforeExit(actionLabel: string): Promise<boolean> {
+  for (const doc of docs.docs.filter((doc) => doc.isModified)) {
     const action = await confirmUnsaved(
-      '关闭窗口',
-      `「${doc.name}」有未保存的修改，是否在关闭前保存？`,
+      actionLabel,
+      `「${doc.name}」有未保存的修改，是否保存？`,
       undefined,
       true
     )
-    if (action === 'cancel') return
-    if (action === 'save' && !(await file.saveDocument(doc))) return
+    if (action === 'cancel') return false
+    if (action === 'save' && !(await file.saveDocument(doc))) return false
   }
   // 记录当前标签页，下次启动恢复
   await flushSession()
+  return true
+}
+
+// 监听窗口关闭请求：逐个检查所有标签页的未保存修改
+window.api.onCloseRequest(async () => {
+  if (!(await saveAllBeforeExit('关闭窗口'))) return
   // 销毁 close 监听器后真正关闭
   window.api.close()
+})
+
+// 更新详情窗口请求安装：先处理未保存内容，再由主进程退出安装
+window.api.update.onInstallRequest(async () => {
+  if (!(await saveAllBeforeExit('安装更新'))) return
+  await update.install()
 })
 </script>
 
