@@ -175,8 +175,24 @@ const layouts: { mode: LayoutMode; icon: string; tip: string }[] = [
 
     <div class="toolbar-spacer"></div>
 
-    <!-- Settings -->
+    <!-- Help & Settings -->
     <div class="toolbar-group">
+      <button class="tb-btn" title="使用手册" @click="file.openManual()">
+        <svg
+          width="15"
+          height="15"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.8"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <circle cx="12" cy="12" r="10" />
+          <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+          <path d="M12 17h.01" />
+        </svg>
+      </button>
       <button class="tb-btn" title="设置 (Ctrl+,)" @click="app.showSettingsDialog = true">
         <svg
           width="15"
