@@ -52,6 +52,9 @@ const api = {
   /** 监听主进程发来的文件打开事件（右键打开 / 命令行传参） */
   onOpenFile: (callback: (result: { path: string; content: string }) => void) => {
     ipcRenderer.on('open-file-from-argv', (_e, data) => callback(data))
+    // 监听注册完成后再通知主进程放行排队的文件；
+    // 不能用 did-finish-load 判断就绪：该事件触发时 isLoading() 仍可能为 true
+    ipcRenderer.send('renderer:ready')
   },
   /** 监听窗口关闭请求（主进程 close 事件） */
   onCloseRequest: (callback: () => void) => {
