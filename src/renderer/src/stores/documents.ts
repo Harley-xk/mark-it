@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import type { EditorState } from '@codemirror/state'
 import type { HeadingItem } from '../types'
 import type { SessionTab } from '../../../shared/session-types'
+import { normalizePath } from '../utils/path'
 import WELCOME_CONTENT from '../assets/welcome.md?raw'
 
 export interface DocumentTab {
@@ -35,17 +36,6 @@ function nextDocId(): string {
 
 function baseName(filePath: string): string {
   return filePath.split(/[/\\]/).pop() || 'untitled.md'
-}
-
-/** Windows 下路径大小写不敏感，统一后用于判断文件是否已打开 */
-function normalizePath(filePath: string): string {
-  return filePath.replace(/\\/g, '/').toLowerCase()
-}
-
-/** 判断两个路径是否指向同一个文件（Windows 下大小写、斜杠不敏感） */
-export function samePath(a: string | null, b: string | null): boolean {
-  if (!a || !b) return a === b
-  return normalizePath(a) === normalizePath(b)
 }
 
 function countWords(text: string): number {

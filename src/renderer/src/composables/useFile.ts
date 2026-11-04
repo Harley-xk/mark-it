@@ -1,7 +1,8 @@
-import { useDocumentsStore, samePath, type DocumentTab } from '../stores/documents'
+import { useDocumentsStore, type DocumentTab } from '../stores/documents'
 import { confirmUnsaved } from './useConfirmUnsaved'
 import { whenSessionReady } from './session-ready'
 import { diffLines } from '../utils/text-diff'
+import { samePath } from '../utils/path'
 import WELCOME_CONTENT from '../assets/welcome.md?raw'
 
 /** 内置使用手册的标签名 */
@@ -15,7 +16,26 @@ function sameContent(a: string, b: string): boolean {
   return a === b || a.replace(/\r\n?/g, '\n') === b.replace(/\r\n?/g, '\n')
 }
 
-export function useFile() {
+interface FileActions {
+  openFile: () => Promise<void>
+  openFileFromPath: (result: { path: string; content: string }) => void
+  saveFile: () => Promise<void>
+  saveFileAs: () => Promise<void>
+  saveDocument: (
+    doc: DocumentTab,
+    forceDialog?: boolean,
+    skipConflictCheck?: boolean
+  ) => Promise<boolean>
+  newFile: () => void
+  openManual: () => Promise<void>
+  closeTab: (id?: string) => Promise<void>
+  closeTabs: (ids: string[], keepId?: string) => Promise<void>
+  refreshFile: () => Promise<void>
+  applyExternalContent: (change: { path: string; content: string }) => Promise<void>
+  showInFolder: () => Promise<void>
+}
+
+export function useFile(): FileActions {
   const docs = useDocumentsStore()
 
   /**

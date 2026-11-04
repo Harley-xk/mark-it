@@ -1,8 +1,9 @@
-import { app, BrowserWindow, ipcMain } from 'electron'
+import { app, BrowserWindow } from 'electron'
 import { autoUpdater, type UpdateInfo, type ProgressInfo } from 'electron-updater'
 import { is } from '@electron-toolkit/utils'
 import { join } from 'path'
 import type { UpdateState } from '../shared/update-types'
+import { registerHandle, registerOn } from './ipc-guard'
 
 /**
  * apphub 应用管理平台更新通道。
@@ -240,16 +241,30 @@ export function initAutoUpdater(
   autoUpdater.autoInstallOnAppQuit = true
   bindEvents()
 
-  ipcMain.handle('update:get-state', () => state)
-  ipcMain.handle('update:check', () => checkForUpdates())
-  ipcMain.handle('update:download', () => downloadUpdate())
-  ipcMain.handle('update:install', () => installUpdate())
-  ipcMain.handle('update:open-window', () => openUpdateWindow())
-  // 更新窗口自己的关闭按钮：只关闭发送请求的窗口
-  ipcMain.on('update:close-window', (event) => {
-    BrowserWindow.fromWebContents(event.sender)?.close()
+  registerHandle('update:get-state', () => state)
+  registerHandle('update:check', () => checkForUpdates())
+  registerHandle('update:download', () => downloadUpdate())
+  // 只有主窗口能真正安装：它必须先完成未保存内容确认，
+  // 更新窗口必须走 update:request-install 转交主窗口
+  registerHandle('update:install', (event) => {
+    const win = getMainWindow?.()
+    if (!win || win.isDestroyed() || event.sender !== win.webContents) return false
+    return installUpdate()
   })
-  ipcMain.handle('update:request-install', () => requestInstallFromUpdateWindow())
+  registerHandle('update:open-window', () => openUpdateWindow())
+  // 更新窗口自己的关闭按钮：只关闭发送请求的窗口；
+  // 主窗口不能借这个通道绕过关闭守卫，直接忽略
+  registerOn('update:close-window', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win || win === getMainWindow?.()) return
+    win.close()
+  })
+  // 只接受更新窗口的转交请求；主窗口已有直接安装入口，不需要转交给自己
+  registerHandle('update:request-install', (event) => {
+    const win = getMainWindow?.()
+    if (!win || win.isDestroyed() || event.sender === win.webContents) return false
+    return requestInstallFromUpdateWindow()
+  })
 
   if (!is.dev) {
     // 启动后延迟静默检测，避免与首屏渲染 / 文件加载抢资源

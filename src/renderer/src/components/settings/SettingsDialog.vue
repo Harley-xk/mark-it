@@ -3,15 +3,12 @@ import { computed } from 'vue'
 import { useAppStore } from '../../stores/app'
 import { useStyleStore } from '../../stores/style'
 import { useUpdateStore } from '../../stores/update'
-import { useFile } from '../../composables/useFile'
-import { flushSession } from '../../composables/useSession'
-import { confirmUnsaved } from '../../composables/useConfirmUnsaved'
+import { saveAllBeforeExit } from '../../composables/useExitGuard'
 import type { ThemeMode } from '../../types'
 
 const app = useAppStore()
 const styleStore = useStyleStore()
 const update = useUpdateStore()
-const file = useFile()
 
 const updateStatusText = computed(() => {
   const s = update.state
@@ -40,11 +37,8 @@ const updateStatusText = computed(() => {
 async function handleUpdateAction(): Promise<void> {
   const status = update.state.status
   if (status === 'downloaded') {
-    const action = await confirmUnsaved('安装更新', '当前文件有未保存的修改，是否保存后安装更新？')
-    if (action === 'cancel') return
-    if (action === 'save') await file.saveFile()
-    // 更新会重启应用：先保存会话，重启后恢复原来的文档
-    await flushSession()
+    // 与主窗口的安装流程一致：逐个确认所有标签页，并保存会话
+    if (!(await saveAllBeforeExit('安装更新'))) return
     await update.install()
     return
   }
@@ -78,9 +72,9 @@ const themeOptions: { value: ThemeMode; label: string; icon: string }[] = [
   { value: 'dark', label: '深色', icon: 'moon' }
 ]
 
-const isDark = () => app.resolvedTheme === 'dark'
+const isDark = (): boolean => app.resolvedTheme === 'dark'
 
-function handleFileImport() {
+function handleFileImport(): void {
   const input = document.createElement('input')
   input.type = 'file'
   input.accept = '.css'
@@ -99,7 +93,7 @@ function handleFileImport() {
   input.click()
 }
 
-function removeStyle(id: string) {
+function removeStyle(id: string): void {
   styleStore.removeCustomStyle(id)
 }
 </script>

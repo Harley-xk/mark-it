@@ -1,5 +1,4 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
-import { electronAPI } from '@electron-toolkit/preload'
 import type { UpdateState } from '../shared/update-types'
 import type { SessionData } from '../shared/session-types'
 
@@ -42,7 +41,8 @@ const api = {
   ) => ipcRenderer.invoke('export:pdf', html, options),
   minimize: () => ipcRenderer.invoke('window:minimize'),
   maximize: () => ipcRenderer.invoke('window:maximize'),
-  close: () => ipcRenderer.invoke('window:close'),
+  /** 关闭主窗口；quit 为 true 表示这是在完成 Cmd+Q / 菜单退出 */
+  close: (quit = false): Promise<boolean> => ipcRenderer.invoke('window:close', quit),
   isFullscreen: (): Promise<boolean> => ipcRenderer.invoke('window:is-fullscreen'),
   /** 当前整窗缩放比例（1 表示 100%） */
   getZoom: (): Promise<number> => ipcRenderer.invoke('window:get-zoom'),
@@ -65,9 +65,9 @@ const api = {
     // 不能用 did-finish-load 判断就绪：该事件触发时 isLoading() 仍可能为 true
     ipcRenderer.send('renderer:ready')
   },
-  /** 监听窗口关闭请求（主进程 close 事件） */
-  onCloseRequest: (callback: () => void) => {
-    ipcRenderer.on('window:close-request', () => callback())
+  /** 监听窗口关闭请求（主进程 close 事件）；quit 表示本次关闭来自退出应用 */
+  onCloseRequest: (callback: (request: { quit: boolean }) => void) => {
+    ipcRenderer.on('window:close-request', (_e, request: { quit: boolean }) => callback(request))
   },
   /** 主进程光标位置轮询（滚动条悬停状态判定兜底） */
   onCursorPos: (callback: (pos: { x: number; y: number }) => void) => {
@@ -106,14 +106,11 @@ export type ExposedAPI = typeof api
 
 if (process.contextIsolated) {
   try {
-    contextBridge.exposeInMainWorld('electron', electronAPI)
     contextBridge.exposeInMainWorld('api', api)
   } catch (error) {
     console.error(error)
   }
 } else {
-  // @ts-ignore
-  window.electron = electronAPI
-  // @ts-ignore
-  window.api = api
+  // 仅在 contextIsolation 被关闭的极端场景下退化为直接挂载
+  ;(globalThis as Record<string, unknown>)['api'] = api
 }

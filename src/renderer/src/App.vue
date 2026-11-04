@@ -6,12 +6,12 @@ import { useOutline } from './composables/useOutline'
 import { useKeyboardShortcuts } from './composables/useKeyboardShortcuts'
 import { useScrollbarState } from './composables/useScrollbarState'
 import { useWindowZoom } from './composables/useWindowZoom'
-import { useConfirmDialog, resolveConfirm, confirmUnsaved } from './composables/useConfirmUnsaved'
-import { useDocumentsStore } from './stores/documents'
+import { useConfirmDialog, resolveConfirm } from './composables/useConfirmUnsaved'
 import { useUpdateStore } from './stores/update'
 import { useFile } from './composables/useFile'
 import { useFileWatcher } from './composables/useFileWatcher'
 import { useSession } from './composables/useSession'
+import { saveAllBeforeExit } from './composables/useExitGuard'
 
 useOutline()
 useKeyboardShortcuts()
@@ -20,9 +20,8 @@ useWindowZoom()
 // 活跃标签的磁盘外部变更自动同步；非活跃标签在切换过去时刷新一次
 useFileWatcher()
 // 负责启动时恢复上次打开的文档，并在关闭/更新重启前保存会话
-const { flush: flushSession } = useSession()
+useSession()
 
-const docs = useDocumentsStore()
 const update = useUpdateStore()
 update.init()
 const file = useFile()
@@ -41,31 +40,12 @@ window.api.onCloseTabShortcut(() => {
   file.closeTab()
 })
 
-/**
- * 退出/重启前处理所有标签页的未保存修改并保存会话。
- * 返回 false 表示用户取消或保存失败，应中止后续操作。
- */
-async function saveAllBeforeExit(actionLabel: string): Promise<boolean> {
-  for (const doc of docs.docs.filter((doc) => doc.isModified)) {
-    const action = await confirmUnsaved(
-      actionLabel,
-      `「${doc.name}」有未保存的修改，是否保存？`,
-      undefined,
-      true
-    )
-    if (action === 'cancel') return false
-    if (action === 'save' && !(await file.saveDocument(doc))) return false
-  }
-  // 记录当前标签页，下次启动恢复
-  await flushSession()
-  return true
-}
-
-// 监听窗口关闭请求：逐个检查所有标签页的未保存修改
-window.api.onCloseRequest(async () => {
+// 监听窗口关闭请求：逐个检查所有标签页的未保存修改。
+// quit 表示本次关闭来自退出应用（Cmd+Q / 菜单退出），保存完成后需要真正退出
+window.api.onCloseRequest(async ({ quit }) => {
   if (!(await saveAllBeforeExit('关闭窗口'))) return
   // 销毁 close 监听器后真正关闭
-  window.api.close()
+  await window.api.close(quit)
 })
 
 // 更新详情窗口请求安装：先处理未保存内容，再由主进程退出安装

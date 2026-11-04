@@ -1,4 +1,5 @@
-import { app, shell, BrowserWindow, ipcMain, dialog, screen, protocol, net } from 'electron'
+import { app, shell, BrowserWindow, dialog, screen, protocol, net } from 'electron'
+import type { IpcMainInvokeEvent } from 'electron'
 import { dirname, join } from 'path'
 import { fileURLToPath, pathToFileURL } from 'url'
 import { readFile, writeFile } from 'fs/promises'
@@ -6,6 +7,7 @@ import { existsSync, readFileSync, watchFile, unwatchFile } from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { initAutoUpdater } from './updater'
+import { isAppUrl, registerHandle, registerOn } from './ipc-guard'
 
 /**
  * 文档内相对路径图片的自定义协议。
@@ -38,7 +40,10 @@ const pendingFilePaths: string[] = []
  * 打开文件时只恢复上次会话标签，文件未打开」
  */
 let rendererReady = false
+/** 关闭守卫放行标志：为真时 close 事件直接放行 */
 let allowClose = false
+/** 当前这次关闭是否由退出应用（macOS Cmd+Q / 菜单退出）触发，保存完成后需要真正退出 */
+let pendingQuit = false
 
 // --- 窗口大小/位置记忆 ---
 
@@ -284,6 +289,10 @@ function createWindow(): void {
   currentZoomFactor = windowState.zoomFactor
   // 新窗口的渲染进程尚未注册监听，恢复打开的文件需重新排队等待 ready
   rendererReady = false
+  // macOS 关闭窗口后进程仍驻留，Dock 重新开窗时必须复位放行标志，
+  // 否则新窗口的关闭会跳过未保存确认
+  allowClose = false
+  pendingQuit = false
 
   mainWindow = new BrowserWindow({
     width: windowState.width,
@@ -381,12 +390,20 @@ function createWindow(): void {
     setWatchedFile(null)
   })
 
-  // 窗口关闭前询问渲染进程是否有未保存修改
+  // 窗口关闭前询问渲染进程是否有未保存修改。
+  // 若是用户退出应用（Cmd+Q / 菜单退出）触发的关闭，把退出意图一并传下去：
+  // 渲染进程保存完成后调 window:close 时带回，主进程再真正退出。
   mainWindow.on('close', (e) => {
-    if (allowClose) return
+    if (allowClose) {
+      pendingQuit = false
+      return
+    }
     if (mainWindow && !mainWindow.isDestroyed()) {
       e.preventDefault()
-      mainWindow.webContents.send('window:close-request')
+      const quit = pendingQuit
+      // 一次性标志：用户取消时不会残留，避免下一次普通关窗误退出应用
+      pendingQuit = false
+      mainWindow.webContents.send('window:close-request', { quit })
     }
   })
 
@@ -425,13 +442,6 @@ function createWindow(): void {
 
 /** 允许交给系统默认程序打开的外部协议 */
 const EXTERNAL_LINK_PROTOCOL = /^(?:https?|mailto):$/i
-
-/** 应用自身页面地址（只有这类导航可以留在主窗口内） */
-function isAppUrl(url: string): boolean {
-  const devUrl = process.env['ELECTRON_RENDERER_URL']
-  if (is.dev && devUrl) return url.startsWith(devUrl)
-  return url.startsWith(pathToFileURL(join(__dirname, '../renderer/')).href)
-}
 
 /**
  * 在系统文件管理器中定位本地文件；文件不存在时退回到所在目录。
@@ -475,16 +485,24 @@ function openLinkExternally(url: string): boolean {
 // --- IPC handlers ---
 
 /**
+ * 窗口控制类通道只接受主窗口调用。
+ * 更新窗口共享同一份 preload，若不限制，它也能通过 window:close 绕过关闭守卫。
+ */
+function isMainWindowSender(event: IpcMainInvokeEvent): boolean {
+  return !!mainWindow && !mainWindow.isDestroyed() && event.sender === mainWindow.webContents
+}
+
+/**
  * 渲染进程已注册文件打开监听。此前排队的文件（首次启动的命令行参数、
  * 启动期间到达的 second-instance 文件）在这里统一放行
  */
-ipcMain.on('renderer:ready', () => {
+registerOn('renderer:ready', () => {
   rendererReady = true
   const queued = pendingFilePaths.splice(0)
   if (queued.length > 0) void openFilesAtPaths(queued)
 })
 
-ipcMain.handle('dialog:openFiles', async () => {
+registerHandle('dialog:openFiles', async () => {
   const result = await dialog.showOpenDialog(mainWindow!, {
     properties: ['openFile', 'multiSelections'],
     filters: [{ name: 'Markdown', extensions: ['md', 'markdown', 'txt'] }]
@@ -502,14 +520,14 @@ ipcMain.handle('dialog:openFiles', async () => {
   return files
 })
 
-ipcMain.handle('file:save', async (_e, filePath: string, content: string) => {
+registerHandle('file:save', async (_e, filePath: string, content: string) => {
   await writeFile(filePath, content, 'utf-8')
   // 应用自身的写入不是外部修改：同步已知版本，避免监视器回环通知
   if (watchedFilePath && sameFilePath(filePath, watchedFilePath)) watchedContent = content
   return true
 })
 
-ipcMain.handle('file:read', async (_e, filePath: string) => {
+registerHandle('file:read', async (_e, filePath: string) => {
   try {
     const content = await readFile(filePath, 'utf-8')
     return { path: filePath, content }
@@ -520,25 +538,25 @@ ipcMain.handle('file:read', async (_e, filePath: string) => {
 })
 
 /** 只监视渲染进程当前活跃标签的文件；切换标签时由渲染进程重新指定 */
-ipcMain.handle('file:watch', (_e, filePath: string | null) => {
+registerHandle('file:watch', (_e, filePath: string | null) => {
   setWatchedFile(typeof filePath === 'string' && filePath.length > 0 ? filePath : null)
   return true
 })
 
 /** 在系统文件管理器中定位文件；文件已被删除时退回到所在目录 */
-ipcMain.handle('file:reveal', (_e, filePath: string) => {
+registerHandle('file:reveal', (_e, filePath: string) => {
   if (typeof filePath !== 'string') return false
   return revealPath(filePath)
 })
 
 /** 用系统默认程序打开外部链接（仅 http/https/mailto，其余协议忽略） */
-ipcMain.handle('shell:openExternal', (_e, url: string) => {
+registerHandle('shell:openExternal', (_e, url: string) => {
   if (typeof url !== 'string') return false
   return openLinkExternally(url)
 })
 
 /** 保存预览中导出的图片（Mermaid 图表下载） */
-ipcMain.handle(
+registerHandle(
   'dialog:saveImage',
   async (_e, fileName: string, data: Uint8Array, extension: 'svg' | 'png') => {
     const result = await dialog.showSaveDialog(mainWindow!, {
@@ -552,7 +570,7 @@ ipcMain.handle(
 )
 
 /** 会话（标签页）读写：用于更新重启后恢复上次打开的文档 */
-ipcMain.handle('session:load', async () => {
+registerHandle('session:load', async () => {
   try {
     if (!existsSync(sessionFile)) return null
     return JSON.parse(await readFile(sessionFile, 'utf-8'))
@@ -562,7 +580,7 @@ ipcMain.handle('session:load', async () => {
   }
 })
 
-ipcMain.handle('session:save', async (_e, data: unknown) => {
+registerHandle('session:save', async (_e, data: unknown) => {
   try {
     await writeFile(sessionFile, JSON.stringify(data), 'utf-8')
     return true
@@ -572,7 +590,7 @@ ipcMain.handle('session:save', async (_e, data: unknown) => {
   }
 })
 
-ipcMain.handle('dialog:saveFile', async (_e, content: string) => {
+registerHandle('dialog:saveFile', async (_e, content: string) => {
   const result = await dialog.showSaveDialog(mainWindow!, {
     filters: [{ name: 'Markdown', extensions: ['md'] }]
   })
@@ -583,7 +601,7 @@ ipcMain.handle('dialog:saveFile', async (_e, content: string) => {
   return result.filePath
 })
 
-ipcMain.handle(
+registerHandle(
   'export:pdf',
   async (
     _e,
@@ -632,16 +650,30 @@ ipcMain.handle(
   }
 )
 
-ipcMain.handle('window:is-fullscreen', () => mainWindow?.isFullScreen() ?? false)
-ipcMain.handle('window:get-zoom', () => currentZoomFactor)
-ipcMain.handle('window:minimize', () => mainWindow?.minimize())
-ipcMain.handle('window:maximize', () => {
+registerHandle('window:is-fullscreen', (event) => {
+  if (!isMainWindowSender(event)) return false
+  return mainWindow?.isFullScreen() ?? false
+})
+registerHandle('window:get-zoom', (event) => {
+  if (!isMainWindowSender(event)) return 1
+  return currentZoomFactor
+})
+registerHandle('window:minimize', (event) => {
+  if (!isMainWindowSender(event)) return
+  mainWindow?.minimize()
+})
+registerHandle('window:maximize', (event) => {
+  if (!isMainWindowSender(event)) return
   if (mainWindow?.isMaximized()) mainWindow.unmaximize()
   else mainWindow?.maximize()
 })
-ipcMain.handle('window:close', () => {
+registerHandle('window:close', (event, quit = false) => {
+  if (!isMainWindowSender(event)) return false
   allowClose = true
   mainWindow?.close()
+  // 退出应用触发的关闭：窗口已关，继续完成退出（macOS 关窗默认不退出）
+  if (quit === true) setImmediate(() => app.quit())
+  return true
 })
 
 // --- App lifecycle ---
@@ -718,6 +750,12 @@ if (!gotTheLock) {
     })
   })
 }
+
+// 退出应用（macOS Cmd+Q / 菜单退出）时先记录退出意图：
+// 窗口关闭守卫拦截后，渲染进程保存完成会带着该标志回来要求继续退出
+app.on('before-quit', () => {
+  pendingQuit = true
+})
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {

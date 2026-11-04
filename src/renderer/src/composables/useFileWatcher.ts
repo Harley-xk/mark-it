@@ -1,11 +1,12 @@
 import { onUnmounted, watch } from 'vue'
-import { useDocumentsStore, samePath } from '../stores/documents'
+import { useDocumentsStore } from '../stores/documents'
 import { useFile } from './useFile'
+import { normalizePath, samePath } from '../utils/path'
 
 type DiskChange = { path: string; content: string }
 
 function pathKey(filePath: string): string {
-  return filePath.replace(/\\/g, '/').toLowerCase()
+  return normalizePath(filePath)
 }
 
 /**
