@@ -6,25 +6,21 @@
 
 ## 1. 总体流程
 
-```
-推送 v* 标签（或手动触发）
-        │
-        ├─ validate   校验版本号（semver）
-        │
-        ├─ build      matrix 三平台并行构建
-        │             ├─ windows-latest  → NSIS exe + blockmap
-        │             ├─ macos-latest    → dmg + universal zip
-        │             └─ ubuntu-latest   → AppImage + deb
-        │
-        ├─ draft      下载全部产物
-        │             ├─ create-version（同一版本草稿，已存在则复用）
-        │             └─ 逐平台 upload 到 apphub
-        │
-        ├─ publish    自动发布 → 逐平台 verify
-        │
-        └─ github-release
-                     创建 / 更新 vX.Y.Z 的 GitHub Release
-                     并把同一批产物作为 Release 附件上传
+```mermaid
+flowchart TD
+    T["推送 v* 标签（或手动触发）"] --> V["validate<br/>校验版本号（semver）"]
+    V --> B["build<br/>matrix 三平台并行构建"]
+    B --> W["windows-latest<br/>NSIS exe + blockmap"]
+    B --> M["macos-latest<br/>dmg + universal zip"]
+    B --> L["ubuntu-latest<br/>AppImage + deb"]
+    W --> D["draft<br/>下载全部产物"]
+    M --> D
+    L --> D
+    D --> D1["create-version<br/>同一版本草稿，已存在则复用"]
+    D --> D2["逐平台 upload 到 apphub"]
+    D1 --> P["publish<br/>自动发布 → 逐平台 verify"]
+    D2 --> P
+    P --> G["github-release<br/>创建 / 更新 vX.Y.Z 的 GitHub Release<br/>并把同一批产物作为 Release 附件上传"]
 ```
 
 发布没有人工审批环节：草稿上传完成后立即对客户端可见；GitHub Release 在 apphub 发布并验证通过后生成。
@@ -83,20 +79,20 @@ gh workflow run release.yml --ref master \
 
 参数说明：
 
-| 参数 | 必填 | 说明 |
-|---|---|---|
-| `version` | 是（手动触发） | 手动触发时必填；标签触发时取标签名去掉 `v` |
-| `notes` | 否 | 更新说明，留空则按第 3 节规则自动生成 |
-| `force` | 否 | `true` 标记为强制更新 |
-| `replace` | 否 | `true` 时替换已存在的平台包，仅用于重跑同一版本 |
+| 参数      | 必填           | 说明                                            |
+| --------- | -------------- | ----------------------------------------------- |
+| `version` | 是（手动触发） | 手动触发时必填；标签触发时取标签名去掉 `v`      |
+| `notes`   | 否             | 更新说明，留空则按第 3 节规则自动生成           |
+| `force`   | 否             | `true` 标记为强制更新                           |
+| `replace` | 否             | `true` 时替换已存在的平台包，仅用于重跑同一版本 |
 
 ## 5. 流水线阶段与产物
 
-| 平台 | Runner | 构建命令 | 上传到 apphub | 上传到 GitHub Release |
-|---|---|---|---|---|
-| Windows x64 | `windows-latest` | `npm run build:win` | `*-setup.exe` + `.blockmap` | `*-setup.exe` + `.blockmap` |
-| macOS universal | `macos-latest` | `npm run build && electron-builder --mac --universal` | `*-universal.zip` | `.dmg` + `*-universal.zip` + `.blockmap` |
-| Linux x64 | `ubuntu-latest` | `npm run build && electron-builder --linux` | `*.AppImage` + `.blockmap` | `*.AppImage` + `.blockmap` + `.deb` |
+| 平台            | Runner           | 构建命令                                              | 上传到 apphub               | 上传到 GitHub Release                    |
+| --------------- | ---------------- | ----------------------------------------------------- | --------------------------- | ---------------------------------------- |
+| Windows x64     | `windows-latest` | `npm run build:win`                                   | `*-setup.exe` + `.blockmap` | `*-setup.exe` + `.blockmap`              |
+| macOS universal | `macos-latest`   | `npm run build && electron-builder --mac --universal` | `*-universal.zip`           | `.dmg` + `*-universal.zip` + `.blockmap` |
+| Linux x64       | `ubuntu-latest`  | `npm run build && electron-builder --linux`           | `*.AppImage` + `.blockmap`  | `*.AppImage` + `.blockmap` + `.deb`      |
 
 说明：
 
@@ -237,25 +233,25 @@ gh secret set APPHUB_SIGN_SECRET --repo Harley-xk/mark-it
 
 ## 11. 故障排查
 
-| 现象 / 错误码 | 含义 | 处理 |
-|---|---|---|
-| `401 签名校验失败` | 签名密钥缺失或错误 | 检查 `APPHUB_SIGN_SECRET` |
-| `401` 且重登仍失败 | 账号或权限问题 | 核对 `APPHUB_USERNAME` / `APPHUB_PASSWORD` |
-| `300300002` | 版本号非 semver | 修正版本号后重跑 |
-| `300300003` | 通道内版本号重复 | 草稿会自动复用；已发布则递增版本号 |
-| `300300005` | 发布校验失败（无可用包） | 至少一个非 web 平台 upload 成功后再发布 |
-| `300400002` | 平台 / 架构槽位重复 | 重跑时勾选 `replace` |
-| `300400003` | 框架产物缺失 | 检查 electron sha512 与 `latest.yml` 是否一致 |
-| `300400007` | `--replace` 指向的槽位不存在 | 去掉 `replace`，按新增包重传 |
-| `verify` 返回无更新 | 发布未生效 / 通道停用 | 核对版本状态与通道状态后重验 |
-| 构建失败 | 依赖、签名或平台工具问题 | 查看对应 matrix job 日志；mac/linux 首次运行重点关注 |
+| 现象 / 错误码       | 含义                         | 处理                                                 |
+| ------------------- | ---------------------------- | ---------------------------------------------------- |
+| `401 签名校验失败`  | 签名密钥缺失或错误           | 检查 `APPHUB_SIGN_SECRET`                            |
+| `401` 且重登仍失败  | 账号或权限问题               | 核对 `APPHUB_USERNAME` / `APPHUB_PASSWORD`           |
+| `300300002`         | 版本号非 semver              | 修正版本号后重跑                                     |
+| `300300003`         | 通道内版本号重复             | 草稿会自动复用；已发布则递增版本号                   |
+| `300300005`         | 发布校验失败（无可用包）     | 至少一个非 web 平台 upload 成功后再发布              |
+| `300400002`         | 平台 / 架构槽位重复          | 重跑时勾选 `replace`                                 |
+| `300400003`         | 框架产物缺失                 | 检查 electron sha512 与 `latest.yml` 是否一致        |
+| `300400007`         | `--replace` 指向的槽位不存在 | 去掉 `replace`，按新增包重传                         |
+| `verify` 返回无更新 | 发布未生效 / 通道停用        | 核对版本状态与通道状态后重验                         |
+| 构建失败            | 依赖、签名或平台工具问题     | 查看对应 matrix job 日志；mac/linux 首次运行重点关注 |
 
 ## 12. 相关文件
 
-| 文件 | 作用 |
-|---|---|
+| 文件                                                              | 作用                                                               |
+| ----------------------------------------------------------------- | ------------------------------------------------------------------ |
 | [.github/workflows/release.yml](../.github/workflows/release.yml) | 三平台构建、上传 apphub、发布验证、同步 GitHub Release 的 workflow |
-| [scripts/release/apphub.mjs](../scripts/release/apphub.mjs) | apphub 发版 CLI（零依赖） |
-| [.apphub-release.ci.json](../.apphub-release.ci.json) | CI 使用的无凭据配置（baseUrl / appKey / channel） |
-| [electron-builder.yml](../electron-builder.yml) | 三平台打包配置与凭据文件排除 |
-| `.apphub-release.json` | 本地发版凭据（gitignore，不提交） |
+| [scripts/release/apphub.mjs](../scripts/release/apphub.mjs)       | apphub 发版 CLI（零依赖）                                          |
+| [.apphub-release.ci.json](../.apphub-release.ci.json)             | CI 使用的无凭据配置（baseUrl / appKey / channel）                  |
+| [electron-builder.yml](../electron-builder.yml)                   | 三平台打包配置与凭据文件排除                                       |
+| `.apphub-release.json`                                            | 本地发版凭据（gitignore，不提交）                                  |

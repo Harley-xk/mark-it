@@ -61,14 +61,14 @@
 - 自动渲染流程图、序列图、类图、状态图、ER 图、甘特图、旅程图、时间线、思维导图、饼图、Git 分支图、象限图、XY 图、桑基图、雷达图、矩形树图、块图、分组图、需求图、架构图、看板、C4 系列等
 - 代码块语言标记兼容大小写与 `-beta` / `-v2` 后缀，不要求写成 `mermaid`：
 
-| 类别 | 可用语言标记 |
-|------|--------------|
-| 流程图 | `mermaid`、`mmd`、`flowchart`、`flow`、`graph` |
-| 时序 / 类 / 状态 / ER | `sequence`、`sequenceDiagram`、`class`、`classDiagram`、`state`、`stateDiagram`、`stateDiagram-v2`、`er`、`erDiagram` |
-| 计划与时间 | `gantt`、`journey`、`timeline` |
-| 思维导图 / 统计 | `mindmap`、`pie`、`gitGraph`、`quadrantChart` |
-| 数据图表 | `xychart` / `xychart-beta`、`sankey` / `sankey-beta`、`radar` / `radar-beta`、`treemap` / `treemap-beta` |
-| 其他 | `block` / `block-beta`、`packet` / `packet-beta`、`requirementDiagram`、`architecture` / `architecture-beta`、`kanban`、`info`、`C4Context` / `C4Container` / `C4Component` / `C4Dynamic` / `C4Deployment` |
+| 类别                  | 可用语言标记                                                                                                                                                                                               |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 流程图                | `mermaid`、`mmd`、`flowchart`、`flow`、`graph`                                                                                                                                                             |
+| 时序 / 类 / 状态 / ER | `sequence`、`sequenceDiagram`、`class`、`classDiagram`、`state`、`stateDiagram`、`stateDiagram-v2`、`er`、`erDiagram`                                                                                      |
+| 计划与时间            | `gantt`、`journey`、`timeline`                                                                                                                                                                             |
+| 思维导图 / 统计       | `mindmap`、`pie`、`gitGraph`、`quadrantChart`                                                                                                                                                              |
+| 数据图表              | `xychart` / `xychart-beta`、`sankey` / `sankey-beta`、`radar` / `radar-beta`、`treemap` / `treemap-beta`                                                                                                   |
+| 其他                  | `block` / `block-beta`、`packet` / `packet-beta`、`requirementDiagram`、`architecture` / `architecture-beta`、`kanban`、`info`、`C4Context` / `C4Container` / `C4Component` / `C4Dynamic` / `C4Deployment` |
 
 - 图表编辑后即时重新渲染
 - 渲染后的图表支持缩放查看：`−` / `百分比` / `＋` 按钮（25%–400%，点击百分比恢复 100%），也支持 `Ctrl/Cmd + 滚轮` 缩放，超出区域可滚动查看
@@ -91,7 +91,7 @@
 ### PDF 导出
 
 - `Ctrl+P` 打开导出对话框，支持 A4 / Letter 纸张
-- 导出时保留预览样式与已渲染的 Mermaid 图表，带页面背景打印
+- 导出使用独立的浅色打印样式，保留已渲染的 Mermaid 图表，带页面背景打印（不复用预览主题 CSS）
 
 ### 会话恢复
 
@@ -117,6 +117,10 @@
 ## 截图
 
 ![MarkIt 使用手册与实时预览](preview-manual.png)
+
+## 文档
+
+完整工程文档见 [docs/README.md](docs/README.md)，包含架构总览、IPC 契约、状态与数据模型、文件冲突处理、编辑器与预览、Mermaid、PDF 导出、自动更新、构建发布、开发指南与测试策略。
 
 ## 快速开始
 
@@ -163,11 +167,11 @@ npm run build:linux
 
 产物约定：
 
-| 平台 | 架构 | 上传到 apphub | 同时保留 |
-|---|---|---|---|
-| Windows | x64 | NSIS 安装包 + blockmap | — |
-| macOS | universal | zip（自动更新只认 zip） | dmg（首次安装用） |
-| Linux | x64 | AppImage + blockmap | deb |
+| 平台    | 架构      | 上传到 apphub           | 同时保留          |
+| ------- | --------- | ----------------------- | ----------------- |
+| Windows | x64       | NSIS 安装包 + blockmap  | —                 |
+| macOS   | universal | zip（自动更新只认 zip） | dmg（首次安装用） |
+| Linux   | x64       | AppImage + blockmap     | deb               |
 
 发版 CLI 已收进 [scripts/release/apphub.mjs](scripts/release/apphub.mjs)，CI 使用的无凭据配置为 [.apphub-release.ci.json](.apphub-release.ci.json)。本地发版仍可使用仓库根目录下被 gitignore 的 `.apphub-release.json`。
 
@@ -179,15 +183,15 @@ npm run build:linux
 
 ## 技术栈
 
-| 技术 | 用途 |
-|------|------|
-| [Electron](https://www.electronjs.org/) 39 | 跨平台桌面框架 |
+| 技术                                                            | 用途                 |
+| --------------------------------------------------------------- | -------------------- |
+| [Electron](https://www.electronjs.org/) 39                      | 跨平台桌面框架       |
 | [Vue 3](https://vuejs.org/) + [Pinia](https://pinia.vuejs.org/) | 响应式 UI + 状态管理 |
-| [CodeMirror 6](https://codemirror.net/) | 代码编辑器引擎 |
-| [markdown-it](https://github.com/markdown-it/markdown-it) | Markdown 解析 |
-| [Mermaid](https://mermaid.js.org/) | 图表渲染 |
-| [TypeScript](https://www.typescriptlang.org/) | 类型安全 |
-| [electron-vite](https://electron-vite.org/) | 构建工具 |
+| [CodeMirror 6](https://codemirror.net/)                         | 代码编辑器引擎       |
+| [markdown-it](https://github.com/markdown-it/markdown-it)       | Markdown 解析        |
+| [Mermaid](https://mermaid.js.org/)                              | 图表渲染             |
+| [TypeScript](https://www.typescriptlang.org/)                   | 类型安全             |
+| [electron-vite](https://electron-vite.org/)                     | 构建工具             |
 
 ## 项目结构
 
@@ -227,26 +231,26 @@ mark-it/
 
 ## 快捷键
 
-| 快捷键 | 功能 |
-|--------|------|
-| `Ctrl+N` | 新建标签页 |
-| `Ctrl+O` | 打开文件（支持多选） |
-| `Ctrl+S` | 保存文件 |
-| `Ctrl+Shift+S` | 另存为 |
-| `Ctrl+W` | 关闭当前标签页 |
-| `Ctrl+Tab` / `Ctrl+Shift+Tab` | 切换标签页 |
-| `Ctrl+1` ~ `Ctrl+9` | 跳到第 N 个标签页 |
-| `F5` / `Ctrl+R` | 手动刷新（重新读取磁盘上的文件） |
-| `Ctrl+B` | 加粗 |
-| `Ctrl+I` | 斜体 |
-| `Ctrl+K` | 插入链接 |
-| `Ctrl+Shift+K` | 插入代码块 |
-| `Ctrl+Shift+O` | 切换大纲面板 |
-| `Ctrl+\` | 循环切换布局 |
-| `Ctrl+P` | 导出 PDF |
-| `Ctrl+,` | 打开 / 关闭设置 |
-| `Ctrl+=` / `Ctrl+-` / `Ctrl+0` | 整窗放大 / 缩小 / 恢复 100% |
-| `Ctrl` / `Cmd` + 滚轮 | 缩放 Mermaid 图表 |
+| 快捷键                         | 功能                             |
+| ------------------------------ | -------------------------------- |
+| `Ctrl+N`                       | 新建标签页                       |
+| `Ctrl+O`                       | 打开文件（支持多选）             |
+| `Ctrl+S`                       | 保存文件                         |
+| `Ctrl+Shift+S`                 | 另存为                           |
+| `Ctrl+W`                       | 关闭当前标签页                   |
+| `Ctrl+Tab` / `Ctrl+Shift+Tab`  | 切换标签页                       |
+| `Ctrl+1` ~ `Ctrl+9`            | 跳到第 N 个标签页                |
+| `F5` / `Ctrl+R`                | 手动刷新（重新读取磁盘上的文件） |
+| `Ctrl+B`                       | 加粗                             |
+| `Ctrl+I`                       | 斜体                             |
+| `Ctrl+K`                       | 插入链接                         |
+| `Ctrl+Shift+K`                 | 插入代码块                       |
+| `Ctrl+Shift+O`                 | 切换大纲面板                     |
+| `Ctrl+\`                       | 循环切换布局                     |
+| `Ctrl+P`                       | 导出 PDF                         |
+| `Ctrl+,`                       | 打开 / 关闭设置                  |
+| `Ctrl+=` / `Ctrl+-` / `Ctrl+0` | 整窗放大 / 缩小 / 恢复 100%      |
+| `Ctrl` / `Cmd` + 滚轮          | 缩放 Mermaid 图表                |
 
 ## 关于
 
