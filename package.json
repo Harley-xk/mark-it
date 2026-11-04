@@ -4,6 +4,7 @@
   "description": "MarkIt - 轻量 Markdown 编辑器",
   "main": "./out/main/index.js",
   "author": "witice.top",
+  "license": "MIT",
   "homepage": "https://electron-vite.org",
   "scripts": {
     "format": "prettier --write .",
