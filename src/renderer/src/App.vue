@@ -10,12 +10,15 @@ import { useConfirmDialog, resolveConfirm, confirmUnsaved } from './composables/
 import { useDocumentsStore } from './stores/documents'
 import { useUpdateStore } from './stores/update'
 import { useFile } from './composables/useFile'
+import { useFileWatcher } from './composables/useFileWatcher'
 import { useSession } from './composables/useSession'
 
 useOutline()
 useKeyboardShortcuts()
 useScrollbarState()
 useWindowZoom()
+// 活跃标签的磁盘外部变更自动同步；非活跃标签在切换过去时刷新一次
+useFileWatcher()
 // 负责启动时恢复上次打开的文档，并在关闭/更新重启前保存会话
 const { flush: flushSession } = useSession()
 
@@ -23,8 +26,15 @@ const docs = useDocumentsStore()
 const update = useUpdateStore()
 update.init()
 const file = useFile()
-const { showConfirm, confirmTitle, confirmMessage, confirmSaveText, confirmDiscardText } =
-  useConfirmDialog()
+const {
+  showConfirm,
+  confirmTitle,
+  confirmMessage,
+  confirmSaveText,
+  confirmDiscardText,
+  confirmCancelText,
+  confirmDiff
+} = useConfirmDialog()
 
 // macOS Cmd+W 被系统菜单占用，由主进程拦截后转交这里关闭标签页
 window.api.onCloseTabShortcut(() => {
@@ -73,6 +83,8 @@ window.api.update.onInstallRequest(async () => {
     :message="confirmMessage"
     :save-text="confirmSaveText"
     :discard-text="confirmDiscardText"
+    :cancel-text="confirmCancelText"
+    :diff="confirmDiff"
     @save="resolveConfirm('save')"
     @discard="resolveConfirm('discard')"
     @cancel="resolveConfirm('cancel')"

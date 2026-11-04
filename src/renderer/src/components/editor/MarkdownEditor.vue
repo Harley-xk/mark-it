@@ -222,6 +222,36 @@ function refreshMeasure(): void {
   view?.requestMeasure()
 }
 
+/**
+ * 外部载入新内容时只替换真正变化的部分。
+ * 直接全量替换会把光标映射到文档末尾，被动刷新时体验很差；
+ * 按公共前缀/后缀收缩改动范围后，光标与滚动位置基本保持不变。
+ */
+function replaceDocContent(newText: string): void {
+  if (!view) return
+  const oldText = view.state.doc.toString()
+  if (oldText === newText) return
+
+  let start = 0
+  const maxStart = Math.min(oldText.length, newText.length)
+  while (start < maxStart && oldText.charCodeAt(start) === newText.charCodeAt(start)) start += 1
+
+  let oldEnd = oldText.length
+  let newEnd = newText.length
+  while (
+    oldEnd > start &&
+    newEnd > start &&
+    oldText.charCodeAt(oldEnd - 1) === newText.charCodeAt(newEnd - 1)
+  ) {
+    oldEnd -= 1
+    newEnd -= 1
+  }
+
+  view.dispatch({
+    changes: { from: start, to: oldEnd, insert: newText.slice(start, newEnd) }
+  })
+}
+
 onMounted(() => {
   if (!editorRef.value) return
 
@@ -328,9 +358,7 @@ watch(
     if (!view || newVal === undefined || isExternalUpdate) return
     if (newVal !== view.state.doc.toString()) {
       isExternalUpdate = true
-      view.dispatch({
-        changes: { from: 0, to: view.state.doc.length, insert: newVal }
-      })
+      replaceDocContent(newVal)
       isExternalUpdate = false
     }
   }

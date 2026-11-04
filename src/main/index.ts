@@ -2,7 +2,7 @@ import { app, shell, BrowserWindow, ipcMain, dialog, screen, protocol, net } fro
 import { dirname, join } from 'path'
 import { fileURLToPath, pathToFileURL } from 'url'
 import { readFile, writeFile } from 'fs/promises'
-import { existsSync, readFileSync } from 'fs'
+import { existsSync, readFileSync, watchFile, unwatchFile } from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { initAutoUpdater } from './updater'
@@ -216,6 +216,68 @@ async function openFilesAtPaths(filePaths: string[]): Promise<void> {
   }
 }
 
+// --- 活跃文件监视 ---
+
+/** 当前监视的文件：只监视渲染进程活跃标签对应的那一个 */
+let watchedFilePath: string | null = null
+/** 最近一次已知的磁盘内容，用于过滤应用自身保存与无内容变化的 stat 抖动 */
+let watchedContent: string | null = null
+/** 监视切换序号：切换后丢弃旧的异步读取结果 */
+let watchSeq = 0
+/** 外部变更的短防抖：避免读到其他程序尚未写完的中间内容 */
+let externalChangeTimer: ReturnType<typeof setTimeout> | null = null
+
+/** Windows 下路径大小写、分隔符不敏感 */
+function sameFilePath(a: string, b: string): boolean {
+  const normalize = (p: string): string =>
+    (process.platform === 'win32' ? p.toLowerCase() : p).replace(/\\/g, '/')
+  return normalize(a) === normalize(b)
+}
+
+async function pushExternalChange(filePath: string, seq: number): Promise<void> {
+  let content: string
+  try {
+    content = await readFile(filePath, 'utf-8')
+  } catch {
+    // 文件被删除或在保存瞬间暂时不可读：保留编辑器现有内容，等下一次事件
+    return
+  }
+  // 读取期间可能已经切换了监视目标，丢弃过期结果
+  if (seq !== watchSeq || !watchedFilePath || !sameFilePath(filePath, watchedFilePath)) return
+  if (content === watchedContent) return
+  watchedContent = content
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('file:external-change', { path: filePath, content })
+  }
+}
+
+/**
+ * 切换监视目标（传 null 取消）。
+ * 用 watchFile 轮询而不是 fs.watch：编辑器常用的「写临时文件再重命名」
+ * 在 Windows 上会让 fs.watch 丢失目标，watchFile 只关心最终文件的 stat，更可靠。
+ */
+function setWatchedFile(filePath: string | null): void {
+  if (filePath === watchedFilePath) return
+  if (watchedFilePath) unwatchFile(watchedFilePath)
+  if (externalChangeTimer) {
+    clearTimeout(externalChangeTimer)
+    externalChangeTimer = null
+  }
+
+  watchedFilePath = filePath
+  watchedContent = null
+  const seq = ++watchSeq
+  if (!filePath) return
+
+  watchFile(filePath, { interval: 400 }, () => {
+    if (externalChangeTimer) clearTimeout(externalChangeTimer)
+    externalChangeTimer = setTimeout(() => {
+      externalChangeTimer = null
+      void pushExternalChange(filePath, seq)
+    }, 150)
+  })
+}
+
 function createWindow(): void {
   const windowState = loadWindowState()
   const isMac = process.platform === 'darwin'
@@ -314,6 +376,10 @@ function createWindow(): void {
   mainWindow.on('resize', queueSaveWindowState)
   mainWindow.on('move', queueSaveWindowState)
   mainWindow.on('close', saveWindowState)
+  // 窗口销毁后停止监视，避免 macOS 关闭窗口后仍占用文件句柄
+  mainWindow.on('closed', () => {
+    setWatchedFile(null)
+  })
 
   // 窗口关闭前询问渲染进程是否有未保存修改
   mainWindow.on('close', (e) => {
@@ -438,6 +504,8 @@ ipcMain.handle('dialog:openFiles', async () => {
 
 ipcMain.handle('file:save', async (_e, filePath: string, content: string) => {
   await writeFile(filePath, content, 'utf-8')
+  // 应用自身的写入不是外部修改：同步已知版本，避免监视器回环通知
+  if (watchedFilePath && sameFilePath(filePath, watchedFilePath)) watchedContent = content
   return true
 })
 
@@ -449,6 +517,12 @@ ipcMain.handle('file:read', async (_e, filePath: string) => {
     console.error('Failed to read file:', err)
     return null
   }
+})
+
+/** 只监视渲染进程当前活跃标签的文件；切换标签时由渲染进程重新指定 */
+ipcMain.handle('file:watch', (_e, filePath: string | null) => {
+  setWatchedFile(typeof filePath === 'string' && filePath.length > 0 ? filePath : null)
+  return true
 })
 
 /** 在系统文件管理器中定位文件；文件已被删除时退回到所在目录 */
@@ -504,6 +578,8 @@ ipcMain.handle('dialog:saveFile', async (_e, content: string) => {
   })
   if (result.canceled || !result.filePath) return null
   await writeFile(result.filePath, content, 'utf-8')
+  // 另存到正在监视的文件时同样视为自身写入
+  if (watchedFilePath && sameFilePath(result.filePath, watchedFilePath)) watchedContent = content
   return result.filePath
 })
 

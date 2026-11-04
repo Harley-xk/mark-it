@@ -10,6 +10,8 @@ export interface DocumentTab {
   path: string | null
   name: string
   content: string
+  /** 最近一次从磁盘载入 / 保存后的内容，用于判断磁盘是否真的发生了变化 */
+  diskContent: string
   isModified: boolean
   cursorLine: number
   cursorCol: number
@@ -38,6 +40,12 @@ function baseName(filePath: string): string {
 /** Windows 下路径大小写不敏感，统一后用于判断文件是否已打开 */
 function normalizePath(filePath: string): string {
   return filePath.replace(/\\/g, '/').toLowerCase()
+}
+
+/** 判断两个路径是否指向同一个文件（Windows 下大小写、斜杠不敏感） */
+export function samePath(a: string | null, b: string | null): boolean {
+  if (!a || !b) return a === b
+  return normalizePath(a) === normalizePath(b)
 }
 
 function countWords(text: string): number {
@@ -73,6 +81,7 @@ export const useDocumentsStore = defineStore('documents', () => {
       path,
       name: name || (path ? baseName(path) : uniqueUntitledName()),
       content,
+      diskContent: content,
       isModified: false,
       cursorLine: 1,
       cursorCol: 1,
@@ -199,8 +208,11 @@ export const useDocumentsStore = defineStore('documents', () => {
     const doc = getDoc(id)
     if (!doc) return
     doc.content = content
+    doc.diskContent = content
     doc.isModified = false
     doc.wordCount = countWords(content)
+    // 缓存的 EditorState 仍是旧内容；继续使用会让重新激活的标签显示过期文本
+    editorStates.delete(id)
   }
 
   function setCursor(id: string, line: number, col: number): void {
@@ -225,6 +237,7 @@ export const useDocumentsStore = defineStore('documents', () => {
     const doc = getDoc(id)
     if (!doc) return
     doc.isModified = false
+    doc.diskContent = doc.content
     if (filePath) {
       doc.path = filePath
       doc.name = baseName(filePath)

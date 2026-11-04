@@ -1,25 +1,73 @@
-import { useDocumentsStore, type DocumentTab } from '../stores/documents'
+import { useDocumentsStore, samePath, type DocumentTab } from '../stores/documents'
 import { confirmUnsaved } from './useConfirmUnsaved'
 import { whenSessionReady } from './session-ready'
+import { diffLines } from '../utils/text-diff'
 import WELCOME_CONTENT from '../assets/welcome.md?raw'
 
 /** 内置使用手册的标签名 */
 const MANUAL_NAME = '使用手册.md'
 
+/**
+ * 比较内容时忽略换行符差异：编辑器内部统一使用 \n，磁盘文件可能是 CRLF，
+ * 只差换行符时不应被视为外部修改。
+ */
+function sameContent(a: string, b: string): boolean {
+  return a === b || a.replace(/\r\n?/g, '\n') === b.replace(/\r\n?/g, '\n')
+}
+
 export function useFile() {
   const docs = useDocumentsStore()
 
   /**
-   * 保存指定标签页
+   * 保存指定标签页。
+   * 保存前会读取一次磁盘：如果文件已被其他程序修改且本地也有未保存修改，
+   * 参考 VS Code 弹出冲突确认，并列出磁盘版本与本地版本的逐行差异。
+   *
    * @param forceDialog 为 true 时始终弹出"另存为"对话框
-   * @returns 是否保存成功（用户取消另存为返回 false）
+   * @param skipConflictCheck 调用方已经确认过冲突（例如手动刷新时选择了覆盖磁盘）
+   * @returns 是否继续后续操作（用户取消返回 false；选择载入磁盘也算已解决冲突）
    */
-  async function saveDocument(doc: DocumentTab, forceDialog = false): Promise<boolean> {
+  async function saveDocument(
+    doc: DocumentTab,
+    forceDialog = false,
+    skipConflictCheck = false
+  ): Promise<boolean> {
     if (!doc.path || forceDialog) {
       const path = await window.api.saveFileAs(doc.content)
       if (!path) return false
       docs.markSaved(doc.id, path)
       return true
+    }
+
+    if (!skipConflictCheck) {
+      const disk = await window.api.readFile(doc.path)
+      if (disk && sameContent(disk.content, doc.content)) {
+        // 磁盘上的内容已与本地一致（例如外部程序写入了相同内容）：没有冲突
+        docs.markSaved(doc.id)
+        return true
+      }
+      if (disk && !sameContent(disk.content, doc.diskContent)) {
+        if (!doc.isModified) {
+          // 本地没有修改：以磁盘为准，避免用过期内容覆盖外部修改
+          docs.replaceContent(doc.id, disk.content)
+          return true
+        }
+
+        const action = await confirmUnsaved(
+          '文件冲突',
+          `「${doc.name}」在磁盘上已被其他程序修改，本地也有未保存的修改。`,
+          { save: '覆盖磁盘', discard: '载入磁盘' },
+          true,
+          { cancelText: '取消', diff: diffLines(disk.content, doc.content) }
+        )
+
+        if (action === 'cancel') return false
+        if (action === 'discard') {
+          // 放弃本地修改，载入磁盘版本；本次保存不再执行
+          docs.replaceContent(doc.id, disk.content)
+          return true
+        }
+      }
     }
 
     await window.api.saveFile(doc.path, doc.content)
@@ -144,9 +192,59 @@ export function useFile() {
   }
 
   /**
-   * 刷新：重新读取磁盘上的当前文件
-   * - 无未保存修改（或本地内容与磁盘一致）时直接加载最新内容
-   * - 有未保存修改时提示用户谨慎选择：放弃本地修改，或用本地内容覆盖磁盘
+   * 用磁盘上的最新内容协调标签页。
+   * - 磁盘内容与编辑器一致（例如应用自身刚保存、事件晚到）：只同步快照
+   * - 磁盘内容与上次载入的版本一致：没有外部变化，忽略
+   * - 本地没有未保存修改：直接载入磁盘内容
+   * - 本地有未保存修改：自动刷新不打断编辑，保留本地内容；
+   *   等到保存时再检测冲突并展示差异（参考 VS Code）
+   *
+   * @param promptOnConflict 手动刷新（F5）时为 true，立即让用户选择如何处理冲突
+   */
+  async function reconcileDiskContent(
+    doc: DocumentTab,
+    content: string,
+    promptOnConflict: boolean
+  ): Promise<void> {
+    if (sameContent(content, doc.content)) {
+      if (!sameContent(doc.diskContent, content)) docs.markSaved(doc.id)
+      return
+    }
+    if (sameContent(content, doc.diskContent)) return
+
+    if (!doc.isModified) {
+      docs.replaceContent(doc.id, content)
+      return
+    }
+
+    if (!promptOnConflict) return
+
+    const action = await confirmUnsaved(
+      '文件冲突',
+      `「${doc.name}」在磁盘上已被其他程序修改，本地也有未保存的修改。`,
+      { save: '覆盖磁盘', discard: '载入磁盘' },
+      true,
+      { cancelText: '取消', diff: diffLines(content, doc.content) }
+    )
+
+    if (action === 'save') {
+      await saveDocument(doc, false, true)
+    } else if (action === 'discard') {
+      docs.replaceContent(doc.id, content)
+    }
+  }
+
+  /** 处理主进程推送的外部文件变更（仅当前活跃标签对应的文件会被监视） */
+  async function applyExternalContent(change: { path: string; content: string }): Promise<void> {
+    const doc = docs.activeDoc
+    if (!doc?.path || !samePath(doc.path, change.path)) return
+    // 自动刷新不弹窗：有本地修改时保留内容，保存时再处理冲突
+    await reconcileDiskContent(doc, change.content, false)
+  }
+
+  /**
+   * 刷新：手动重新读取磁盘上的当前文件。
+   * 磁盘内容没有变化时不再误报「已被其他程序修改」，仅在本地有修改时询问是否丢弃。
    */
   async function refreshFile(): Promise<void> {
     const doc = docs.activeDoc
@@ -154,23 +252,20 @@ export function useFile() {
     const result = await window.api.readFile(doc.path)
     if (!result) return
 
-    if (doc.isModified && doc.content !== result.content) {
+    if (sameContent(result.content, doc.diskContent)) {
+      if (!doc.isModified) return
       const action = await confirmUnsaved(
-        '刷新文件',
-        '磁盘上的文件已被其他程序修改，而当前编辑内容有未保存的修改：\n\n' +
-          '「放弃修改」将丢弃本地修改，加载磁盘上的最新内容；\n' +
-          '「保存」将用本地内容覆盖磁盘上的修改。',
+        '重新载入',
+        '磁盘上的文件没有变化。是否放弃当前未保存的修改，重新载入磁盘内容？',
         { save: '保存（覆盖磁盘）', discard: '放弃修改（载入磁盘）' },
         true
       )
-      if (action === 'cancel') return
-      if (action === 'save') {
-        await saveDocument(doc)
-        return
-      }
+      if (action === 'save') await saveDocument(doc, false, true)
+      else if (action === 'discard') docs.replaceContent(doc.id, result.content)
+      return
     }
 
-    docs.replaceContent(doc.id, result.content)
+    await reconcileDiskContent(doc, result.content, true)
   }
 
   return {
@@ -184,6 +279,7 @@ export function useFile() {
     closeTab,
     closeTabs,
     refreshFile,
+    applyExternalContent,
     showInFolder
   }
 }

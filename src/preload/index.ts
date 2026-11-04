@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import type { UpdateState } from '../shared/update-types'
 import type { SessionData } from '../shared/session-types'
@@ -12,6 +12,15 @@ const api = {
     ipcRenderer.invoke('dialog:openFiles'),
   saveFile: (path: string, content: string) => ipcRenderer.invoke('file:save', path, content),
   readFile: (path: string) => ipcRenderer.invoke('file:read', path),
+  /** 只监视当前活跃标签对应的磁盘文件；切换标签时传新路径，传 null 取消监视 */
+  watchFile: (path: string | null): Promise<boolean> => ipcRenderer.invoke('file:watch', path),
+  /** 监听磁盘文件被其他程序修改（仅监听的活跃文件） */
+  onExternalFileChange: (callback: (change: { path: string; content: string }) => void) => {
+    const listener = (_e: IpcRendererEvent, change: { path: string; content: string }): void =>
+      callback(change)
+    ipcRenderer.on('file:external-change', listener)
+    return () => ipcRenderer.removeListener('file:external-change', listener)
+  },
   saveFileAs: (content: string) => ipcRenderer.invoke('dialog:saveFile', content),
   /** 在系统文件管理器中定位当前文件 */
   showItemInFolder: (path: string): Promise<boolean> => ipcRenderer.invoke('file:reveal', path),
