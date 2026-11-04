@@ -5,7 +5,7 @@ import { useEditorStore } from '../stores/editor'
 import { useFile } from './useFile'
 import { applyFormatAction, formatActions } from './useFormatActions'
 
-export function useKeyboardShortcuts() {
+export function useKeyboardShortcuts(): void {
   const app = useAppStore()
   const docs = useDocumentsStore()
   const editor = useEditorStore()
@@ -15,7 +15,7 @@ export function useKeyboardShortcuts() {
     return e.ctrlKey || e.metaKey
   }
 
-  function handleKeydown(e: KeyboardEvent) {
+  function handleKeydown(e: KeyboardEvent): void {
     // Ctrl+N: 新建
     if (isCtrl(e) && !e.shiftKey && e.key === 'n') {
       e.preventDefault()

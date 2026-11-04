@@ -3,17 +3,18 @@ import { confirmUnsaved } from './useConfirmUnsaved'
 import { whenSessionReady } from './session-ready'
 import { diffLines } from '../utils/text-diff'
 import { samePath } from '../utils/path'
+import { decodeText, encodeText } from '../utils/text-encoding'
 import WELCOME_CONTENT from '../assets/welcome.md?raw'
 
 /** 内置使用手册的标签名 */
 const MANUAL_NAME = '使用手册.md'
 
 /**
- * 比较内容时忽略换行符差异：编辑器内部统一使用 \n，磁盘文件可能是 CRLF，
- * 只差换行符时不应被视为外部修改。
+ * 比较内容时忽略换行符与 BOM 差异：编辑器内部统一使用 \n，
+ * 磁盘文件可能是 CRLF 或带 BOM，只差这些编码差异时不应被视为外部修改。
  */
 function sameContent(a: string, b: string): boolean {
-  return a === b || a.replace(/\r\n?/g, '\n') === b.replace(/\r\n?/g, '\n')
+  return a === b || decodeText(a).text === decodeText(b).text
 }
 
 interface FileActions {
@@ -53,8 +54,36 @@ export function useFile(): FileActions {
     skipConflictCheck = false
   ): Promise<boolean> {
     if (!doc.path || forceDialog) {
-      const path = await window.api.saveFileAs(doc.content)
+      const path = await window.api.chooseSavePath(doc.name)
       if (!path) return false
+
+      // 写盘时按标签记录的原文件行尾与 BOM 还原，避免编辑后整文件行尾变化
+      const encoded = encodeText(doc.content, doc.eol, doc.bom)
+
+      // 另存为到已打开的文档：合并到已有标签，避免两个标签指向同一文件
+      const existing = docs.docs.find(
+        (item) => item.id !== doc.id && item.path !== null && samePath(item.path, path)
+      )
+      if (existing) {
+        const action = await confirmUnsaved(
+          '另存为',
+          existing.isModified
+            ? `「${path}」已在标签页「${existing.name}」中打开，且该标签有未保存的修改。继续会将当前内容写入该标签并关闭当前标签，已有修改将丢失。`
+            : `「${path}」已在标签页「${existing.name}」中打开。继续会将当前内容写入该标签并关闭当前标签。`,
+          { save: '合并到该标签', discard: '取消' },
+          true
+        )
+        if (action !== 'save') return false
+
+        await window.api.saveFile(path, encoded)
+        docs.replaceContent(existing.id, encoded)
+        docs.markSaved(existing.id)
+        docs.closeDocument(doc.id)
+        docs.activateDocument(existing.id)
+        return true
+      }
+
+      await window.api.saveFile(path, encoded)
       docs.markSaved(doc.id, path)
       return true
     }
@@ -78,7 +107,7 @@ export function useFile(): FileActions {
           `「${doc.name}」在磁盘上已被其他程序修改，本地也有未保存的修改。`,
           { save: '覆盖磁盘', discard: '载入磁盘' },
           true,
-          { cancelText: '取消', diff: diffLines(disk.content, doc.content) }
+          { cancelText: '取消', diff: diffLines(decodeText(disk.content).text, doc.content) }
         )
 
         if (action === 'cancel') return false
@@ -90,7 +119,8 @@ export function useFile(): FileActions {
       }
     }
 
-    await window.api.saveFile(doc.path, doc.content)
+    // 冲突确认可能等待用户操作，写盘前再取一次最新内容
+    await window.api.saveFile(doc.path, encodeText(doc.content, doc.eol, doc.bom))
     docs.markSaved(doc.id)
     return true
   }
@@ -244,7 +274,7 @@ export function useFile(): FileActions {
       `「${doc.name}」在磁盘上已被其他程序修改，本地也有未保存的修改。`,
       { save: '覆盖磁盘', discard: '载入磁盘' },
       true,
-      { cancelText: '取消', diff: diffLines(content, doc.content) }
+      { cancelText: '取消', diff: diffLines(decodeText(content).text, doc.content) }
     )
 
     if (action === 'save') {

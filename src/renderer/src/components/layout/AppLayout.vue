@@ -10,11 +10,12 @@ import EditorPane from '../editor/EditorPane.vue'
 import MarkdownPreview from '../preview/MarkdownPreview.vue'
 import PdfExportDialog from '../export/PdfExportDialog.vue'
 import SettingsDialog from '../settings/SettingsDialog.vue'
+import type { PdfExportOptions } from '../../types'
 
 const app = useAppStore()
-const { exportPdf } = usePdfExport()
+const { exporting, exportPdf } = usePdfExport()
 
-async function onExport(options: any) {
+async function onExport(options: PdfExportOptions): Promise<void> {
   try {
     await exportPdf(options)
   } catch (err) {
@@ -50,7 +51,7 @@ async function onExport(options: any) {
     </div>
     <StatusBar />
     <PdfExportDialog
-      :visible="app.showPdfDialog"
+      :exporting="exporting"
       @close="app.showPdfDialog = false"
       @export="onExport"
     />

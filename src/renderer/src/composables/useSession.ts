@@ -1,7 +1,9 @@
-import { onMounted, watch } from 'vue'
+import { onMounted, onUnmounted, watch } from 'vue'
 import { useDocumentsStore } from '../stores/documents'
+import { useAppStore } from '../stores/app'
 import { useFile } from './useFile'
 import { markSessionReady } from './session-ready'
+import { decodeText } from '../utils/text-encoding'
 import type { SessionData } from '../../../shared/session-types'
 
 const SAVE_DEBOUNCE_MS = 800
@@ -17,6 +19,7 @@ export function useSession(): { flush: () => Promise<void> } {
   if (session) return session
 
   const docs = useDocumentsStore()
+  const app = useAppStore()
   const file = useFile()
 
   /** 会话恢复完成前收到的命令行文件先缓存，避免与恢复结果互相覆盖 */
@@ -32,7 +35,9 @@ export function useSession(): { flush: () => Promise<void> } {
         content: doc.content,
         isModified: doc.isModified,
         cursorLine: doc.cursorLine,
-        cursorCol: doc.cursorCol
+        cursorCol: doc.cursorCol,
+        eol: doc.eol,
+        bom: doc.bom
       })),
       activeIndex: Math.max(
         docs.docs.findIndex((doc) => doc.id === docs.activeId),
@@ -43,8 +48,12 @@ export function useSession(): { flush: () => Promise<void> } {
 
   async function save(): Promise<void> {
     try {
-      await window.api.session.save(snapshot())
+      const saved = await window.api.session.save(snapshot())
+      // 写失败（只读目录 / 磁盘已满）必须可见：状态栏会显示「会话保存失败」
+      app.setSessionSaveFailed(!saved)
+      if (!saved) console.warn('Failed to save session: main process returned false')
     } catch (err) {
+      app.setSessionSaveFailed(true)
       console.error('Failed to save session:', err)
     }
   }
@@ -77,7 +86,10 @@ export function useSession(): { flush: () => Promise<void> } {
           saved.tabs.map(async (tab) => {
             if (!tab.path) return tab
             const fromDisk = await window.api.readFile(tab.path)
-            return fromDisk ? { ...tab, content: fromDisk.content } : tab
+            if (!fromDisk) return tab
+            // 以磁盘内容为准，同时把磁盘当前的换行符 / BOM 策略带回标签
+            const decoded = decodeText(fromDisk.content)
+            return { ...tab, content: decoded.text, eol: decoded.eol, bom: decoded.bom }
           })
         )
         docs.restoreSession(tabs, saved.activeIndex)
@@ -93,10 +105,11 @@ export function useSession(): { flush: () => Promise<void> } {
     }
   }
 
-  window.api.onOpenFile((result) => {
+  const offOpenFile = window.api.onOpenFile((result) => {
     if (restoreDone) file.openFileFromPath(result)
     else pendingOpenFiles.push(result)
   })
+  onUnmounted(offOpenFile)
 
   onMounted(() => {
     void restore()

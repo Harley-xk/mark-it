@@ -6,8 +6,10 @@ import { readFile, writeFile } from 'fs/promises'
 import { existsSync, readFileSync, watchFile, unwatchFile } from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
+import type { PdfExportOptions } from '../shared/pdf-types'
 import { initAutoUpdater } from './updater'
 import { isAppUrl, registerHandle, registerOn } from './ipc-guard'
+import { parseSessionData } from './session-store'
 
 /**
  * 文档内相对路径图片的自定义协议。
@@ -484,6 +486,16 @@ function openLinkExternally(url: string): boolean {
 
 // --- IPC handlers ---
 
+/** 生成保存对话框的默认文件名：只保留文件名部分，剔除非法字符并补齐扩展名 */
+function sanitizeFileName(name: string, extension: string): string {
+  const base = name.split(/[/\\]/).pop() ?? ''
+  // 控制字符在文件名中非法，这里需要显式匹配
+  // eslint-disable-next-line no-control-regex
+  const cleaned = base.replace(/[<>:"/\\|?*\u0000-\u001f]/g, '').trim()
+  if (!cleaned) return `untitled.${extension}`
+  return cleaned.toLowerCase().endsWith(`.${extension}`) ? cleaned : `${cleaned}.${extension}`
+}
+
 /**
  * 窗口控制类通道只接受主窗口调用。
  * 更新窗口共享同一份 preload，若不限制，它也能通过 window:close 绕过关闭守卫。
@@ -573,7 +585,7 @@ registerHandle(
 registerHandle('session:load', async () => {
   try {
     if (!existsSync(sessionFile)) return null
-    return JSON.parse(await readFile(sessionFile, 'utf-8'))
+    return parseSessionData(JSON.parse(await readFile(sessionFile, 'utf-8')))
   } catch (err) {
     console.error('Failed to load session:', err)
     return null
@@ -590,40 +602,41 @@ registerHandle('session:save', async (_e, data: unknown) => {
   }
 })
 
-registerHandle('dialog:saveFile', async (_e, content: string) => {
+/** 只选择另存为路径，不写盘；渲染进程确认目标未被其他标签占用后再调用 file:save */
+registerHandle('dialog:savePath', async (_e, defaultFileName?: string) => {
   const result = await dialog.showSaveDialog(mainWindow!, {
+    defaultPath: sanitizeFileName(defaultFileName || 'untitled.md', 'md'),
     filters: [{ name: 'Markdown', extensions: ['md'] }]
   })
   if (result.canceled || !result.filePath) return null
-  await writeFile(result.filePath, content, 'utf-8')
-  // 另存到正在监视的文件时同样视为自身写入
-  if (watchedFilePath && sameFilePath(result.filePath, watchedFilePath)) watchedContent = content
   return result.filePath
 })
 
-registerHandle(
-  'export:pdf',
-  async (
-    _e,
-    html: string,
-    options: {
-      pageSize: 'A4' | 'Letter'
-      margin: 'narrow' | 'standard' | 'wide'
-      showPageNumbers: boolean
-    }
-  ) => {
-    const result = await dialog.showSaveDialog(mainWindow!, {
-      filters: [{ name: 'PDF', extensions: ['pdf'] }]
-    })
-    if (result.canceled || !result.filePath) return null
+/** 三档页边距对应的打印边距（像素，Electron printToPDF.margins 使用像素） */
+const PDF_MARGIN_PX: Record<PdfExportOptions['margin'], number> = {
+  narrow: 40,
+  standard: 64,
+  wide: 96
+}
 
-    const pdfWin = new BrowserWindow({
-      width: 800,
-      height: 1100,
-      show: false,
-      webPreferences: { sandbox: false }
-    })
+/** 页脚页码占用的额外底部空间，避免页码与正文重叠 */
+const PDF_FOOTER_HEIGHT_PX = 18
 
+registerHandle('export:pdf', async (_e, html: string, options: PdfExportOptions) => {
+  const result = await dialog.showSaveDialog(mainWindow!, {
+    defaultPath: sanitizeFileName(options.fileName || 'untitled.pdf', 'pdf'),
+    filters: [{ name: 'PDF', extensions: ['pdf'] }]
+  })
+  if (result.canceled || !result.filePath) return null
+
+  const pdfWin = new BrowserWindow({
+    width: 800,
+    height: 1100,
+    show: false,
+    webPreferences: { sandbox: false }
+  })
+
+  try {
     await pdfWin.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
     // 等待文档内图片加载完成，避免导出时图片还是空白
     await pdfWin.webContents.executeJavaScript(
@@ -638,17 +651,32 @@ registerHandle(
     )
     await new Promise((r) => setTimeout(r, 1500))
 
-    const sizeMap: Record<string, 'A4' | 'Letter'> = { A4: 'A4', Letter: 'Letter' }
+    const margin = PDF_MARGIN_PX[options.margin] ?? PDF_MARGIN_PX.standard
     const pdf = await pdfWin.webContents.printToPDF({
-      pageSize: sizeMap[options.pageSize] ?? 'A4',
-      printBackground: true
+      pageSize: options.pageSize === 'Letter' ? 'Letter' : 'A4',
+      printBackground: true,
+      margins: {
+        marginType: 'custom',
+        top: margin,
+        bottom: margin + (options.showPageNumbers ? PDF_FOOTER_HEIGHT_PX : 0),
+        left: margin,
+        right: margin
+      },
+      displayHeaderFooter: options.showPageNumbers,
+      headerTemplate: '<span></span>',
+      footerTemplate:
+        '<div style="width:100%;font-size:9px;color:#888;text-align:center;' +
+        'font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',sans-serif;">' +
+        '<span class="pageNumber"></span> / <span class="totalPages"></span></div>'
     })
 
-    pdfWin.close()
     await writeFile(result.filePath, pdf)
     return result.filePath
+  } finally {
+    // 无论成功、取消还是打印异常，都不能残留隐藏窗口
+    if (!pdfWin.isDestroyed()) pdfWin.destroy()
   }
-)
+})
 
 registerHandle('window:is-fullscreen', (event) => {
   if (!isMainWindowSender(event)) return false
@@ -723,6 +751,9 @@ if (!gotTheLock) {
     initAutoUpdater({
       beforeInstall: () => {
         allowClose = true
+      },
+      onInstallFailed: () => {
+        allowClose = false
       },
       getMainWindow: () => mainWindow
     })

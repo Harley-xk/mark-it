@@ -25,7 +25,7 @@ class CliError extends Error {
   }
 }
 
-function fail(message, code) {
+function fail(message) {
   console.error(`✗ ${message}`)
   process.exit(1)
 }
@@ -100,7 +100,9 @@ async function resolveSkillBaseUrl(explicit, configPath) {
     if (baseUrl)
       return String(baseUrl).replace(/\/+$/, '')
   }
-  catch {}
+  catch {
+    // 配置文件不存在或无法解析时使用默认地址
+  }
   return DEFAULT_BASE_URL
 }
 
@@ -220,7 +222,9 @@ async function cmdSelfUpdate(args) {
           await fs.rename(target, backup)
           hadOld = true
         }
-        catch {}
+        catch {
+          // 目标不存在时无需备份
+        }
         try {
           await fs.rename(source, target)
         }

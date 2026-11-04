@@ -14,6 +14,15 @@ const app = useAppStore()
       <span class="status-item">行 {{ editor.cursorLine }}, 列 {{ editor.cursorCol }}</span>
     </div>
     <div class="status-right">
+      <template v-if="app.sessionSaveFailed">
+        <span
+          class="status-item status-warning"
+          title="无法写入会话文件，下次启动可能无法恢复标签页"
+        >
+          会话保存失败
+        </span>
+        <span class="status-sep">|</span>
+      </template>
       <span class="status-item">{{ editor.wordCount }} 字</span>
       <span class="status-sep">|</span>
       <span class="status-item">UTF-8</span>
@@ -51,6 +60,10 @@ const app = useAppStore()
   color: rgba(255, 255, 255, 0.1);
 }
 
+.status-warning {
+  color: #e0a04a;
+}
+
 :global(.light) .status-bar {
   background: #ffffff;
   border-top-color: rgba(0, 0, 0, 0.06);
@@ -59,5 +72,9 @@ const app = useAppStore()
 
 :global(.light) .status-sep {
   color: rgba(0, 0, 0, 0.1);
+}
+
+:global(.light) .status-warning {
+  color: #b45309;
 }
 </style>

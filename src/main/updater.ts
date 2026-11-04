@@ -49,6 +49,7 @@ let state: UpdateState = {
 
 let initialized = false
 let beforeInstall: (() => void) | null = null
+let onInstallFailed: (() => void) | null = null
 let getMainWindow: (() => BrowserWindow | null) | null = null
 /** 更新详情窗口（唯一实例，重复打开时聚焦已有窗口） */
 let updateWindow: BrowserWindow | null = null
@@ -103,8 +104,17 @@ function installUpdate(): boolean {
   if (state.status !== 'downloaded') return false
   // 应用侧关闭守卫会阻止窗口关闭；安装前放行，避免安装器卡住
   beforeInstall?.()
-  setImmediate(() => autoUpdater.quitAndInstall(false, true))
-  return true
+  try {
+    autoUpdater.quitAndInstall(false, true)
+    return true
+  } catch (error) {
+    // 安装启动失败：撤销放行标志并把错误回传给两个窗口，避免静默无反应
+    onInstallFailed?.()
+    const message = error instanceof Error ? error.message : String(error)
+    console.error('Failed to install update:', error)
+    setState({ status: 'error', error: `安装失败：${message}` })
+    return false
+  }
 }
 
 /** 打开（或聚焦）独立的更新详情窗口 */
@@ -211,11 +221,14 @@ function bindEvents(): void {
   })
 
   autoUpdater.on('error', (error) => {
+    // 已进入安装流程后失败：撤销放行标志，避免后续关窗绕过未保存确认
+    const wasInstalling = state.status === 'downloaded'
     if (isNotFoundError(error)) {
       setState({ status: 'not-available', error: undefined })
-      return
+    } else {
+      setState({ status: 'error', error: error?.message ?? String(error) })
     }
-    setState({ status: 'error', error: error?.message ?? String(error) })
+    if (wasInstalling) onInstallFailed?.()
   })
 }
 
@@ -226,12 +239,14 @@ function bindEvents(): void {
 export function initAutoUpdater(
   options: {
     beforeInstall?: () => void
+    onInstallFailed?: () => void
     getMainWindow?: () => BrowserWindow | null
   } = {}
 ): void {
   if (initialized) return
   initialized = true
   beforeInstall = options.beforeInstall ?? null
+  onInstallFailed = options.onInstallFailed ?? null
   getMainWindow = options.getMainWindow ?? null
 
   state = { ...state, currentVersion: app.getVersion(), status: is.dev ? 'disabled' : 'idle' }

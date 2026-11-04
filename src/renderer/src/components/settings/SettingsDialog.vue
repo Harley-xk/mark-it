@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useAppStore } from '../../stores/app'
-import { useStyleStore } from '../../stores/style'
+import { MAX_CUSTOM_STYLE_CHARS, useStyleStore } from '../../stores/style'
 import { useUpdateStore } from '../../stores/update'
 import { saveAllBeforeExit } from '../../composables/useExitGuard'
 import type { ThemeMode } from '../../types'
@@ -82,6 +82,10 @@ function handleFileImport(): void {
     const file = input.files?.[0]
     if (!file) return
     const text = await file.text()
+    if (text.length > MAX_CUSTOM_STYLE_CHARS) {
+      window.alert(`CSS 文件过大，上限为 ${Math.floor(MAX_CUSTOM_STYLE_CHARS / 1000)} KB。`)
+      return
+    }
     const name = file.name.replace(/\.css$/i, '')
     styleStore.addCustomStyle({
       id: `custom-${Date.now()}`,

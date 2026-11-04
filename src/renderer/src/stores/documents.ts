@@ -4,20 +4,26 @@ import type { EditorState } from '@codemirror/state'
 import type { HeadingItem } from '../types'
 import type { SessionTab } from '../../../shared/session-types'
 import { normalizePath } from '../utils/path'
+import { decodeText, normalizeToLf, type LineEnding } from '../utils/text-encoding'
 import WELCOME_CONTENT from '../assets/welcome.md?raw'
 
 export interface DocumentTab {
   id: string
   path: string | null
   name: string
+  /** 编辑器内部内容，统一使用 LF 换行 */
   content: string
-  /** 最近一次从磁盘载入 / 保存后的内容，用于判断磁盘是否真的发生了变化 */
+  /** 最近一次从磁盘载入 / 保存后的内容（LF），用于判断磁盘是否真的发生了变化 */
   diskContent: string
   isModified: boolean
   cursorLine: number
   cursorCol: number
   wordCount: number
   headings: HeadingItem[]
+  /** 原文件换行符；保存时按此还原，避免整文件行尾 diff */
+  eol: LineEnding
+  /** 原文件是否带 UTF-8 BOM；保存时按此还原 */
+  bom: boolean
 }
 
 export interface ScrollPosition {
@@ -65,18 +71,28 @@ export const useDocumentsStore = defineStore('documents', () => {
     return `untitled-${index}.md`
   }
 
-  function createTab(path: string | null, content: string, name?: string): DocumentTab {
+  function createTab(
+    path: string | null,
+    content: string,
+    name?: string,
+    meta?: { eol?: LineEnding; bom?: boolean }
+  ): DocumentTab {
+    // 编辑器内部统一使用 LF；原文件的换行符与 BOM 记在标签上，保存时还原
+    const decoded = decodeText(content)
+    const text = decoded.text
     return {
       id: nextDocId(),
       path,
       name: name || (path ? baseName(path) : uniqueUntitledName()),
-      content,
-      diskContent: content,
+      content: text,
+      diskContent: text,
       isModified: false,
       cursorLine: 1,
       cursorCol: 1,
-      wordCount: countWords(content),
-      headings: []
+      wordCount: countWords(text),
+      headings: [],
+      eol: meta?.eol ?? decoded.eol,
+      bom: meta?.bom ?? decoded.bom
     }
   }
 
@@ -126,10 +142,14 @@ export const useDocumentsStore = defineStore('documents', () => {
     previewScrollPositions.clear()
 
     const restored = tabs.map((tab) => {
-      const doc = createTab(tab.path, tab.content, tab.name)
-      doc.isModified = tab.isModified
-      doc.cursorLine = tab.cursorLine > 0 ? tab.cursorLine : 1
-      doc.cursorCol = tab.cursorCol > 0 ? tab.cursorCol : 1
+      // 会话文件可能来自旧版本或被手工改坏：逐字段兜底，避免恢复时崩溃
+      const path = typeof tab.path === 'string' && tab.path.length > 0 ? tab.path : null
+      const content = typeof tab.content === 'string' ? tab.content : ''
+      const name = typeof tab.name === 'string' && tab.name.length > 0 ? tab.name : undefined
+      const doc = createTab(path, content, name, { eol: tab.eol, bom: tab.bom })
+      doc.isModified = tab.isModified === true
+      doc.cursorLine = typeof tab.cursorLine === 'number' && tab.cursorLine > 0 ? tab.cursorLine : 1
+      doc.cursorCol = typeof tab.cursorCol === 'number' && tab.cursorCol > 0 ? tab.cursorCol : 1
       return doc
     })
 
@@ -187,20 +207,26 @@ export const useDocumentsStore = defineStore('documents', () => {
 
   function updateContent(id: string, content: string): void {
     const doc = getDoc(id)
-    if (!doc || doc.content === content) return
-    doc.content = content
+    if (!doc) return
+    const normalized = normalizeToLf(content)
+    if (doc.content === normalized) return
+    doc.content = normalized
     doc.isModified = true
-    doc.wordCount = countWords(content)
+    doc.wordCount = countWords(normalized)
   }
 
   /** 从磁盘载入内容（刷新 / 外部加载），不标记为已修改 */
   function replaceContent(id: string, content: string): void {
     const doc = getDoc(id)
     if (!doc) return
-    doc.content = content
-    doc.diskContent = content
+    // 磁盘内容可能是 CRLF / 带 BOM：统一为 LF 保存内部内容，并同步原文件的行尾策略
+    const decoded = decodeText(content)
+    doc.content = decoded.text
+    doc.diskContent = decoded.text
+    doc.eol = decoded.eol
+    doc.bom = decoded.bom
     doc.isModified = false
-    doc.wordCount = countWords(content)
+    doc.wordCount = countWords(decoded.text)
     // 缓存的 EditorState 仍是旧内容；继续使用会让重新激活的标签显示过期文本
     editorStates.delete(id)
   }

@@ -1,40 +1,49 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useAppStore } from '../../stores/app'
+import { useDocumentsStore } from '../../stores/documents'
+import type { PdfExportOptions } from '../../types'
+
+const props = defineProps<{ exporting: boolean }>()
 
 const app = useAppStore()
+const documents = useDocumentsStore()
 
 const emit = defineEmits<{
   close: []
-  export: [
-    options: {
-      pageSize: 'A4' | 'Letter'
-      margin: 'narrow' | 'standard' | 'wide'
-      showPageNumbers: boolean
-    }
-  ]
+  export: [options: PdfExportOptions]
 }>()
 
 const pageSize = ref<'A4' | 'Letter'>('A4')
 const margin = ref<'narrow' | 'standard' | 'wide'>('standard')
 const showPageNumbers = ref(true)
+const showToc = ref(false)
+
+/** 默认文件名取自当前文档名，避免用户在保存对话框里重新输入 */
+function defaultFileName(): string {
+  const name = documents.activeDoc?.name || 'untitled.md'
+  return `${name.replace(/\.(md|markdown|txt)$/i, '')}.pdf`
+}
 
 function handleExport(): void {
+  if (props.exporting) return
   emit('export', {
     pageSize: pageSize.value,
     margin: margin.value,
-    showPageNumbers: showPageNumbers.value
+    showPageNumbers: showPageNumbers.value,
+    showToc: showToc.value,
+    fileName: defaultFileName()
   })
 }
 </script>
 
 <template>
   <Teleport to="body">
-    <div v-if="app.showPdfDialog" class="dialog-overlay" @click.self="emit('close')">
+    <div v-if="app.showPdfDialog" class="dialog-overlay" @click.self="!exporting && emit('close')">
       <div class="dialog" :class="app.resolvedTheme">
         <div class="dialog-header">
           <h3>导出 PDF</h3>
-          <button class="dialog-close" @click="emit('close')">
+          <button class="dialog-close" :disabled="exporting" @click="emit('close')">
             <svg
               width="14"
               height="14"
@@ -68,10 +77,19 @@ function handleExport(): void {
             <input type="checkbox" v-model="showPageNumbers" />
             <span>显示页码</span>
           </label>
+          <label class="field checkbox-field">
+            <input type="checkbox" v-model="showToc" />
+            <span>生成目录</span>
+          </label>
+          <p class="export-hint">PDF 使用独立的浅色打印样式，不随预览主题变化。</p>
         </div>
         <div class="dialog-footer">
-          <button class="btn btn-secondary" @click="emit('close')">取消</button>
-          <button class="btn btn-primary" @click="handleExport">导出</button>
+          <button class="btn btn-secondary" :disabled="exporting" @click="emit('close')">
+            取消
+          </button>
+          <button class="btn btn-primary" :disabled="exporting" @click="handleExport">
+            {{ exporting ? '导出中…' : '导出' }}
+          </button>
         </div>
       </div>
     </div>
@@ -165,6 +183,23 @@ function handleExport(): void {
 
 .checkbox-field input[type='checkbox'] {
   accent-color: #6c9bff;
+}
+
+.export-hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.42);
+}
+
+.dialog.light .export-hint {
+  color: rgba(0, 0, 0, 0.45);
+}
+
+.btn:disabled,
+.dialog-close:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .dialog-footer {

@@ -19,10 +19,4 @@ export interface PreviewStyle {
   isBuiltin: boolean
 }
 
-export interface PdfExportOptions {
-  pageSize: 'A4' | 'Letter'
-  margin: 'narrow' | 'standard' | 'wide'
-  showPageNumbers: boolean
-  showToc: boolean
-  fileName: string
-}
+export type { PdfExportOptions, PdfPageSize, PdfMargin } from '../../../shared/pdf-types'

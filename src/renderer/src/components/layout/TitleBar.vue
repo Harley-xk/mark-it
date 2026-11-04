@@ -1,17 +1,23 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, onUnmounted, ref } from 'vue'
 import TabBar from './TabBar.vue'
 
 // Windows 的系统窗口按钮以 overlay 形式绘制在右上角，需预留宽度；
 // macOS 的交通灯在左上角，改为左侧留白
 const platform = window.api.platform
 const isFullscreen = ref(false)
+let offFullscreen: (() => void) | null = null
 
 onMounted(async () => {
   isFullscreen.value = await window.api.isFullscreen()
-  window.api.onFullscreenChange((value) => {
+  offFullscreen = window.api.onFullscreenChange((value) => {
     isFullscreen.value = value
   })
+})
+
+onUnmounted(() => {
+  offFullscreen?.()
+  offFullscreen = null
 })
 </script>
 

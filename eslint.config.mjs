@@ -22,6 +22,14 @@ export default defineConfig(
     }
   },
   {
+    // 构建 / 发布脚本：CommonJS 钩子必须用 require，且不要求逐函数标注返回类型
+    files: ['scripts/**/*.{js,cjs,mjs}'],
+    rules: {
+      '@typescript-eslint/no-require-imports': 'off',
+      '@typescript-eslint/explicit-function-return-type': 'off'
+    }
+  },
+  {
     files: ['**/*.{ts,mts,tsx,vue}'],
     rules: {
       'vue/require-default-prop': 'off',

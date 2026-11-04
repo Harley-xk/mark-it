@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { onUnmounted } from 'vue'
 import AppLayout from './components/layout/AppLayout.vue'
 import ConfirmDialog from './components/common/ConfirmDialog.vue'
 import UpdateNotice from './components/update/UpdateNotice.vue'
@@ -36,22 +37,30 @@ const {
 } = useConfirmDialog()
 
 // macOS Cmd+W 被系统菜单占用，由主进程拦截后转交这里关闭标签页
-window.api.onCloseTabShortcut(() => {
+const offCloseTabShortcut = window.api.onCloseTabShortcut(() => {
   file.closeTab()
 })
 
 // 监听窗口关闭请求：逐个检查所有标签页的未保存修改。
 // quit 表示本次关闭来自退出应用（Cmd+Q / 菜单退出），保存完成后需要真正退出
-window.api.onCloseRequest(async ({ quit }) => {
+const offCloseRequest = window.api.onCloseRequest(async ({ quit }) => {
   if (!(await saveAllBeforeExit('关闭窗口'))) return
   // 销毁 close 监听器后真正关闭
   await window.api.close(quit)
 })
 
 // 更新详情窗口请求安装：先处理未保存内容，再由主进程退出安装
-window.api.update.onInstallRequest(async () => {
+const offInstallRequest = window.api.update.onInstallRequest(async () => {
   if (!(await saveAllBeforeExit('安装更新'))) return
   await update.install()
+})
+
+// HMR / 重复挂载时注销监听，避免同一事件被处理多次
+onUnmounted(() => {
+  offCloseTabShortcut()
+  offCloseRequest()
+  offInstallRequest()
+  update.dispose()
 })
 </script>
 

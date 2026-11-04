@@ -13,6 +13,7 @@ import {
 import { parseFrontmatter, renderFrontmatterTable } from '../../utils/frontmatter'
 import { saveDiagram, serializeSvg } from '../../utils/diagram-export'
 import { installLocalImageRule, resolveImageSrc, resolveLocalPath } from '../../utils/local-image'
+import { installHeadingAnchors } from '../../utils/headings'
 import DiagramPreviewModal from './DiagramPreviewModal.vue'
 import MarkdownIt from 'markdown-it'
 
@@ -43,18 +44,9 @@ const md = new MarkdownIt({
 // 相对路径图片按当前文档所在目录解析（通过 markit-file 协议读取本地文件）
 installLocalImageRule(md, () => documentsStore.activeDoc?.path)
 
-// 为标题赋予与大纲解析器（useOutline）一致的顺序锚点 id（heading-0, heading-1, ...），
-// 大纲面板点击时通过 document.getElementById 定位滚动
-md.core.ruler.push('heading_anchor_ids', (state) => {
-  let index = 0
-  for (const token of state.tokens) {
-    if (token.type === 'heading_open') {
-      token.attrSet('id', `heading-${index}`)
-      index++
-    }
-  }
-  return true
-})
+// 为标题赋予与大纲解析器（useOutline、parseHeadings）一致的顺序锚点 id
+// （heading-0, heading-1, ...），大纲面板点击时通过 document.getElementById 定位滚动
+installHeadingAnchors(md)
 
 const renderedHtml = computed(() => {
   const { entries, body } = parseFrontmatter(editorStore.content)

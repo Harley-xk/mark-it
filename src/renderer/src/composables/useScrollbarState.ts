@@ -12,11 +12,14 @@
  * 3. 窗口失焦 / 鼠标离开窗口时清除
  */
 
+import { onUnmounted } from 'vue'
+
 const ACTIVE_CLASS = 'sb-active'
 const SCROLLING_CLASS = 'sb-scrolling'
 const SCROLL_FADE_MS = 1000
 
 let installed = false
+let offCursorPos: (() => void) | null = null
 let activeEl: HTMLElement | null = null
 const fadeTimers = new WeakMap<HTMLElement, ReturnType<typeof setTimeout>>()
 
@@ -89,5 +92,16 @@ export function useScrollbarState(): void {
   document.addEventListener('mouseout', onMouseOut)
   document.addEventListener('scroll', onScroll, true)
   window.addEventListener('blur', onBlur)
-  window.api.onCursorPos(onCursorPos)
+  offCursorPos = window.api.onCursorPos(onCursorPos)
+
+  onUnmounted(() => {
+    document.removeEventListener('mousemove', onMouseMove)
+    document.removeEventListener('mouseout', onMouseOut)
+    document.removeEventListener('scroll', onScroll, true)
+    window.removeEventListener('blur', onBlur)
+    offCursorPos?.()
+    offCursorPos = null
+    installed = false
+    setActive(null)
+  })
 }

@@ -53,6 +53,8 @@ export const useAppStore = defineStore('app', () => {
   const isModified = computed(() => documents.activeDoc?.isModified ?? false)
   const showPdfDialog = ref(false)
   const showSettingsDialog = ref(false)
+  /** 会话写盘失败（只读目录 / 磁盘已满等），状态栏据此给出可见提示 */
+  const sessionSaveFailed = ref(false)
   // 整窗缩放比例由主进程维护，这里仅用于状态栏展示
   const zoomFactor = ref(1)
   const zoomPercent = computed(() => Math.round(zoomFactor.value * 100))
@@ -95,11 +97,11 @@ export const useAppStore = defineStore('app', () => {
     localStorage.setItem('markit-preview-width', String(w))
   })
 
-  function setLayoutMode(mode: LayoutMode) {
+  function setLayoutMode(mode: LayoutMode): void {
     layoutMode.value = mode
   }
 
-  function cycleLayout() {
+  function cycleLayout(): void {
     const modes: LayoutMode[] = ['edit-left', 'edit-right', 'edit-only', 'preview-only']
     const idx = modes.indexOf(layoutMode.value)
     layoutMode.value = modes[(idx + 1) % modes.length]
@@ -115,8 +117,12 @@ export const useAppStore = defineStore('app', () => {
     themeMode.value = modes[(idx + 1) % modes.length]
   }
 
-  function toggleOutline() {
+  function toggleOutline(): void {
     showOutline.value = !showOutline.value
+  }
+
+  function setSessionSaveFailed(failed: boolean): void {
+    sessionSaveFailed.value = failed
   }
 
   return {
@@ -133,6 +139,7 @@ export const useAppStore = defineStore('app', () => {
     isModified,
     showPdfDialog,
     showSettingsDialog,
+    sessionSaveFailed,
     zoomFactor,
     zoomPercent,
     isSplitMode,
@@ -142,6 +149,7 @@ export const useAppStore = defineStore('app', () => {
     cycleLayout,
     setThemeMode,
     cycleTheme,
-    toggleOutline
+    toggleOutline,
+    setSessionSaveFailed
   }
 })

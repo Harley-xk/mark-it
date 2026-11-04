@@ -20,23 +20,23 @@ export const useEditorStore = defineStore('editor', () => {
   const headings = computed<HeadingItem[]>(() => documents.activeDoc?.headings ?? [])
 
   /** 编辑器内输入：更新当前标签内容并标记为已修改 */
-  function setContent(val: string) {
+  function setContent(val: string): void {
     if (documents.activeDoc) documents.updateContent(documents.activeDoc.id, val)
   }
 
-  function setCursor(line: number, col: number) {
+  function setCursor(line: number, col: number): void {
     if (documents.activeDoc) documents.setCursor(documents.activeDoc.id, line, col)
   }
 
-  function setHeadings(items: HeadingItem[]) {
+  function setHeadings(items: HeadingItem[]): void {
     if (documents.activeDoc) documents.setHeadings(documents.activeDoc.id, items)
   }
 
-  function setWordCount(count: number) {
+  function setWordCount(count: number): void {
     if (documents.activeDoc) documents.setWordCount(documents.activeDoc.id, count)
   }
 
-  function setEditorView(view: EditorView | null) {
+  function setEditorView(view: EditorView | null): void {
     editorView.value = view
   }
 

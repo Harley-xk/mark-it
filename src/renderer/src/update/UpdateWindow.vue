@@ -68,6 +68,7 @@ onMounted(() => {
 onUnmounted(() => {
   mediaQuery.removeEventListener('change', resolveTheme)
   window.removeEventListener('storage', resolveTheme)
+  update.dispose()
 })
 </script>
 

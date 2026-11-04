@@ -1,19 +1,65 @@
-import { ref } from 'vue'
+import { ref, type Ref } from 'vue'
 import { useEditorStore } from '../stores/editor'
 import { useDocumentsStore } from '../stores/documents'
 import { useAppStore } from '../stores/app'
 import { collectMermaidBlocks } from '../utils/mermaid'
 import { parseFrontmatter, renderFrontmatterTable } from '../utils/frontmatter'
 import { installLocalImageRule } from '../utils/local-image'
+import { installHeadingAnchors, parseHeadings, type ParsedHeading } from '../utils/headings'
 import MarkdownIt from 'markdown-it'
+import type { PdfExportOptions } from '../types'
 
-export function usePdfExport() {
+interface UsePdfExport {
+  exporting: Ref<boolean>
+  exportPdf: (options: PdfExportOptions) => Promise<void>
+}
+
+function escapeHtml(text: string): string {
+  return text.replace(/[&<>"']/g, (char) => {
+    switch (char) {
+      case '&':
+        return '&amp;'
+      case '<':
+        return '&lt;'
+      case '>':
+        return '&gt;'
+      case '"':
+        return '&quot;'
+      default:
+        return '&#39;'
+    }
+  })
+}
+
+/** 生成 PDF 目录；锚点由 installHeadingAnchors 注入，阅读器可据此跳转 */
+function renderToc(headings: ParsedHeading[]): string {
+  if (headings.length === 0) return ''
+
+  const items = headings
+    .map(
+      (heading) =>
+        `<li class="toc-level-${heading.level}"><a href="#${heading.id}">` +
+        `${escapeHtml(heading.text)}</a></li>`
+    )
+    .join('')
+
+  return (
+    '<nav class="pdf-toc">' +
+    '<div class="pdf-toc-title">目录</div>' +
+    `<ul>${items}</ul>` +
+    '</nav>'
+  )
+}
+
+export function usePdfExport(): UsePdfExport {
   const editor = useEditorStore()
   const documents = useDocumentsStore()
   const app = useAppStore()
   const exporting = ref(false)
 
   const md = new MarkdownIt({ html: true, linkify: true, breaks: true })
+  // 与预览一致：标题按文档顺序注入 heading-N 锚点
+  installHeadingAnchors(md)
 
   // 与预览一致：相对路径图片按当前文档目录解析
   installLocalImageRule(md, () => documents.activeDoc?.path)
@@ -48,7 +94,7 @@ export function usePdfExport() {
           div.style.margin = '1em 0'
           parent.replaceWith(div)
         } catch {
-          // skip failed mermaid blocks
+          // 单块失败时保留原始代码块（P2 R-21 再补可见降级提示）
         }
       }
     } catch {
@@ -58,17 +104,16 @@ export function usePdfExport() {
     return container.innerHTML
   }
 
-  async function exportPdf(options: {
-    pageSize: 'A4' | 'Letter'
-    margin: 'narrow' | 'standard' | 'wide'
-    showPageNumbers: boolean
-  }) {
+  async function exportPdf(options: PdfExportOptions): Promise<void> {
+    // 防重入：导出期间忽略再次触发（对话框同时会禁用按钮）
+    if (exporting.value) return
     exporting.value = true
     try {
       // 与预览保持一致：frontmatter 渲染为文档信息表格，不输出原始 YAML
       const { entries, body } = parseFrontmatter(editor.content)
       const frontmatter = entries.length > 0 ? renderFrontmatterTable(entries) : ''
-      let htmlBody = frontmatter + md.render(body)
+      const toc = options.showToc ? renderToc(parseHeadings(body)) : ''
+      let htmlBody = toc + frontmatter + md.render(body)
       htmlBody = await renderMermaidToSvg(htmlBody)
 
       const html = `<!DOCTYPE html>
@@ -76,7 +121,7 @@ export function usePdfExport() {
 <head>
 <meta charset="utf-8">
 <style>
-  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; color: #222; line-height: 1.7; padding: 40px; max-width: 100%; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; color: #222; line-height: 1.7; margin: 0; padding: 0; max-width: 100%; }
   h1 { font-size: 2em; border-bottom: 1px solid #ddd; padding-bottom: 0.3em; }
   h2 { font-size: 1.5em; border-bottom: 1px solid #eee; padding-bottom: 0.2em; }
   h3 { font-size: 1.25em; }
@@ -90,6 +135,15 @@ export function usePdfExport() {
   .frontmatter-title { font-size: 12px; color: #666; margin-bottom: 6px; }
   .frontmatter-table .fm-key { width: 160px; color: #555; font-family: Consolas, monospace; font-size: 12px; }
   .frontmatter-table .fm-value { white-space: pre-wrap; word-break: break-word; }
+  .pdf-toc { break-after: page; }
+  .pdf-toc-title { font-size: 18px; font-weight: 600; margin-bottom: 12px; }
+  .pdf-toc ul { list-style: none; padding: 0; margin: 0; }
+  .pdf-toc li { margin: 3px 0; font-size: 13px; }
+  .pdf-toc .toc-level-2 { padding-left: 16px; }
+  .pdf-toc .toc-level-3 { padding-left: 32px; }
+  .pdf-toc .toc-level-4 { padding-left: 48px; }
+  .pdf-toc .toc-level-5 { padding-left: 64px; }
+  .pdf-toc .toc-level-6 { padding-left: 80px; }
   img { max-width: 100%; }
   a { color: #0366d6; }
   svg { max-width: 100%; height: auto; }

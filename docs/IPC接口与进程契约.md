@@ -46,6 +46,8 @@
 
 - [`src/shared/session-types.ts`](../src/shared/session-types.ts)：`SessionTab`、`SessionData`
 - [`src/shared/update-types.ts`](../src/shared/update-types.ts)：`UpdateStatus`、`UpdateProgress`、`UpdateState`
+- [`src/shared/file-types.ts`](../src/shared/file-types.ts)：`FileReadResult`
+- [`src/shared/pdf-types.ts`](../src/shared/pdf-types.ts)：`PdfExportOptions`、`PdfPageSize`、`PdfMargin`
 
 不得在 `src/shared` 中引入 `electron`、`node:*`、Vue、Pinia 等运行时依赖。
 
@@ -77,9 +79,9 @@
 
 | 通道名             | 方向       | preload 方法                           | 参数                                                                | 返回值                                         | 主进程处理位置                                  | 备注                                                                              |
 | ------------------ | ---------- | -------------------------------------- | ------------------------------------------------------------------- | ---------------------------------------------- | ----------------------------------------------- | --------------------------------------------------------------------------------- |
-| `dialog:openFiles` | R→M invoke | `openFiles()`                          | 无                                                                  | `Promise<{ path: string; content: string }[]>` | [`src/main/index.ts:505`](../src/main/index.ts) | 多选；过滤 `md` / `markdown` / `txt`；用户取消返回 `[]`；单个文件读取失败会被跳过 |
-| `dialog:saveFile`  | R→M invoke | `saveFileAs(content)`                  | `content: string`                                                   | `Promise<string \| null>`                      | [`src/main/index.ts:593`](../src/main/index.ts) | 另存为；过滤 `md`；取消返回 `null`；写到当前监视文件时同样同步 `watchedContent`   |
-| `dialog:saveImage` | R→M invoke | `saveImage(fileName, data, extension)` | `fileName: string`, `data: Uint8Array`, `extension: 'svg' \| 'png'` | `Promise<string \| null>`                      | [`src/main/index.ts:560`](../src/main/index.ts) | 预览区 Mermaid 图表下载；写 `Buffer.from(data)`；取消返回 `null`                  |
+| `dialog:openFiles` | R→M invoke | `openFiles()`                          | 无                                                                  | `Promise<{ path: string; content: string }[]>` | [`src/main/index.ts`](../src/main/index.ts) | 多选；过滤 `md` / `markdown` / `txt`；用户取消返回 `[]`；单个文件读取失败会被跳过 |
+| `dialog:savePath`  | R→M invoke | `chooseSavePath(defaultFileName?)`     | `defaultFileName?: string`                                          | `Promise<string \| null>`                      | [`src/main/index.ts`](../src/main/index.ts) | **只选择路径，不写盘**；默认文件名清洗非法字符；取消返回 `null`；调用方确认无重复标签后走 `file:save` |
+| `dialog:saveImage` | R→M invoke | `saveImage(fileName, data, extension)` | `fileName: string`, `data: Uint8Array`, `extension: 'svg' \| 'png'` | `Promise<string \| null>`                      | [`src/main/index.ts`](../src/main/index.ts) | 预览区 Mermaid 图表下载；写 `Buffer.from(data)`；取消返回 `null`                  |
 
 ### 3.3 窗口与系统
 
@@ -103,7 +105,7 @@
 
 | 通道名       | 方向       | preload 方法               | 参数                                                                                                                          | 返回值                    | 主进程处理位置                                  | 备注                                                                                                                                            |
 | ------------ | ---------- | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ------------------------- | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `export:pdf` | R→M invoke | `exportPdf(html, options)` | `html: string`；`options: { pageSize: 'A4' \| 'Letter'; margin: 'narrow' \| 'standard' \| 'wide'; showPageNumbers: boolean }` | `Promise<string \| null>` | [`src/main/index.ts:605`](../src/main/index.ts) | 渲染进程生成自包含 HTML；主进程用隐藏 `BrowserWindow` 等待图片加载后 `printToPDF`；取消返回 `null`；**`margin` / `showPageNumbers` 目前未实现** |
+| `export:pdf` | R→M invoke | `exportPdf(html, options)` | `html: string`；`options: PdfExportOptions`（`pageSize`、`margin`、`showPageNumbers`、`showToc`、`fileName`） | `Promise<string \| null>` | [`src/main/index.ts`](../src/main/index.ts) | 渲染进程生成自包含 HTML；主进程用隐藏 `BrowserWindow` 等待图片加载后 `printToPDF`；`margins` / 页码 / 默认文件名均已生效；取消返回 `null`；`finally` 销毁隐藏窗口 |
 
 ### 3.6 更新
 
@@ -132,7 +134,7 @@
 | `update:state`           | M→R send | `update.onState(cb)`          | `UpdateState`                          | 更新状态任意变化                           | [`src/main/updater.ts:63`](../src/main/updater.ts)                              | **广播给所有窗口**（主窗口 + 更新窗口）                      |
 | `update:install-request` | M→R send | `update.onInstallRequest(cb)` | 无                                     | 更新窗口请求安装                           | [`src/main/updater.ts:159`](../src/main/updater.ts)                             | 只发给主窗口；主窗口负责处理未保存内容                       |
 
-> 生命周期差异：只有 `onExternalFileChange` 返回取消函数；其余 `on*` 方法均直接把监听器挂在 `ipcRenderer` 上，不提供注销入口。
+> 生命周期：所有 `on*` / `update.on*` 方法都返回取消函数（`() => ipcRenderer.removeListener(...)`）。调用方应在 `onUnmounted` 或模块级 dispose 中调用，避免 HMR / 重复挂载时监听累积。`onOpenFile` 额外承担发送 `renderer:ready` 的职责，注销函数只移除监听，不会重复发送。
 
 ## 4. 入参与返回类型
 
@@ -144,10 +146,12 @@
 | ------------- | ---------------------- | ------------------------------------------- |
 | `SessionTab`  | `path: string \| null` | 文件绝对路径；从未保存过的新建文档为 `null` |
 |               | `name: string`         | 标签显示名                                  |
-|               | `content: string`      | 关闭时的内容（可能是未保存内容）            |
+|               | `content: string`      | 关闭时的内容（统一 LF，可能含未保存内容）   |
 |               | `isModified: boolean`  | 是否有未保存修改                            |
 |               | `cursorLine: number`   | 1 基光标行                                  |
 |               | `cursorCol: number`    | 1 基光标列                                  |
+|               | `eol?: '\n' \| '\r\n'` | 原文件换行符；旧会话缺失时按 LF 处理        |
+|               | `bom?: boolean`        | 原文件是否带 UTF-8 BOM；旧会话按 false 处理 |
 | `SessionData` | `tabs: SessionTab[]`   | 全部标签，顺序即标签栏顺序                  |
 |               | `activeIndex: number`  | 激活标签在 `tabs` 中的下标                  |
 
@@ -169,9 +173,10 @@
 | ------------------- | ---------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
 | `{ path, content }` | `dialog:openFiles` 返回、`file:read` 返回、`open-file-from-argv`、`file:external-change` | `path: string`、`content: string`                                                                    |
 | 图片保存参数        | `dialog:saveImage`                                                                       | `fileName: string`、`data: Uint8Array`、`extension: 'svg' \| 'png'`                                  |
-| PDF 选项            | `export:pdf`                                                                             | `pageSize: 'A4' \| 'Letter'`、`margin: 'narrow' \| 'standard' \| 'wide'`、`showPageNumbers: boolean` |
+| PDF 选项            | `export:pdf`                                                                             | `PdfExportOptions`（[`src/shared/pdf-types.ts`](../src/shared/pdf-types.ts)）：`pageSize`、`margin`、`showPageNumbers`、`showToc`、`fileName` |
+| 文件读取结果        | `dialog:openFiles` 返回、`file:read` 返回、`open-file-from-argv`、`file:external-change` | `FileReadResult`（[`src/shared/file-types.ts`](../src/shared/file-types.ts)）：`path`、`content` |
 
-> 注意：`export:pdf` 的选项类型在 [`src/preload/index.ts`](../src/preload/index.ts) 中内联重复声明了一份，未使用 [`src/renderer/src/types/index.ts`](../src/renderer/src/types/index.ts) 的 `PdfExportOptions`。新增字段时需同步这三处。
+> `PdfExportOptions` 与 `FileReadResult` 都放在 `src/shared`，preload、主进程与渲染进程共用同一份声明，不再维护内联重复类型。新增字段时改共享类型即可，类型检查会覆盖三处调用。
 
 ## 5. 关键契约与约束
 
@@ -181,7 +186,7 @@
 2. `file:watch` 传入 `null`（或空串）取消监视；卸载 `useFileWatcher` 时也会主动取消。
 3. 使用 `fs.watchFile` 轮询（400ms）而非 `fs.watch`：Windows 上「写临时文件再重命名」会让 `fs.watch` 丢失目标。
 4. 监视事件先做 150ms 短防抖，避免读到其他程序尚未写完的中间内容。
-5. 读取后比对 `content === watchedContent`，相同则**不推送**；应用自身 `file:save` / `dialog:saveFile` 写盘时会同步 `watchedContent`，因此**保存不会产生回环事件**。
+5. 读取后比对 `content === watchedContent`，相同则**不推送**；应用自身 `file:save` 写盘时会同步 `watchedContent`（另存为也走 `file:save`），因此**保存不会产生回环事件**。
 6. 读取期间切换了监视目标（`watchSeq` 变化）或路径已不匹配时，丢弃过期结果。
 7. 渲染进程侧还有两道防线：`useFileWatcher` 的 `switchSeq`（切换标签序号）与 `generations`（每个文件的代次），丢弃晚到的旧读取结果。
 
@@ -221,14 +226,18 @@
 
 ### 5.6 会话读写容错
 
-| 场景                               | 行为                                                             |
-| ---------------------------------- | ---------------------------------------------------------------- |
-| `session.json` 不存在              | `session:load` 返回 `null`                                       |
-| JSON 解析失败 / 读取异常           | 记录 `console.error`，返回 `null`                                |
-| 写入失败                           | 记录 `console.error`，返回 `false`                               |
-| 渲染进程恢复时 `tabs` 非数组或为空 | 保持现有标签页不变                                               |
-| 恢复时某个 `path` 读取失败         | 回退使用会话中保存的 `content`                                   |
-| 恢复时 `path` 读取成功             | **以磁盘内容为准**覆盖会话内容（应用关闭期间文件可能被外部修改） |
+| 场景                                        | 行为                                                                 |
+| ------------------------------------------- | -------------------------------------------------------------------- |
+| `session.json` 不存在                       | `session:load` 返回 `null`                                           |
+| JSON 解析失败 / 读取异常                    | 记录 `console.error`，返回 `null`                                    |
+| 顶层不是对象 / `tabs` 非数组                | `parseSessionData` 返回 `null`，保持现有标签页                       |
+| 单个 tab 字段缺失或类型不符                 | 逐字段兜底：`path` 非字符串转 `null`、`content` 非字符串丢弃该 tab、`cursor*` 取正数、`eol` 取 `\n` / `\r\n`、`bom` 取布尔 |
+| `tabs` 为空数组                             | 返回 `null`，不替换标签                                              |
+| `activeIndex` 越界 / 非数字                 | 收敛到 `0..tabs.length - 1`                                          |
+| 写入失败                                    | 记录 `console.error`，返回 `false`；渲染进程在状态栏显示「会话保存失败」 |
+| 渲染进程恢复时 `tabs` 非数组或为空          | 保持现有标签页不变                                                   |
+| 恢复时某个 `path` 读取失败                  | 回退使用会话中保存的 `content`                                       |
+| 恢复时 `path` 读取成功                      | **以磁盘内容为准**覆盖会话内容，并同步磁盘当前的行尾 / BOM 策略     |
 
 ### 5.7 启动就绪与排队
 
@@ -340,7 +349,7 @@ sequenceDiagram
         loop 每个 isModified 标签
             W->>W: confirmUnsaved（保存 / 放弃 / 取消）
             alt 选择保存
-                W->>M: invoke('file:save' 或 'dialog:saveFile')
+                W->>M: invoke('file:save')（另存为先 chooseSavePath）
             else 取消
                 W->>W: 中止安装
             end

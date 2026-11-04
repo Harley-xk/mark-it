@@ -13,6 +13,7 @@ export const useUpdateStore = defineStore('update', () => {
   /** 用户选择「跳过」的版本，同一版本不再自动弹出（进度事件会持续刷新状态） */
   const dismissedVersion = ref<string | null>(null)
   let initialized = false
+  let offState: (() => void) | null = null
 
   const isBusy = computed(
     () => state.value.status === 'checking' || state.value.status === 'downloading'
@@ -36,8 +37,15 @@ export const useUpdateStore = defineStore('update', () => {
   function init(): void {
     if (initialized) return
     initialized = true
-    window.api.update.onState(apply)
+    offState = window.api.update.onState(apply)
     window.api.update.getState().then(apply)
+  }
+
+  /** 注销主进程状态监听（HMR / 组件卸载时调用，避免重复处理） */
+  function dispose(): void {
+    offState?.()
+    offState = null
+    initialized = false
   }
 
   async function check(): Promise<void> {
@@ -80,6 +88,7 @@ export const useUpdateStore = defineStore('update', () => {
     isBusy,
     hasUpdate,
     init,
+    dispose,
     check,
     download,
     install,

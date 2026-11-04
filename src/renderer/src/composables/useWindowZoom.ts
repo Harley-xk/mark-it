@@ -1,4 +1,4 @@
-import { onMounted } from 'vue'
+import { onMounted, onUnmounted } from 'vue'
 import { useAppStore } from '../stores/app'
 
 /**
@@ -7,11 +7,17 @@ import { useAppStore } from '../stores/app'
  */
 export function useWindowZoom(): void {
   const app = useAppStore()
+  let offZoomChange: (() => void) | null = null
 
   onMounted(async () => {
-    window.api.onZoomChange((factor) => {
+    offZoomChange = window.api.onZoomChange((factor) => {
       app.zoomFactor = factor
     })
     app.zoomFactor = await window.api.getZoom()
+  })
+
+  onUnmounted(() => {
+    offZoomChange?.()
+    offZoomChange = null
   })
 }

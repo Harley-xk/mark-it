@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { EditorView } from '@codemirror/view'
 import { useAppStore } from '../../stores/app'
 import { useEditorStore } from '../../stores/editor'
+import type { HeadingItem } from '../../types'
 
 type FlatHeading = { id: string; level: number; text: string; line: number }
 
@@ -13,7 +14,7 @@ const flatHeadings = computed(() => {
   return flattenHeadings(editorStore.headings)
 })
 
-function flattenHeadings(items: { id: string; level: number; text: string; line: number; children: any[] }[]): FlatHeading[] {
+function flattenHeadings(items: HeadingItem[]): FlatHeading[] {
   const result: FlatHeading[] = []
   for (const item of items) {
     result.push({ id: item.id, level: item.level, text: item.text, line: item.line })

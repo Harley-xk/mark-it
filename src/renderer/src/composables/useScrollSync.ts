@@ -4,10 +4,18 @@ import type { EditorView } from '@codemirror/view'
 const scrollRegistry = {
   editorView: null as EditorView | null,
   previewEl: null as HTMLElement | null,
-  isSyncing: false,
+  isSyncing: false
 }
 
-export function useScrollSync() {
+interface UseScrollSync {
+  suspendSync: () => void
+  registerEditor: (view: EditorView) => void
+  unregisterEditor: () => void
+  registerPreview: (el: HTMLElement) => void
+  unregisterPreview: () => void
+}
+
+export function useScrollSync(): UseScrollSync {
   // 每个组件实例只登记/注销自己注册的元素。布局切换时新旧实例的挂载/卸载
   // 顺序不固定（预览还要等异步渲染完成后才注册），注销时若无条件清空全局
   // 登记，会把另一个实例刚注册的元素一并清掉——表现为切换一次布局后
@@ -15,7 +23,7 @@ export function useScrollSync() {
   let registeredView: EditorView | null = null
   let registeredPreview: HTMLElement | null = null
 
-  function onEditorScroll() {
+  function onEditorScroll(): void {
     if (scrollRegistry.isSyncing || !scrollRegistry.previewEl || !scrollRegistry.editorView) return
     scrollRegistry.isSyncing = true
     const editorDOM = scrollRegistry.editorView.scrollDOM
@@ -28,7 +36,7 @@ export function useScrollSync() {
     requestAnimationFrame(() => { scrollRegistry.isSyncing = false })
   }
 
-  function onPreviewScroll() {
+  function onPreviewScroll(): void {
     if (scrollRegistry.isSyncing || !scrollRegistry.editorView || !scrollRegistry.previewEl) return
     scrollRegistry.isSyncing = true
     const editorDOM = scrollRegistry.editorView.scrollDOM
@@ -53,7 +61,7 @@ export function useScrollSync() {
     })
   }
 
-  function registerEditor(view: EditorView) {
+  function registerEditor(view: EditorView): void {
     if (registeredView && registeredView !== view) {
       registeredView.scrollDOM.removeEventListener('scroll', onEditorScroll)
     }
@@ -62,7 +70,7 @@ export function useScrollSync() {
     view.scrollDOM.addEventListener('scroll', onEditorScroll, { passive: true })
   }
 
-  function unregisterEditor() {
+  function unregisterEditor(): void {
     if (!registeredView) return
     registeredView.scrollDOM.removeEventListener('scroll', onEditorScroll)
     // 只有全局登记仍指向本实例时才清空，避免误伤更新的实例
@@ -70,7 +78,7 @@ export function useScrollSync() {
     registeredView = null
   }
 
-  function registerPreview(el: HTMLElement) {
+  function registerPreview(el: HTMLElement): void {
     if (registeredPreview && registeredPreview !== el) {
       registeredPreview.removeEventListener('scroll', onPreviewScroll)
     }
@@ -79,7 +87,7 @@ export function useScrollSync() {
     el.addEventListener('scroll', onPreviewScroll, { passive: true })
   }
 
-  function unregisterPreview() {
+  function unregisterPreview(): void {
     if (!registeredPreview) return
     registeredPreview.removeEventListener('scroll', onPreviewScroll)
     if (scrollRegistry.previewEl === registeredPreview) scrollRegistry.previewEl = null
