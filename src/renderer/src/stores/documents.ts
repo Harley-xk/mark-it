@@ -238,11 +238,6 @@ export const useDocumentsStore = defineStore('documents', () => {
     doc.cursorCol = col
   }
 
-  function setWordCount(id: string, count: number): void {
-    const doc = getDoc(id)
-    if (doc) doc.wordCount = count
-  }
-
   function setHeadings(id: string, headings: HeadingItem[]): void {
     const doc = getDoc(id)
     if (doc) doc.headings = headings
@@ -305,7 +300,6 @@ export const useDocumentsStore = defineStore('documents', () => {
     updateContent,
     replaceContent,
     setCursor,
-    setWordCount,
     setHeadings,
     markSaved,
     setEditorState,

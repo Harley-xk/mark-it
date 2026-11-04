@@ -2,3 +2,6 @@ singleQuote: true
 semi: false
 printWidth: 100
 trailingComma: none
+# 行尾由 .gitattributes 统一为 LF；工作区可能是 CRLF（core.autocrlf），
+# 这里保留文件现状，避免 Windows 开发时产生大量行尾告警
+endOfLine: auto

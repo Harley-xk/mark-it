@@ -2,7 +2,7 @@ import { ref, type Ref } from 'vue'
 import { useEditorStore } from '../stores/editor'
 import { useDocumentsStore } from '../stores/documents'
 import { useAppStore } from '../stores/app'
-import { collectMermaidBlocks } from '../utils/mermaid'
+import { collectMermaidBlocks, formatMermaidError } from '../utils/mermaid'
 import { parseFrontmatter, renderFrontmatterTable } from '../utils/frontmatter'
 import { installLocalImageRule } from '../utils/local-image'
 import { installHeadingAnchors, parseHeadings, type ParsedHeading } from '../utils/headings'
@@ -89,16 +89,22 @@ export function usePdfExport(): UsePdfExport {
         try {
           const { svg } = await mermaid.render(id, code)
           const div = document.createElement('div')
+          div.className = 'mermaid-container'
           div.innerHTML = svg
-          div.style.textAlign = 'center'
-          div.style.margin = '1em 0'
           parent.replaceWith(div)
-        } catch {
-          // 单块失败时保留原始代码块（P2 R-21 再补可见降级提示）
+        } catch (err) {
+          // 单块失败：保留原始代码块，并追加可见提示，避免用户不知道图为何丢失
+          console.error('Failed to render Mermaid in PDF:', err)
+          const notice = document.createElement('div')
+          notice.className = 'mermaid-error'
+          notice.textContent = `图表渲染失败：${formatMermaidError(err)}`
+          parent.classList.add('mermaid-error-source')
+          parent.after(notice)
         }
       }
-    } catch {
-      // mermaid not available
+    } catch (err) {
+      // 动态导入或初始化失败：所有图表退化为代码块，同时保留日志便于排查
+      console.error('Failed to initialize Mermaid for PDF:', err)
     }
 
     return container.innerHTML
@@ -147,6 +153,15 @@ export function usePdfExport(): UsePdfExport {
   img { max-width: 100%; }
   a { color: #0366d6; }
   svg { max-width: 100%; height: auto; }
+  .mermaid-container { text-align: center; margin: 1em 0; break-inside: avoid; page-break-inside: avoid; }
+  .mermaid-error { margin: 0.5em 0 1em; padding: 6px 10px; border-left: 3px solid #d9534f; background: #fdf2f2; color: #a94442; font-size: 12px; }
+  .mermaid-error-source { opacity: 0.75; }
+  /* 分页控制：标题后不孤行，段落保留首尾行，表格按行与表头分页 */
+  h1, h2, h3, h4, h5, h6 { break-after: avoid; page-break-after: avoid; }
+  p { orphans: 3; widows: 3; }
+  pre, blockquote, img { break-inside: avoid; page-break-inside: avoid; }
+  thead { display: table-header-group; }
+  tr { break-inside: avoid; page-break-inside: avoid; }
 </style>
 </head>
 <body>${htmlBody}</body>

@@ -18,6 +18,13 @@ function subscribeVoid(channel: string, callback: () => void): () => void {
   return () => ipcRenderer.removeListener(channel, listener)
 }
 
+/**
+ * renderer:ready 只需上报一次。
+ * 页面重载会重新执行 preload，标志随模块重新初始化，
+ * 因此不会漏报新页面；同一页面重复注册监听也不会重复放行排队文件。
+ */
+let rendererReadyNotified = false
+
 const api = {
   /** 当前运行平台（渲染进程用于给系统窗口按钮留位） */
   platform: process.platform,
@@ -47,8 +54,6 @@ const api = {
   ): Promise<string | null> => ipcRenderer.invoke('dialog:saveImage', fileName, data, extension),
   exportPdf: (html: string, options: PdfExportOptions): Promise<string | null> =>
     ipcRenderer.invoke('export:pdf', html, options),
-  minimize: (): Promise<void> => ipcRenderer.invoke('window:minimize'),
-  maximize: (): Promise<void> => ipcRenderer.invoke('window:maximize'),
   /** 关闭主窗口；quit 为 true 表示这是在完成 Cmd+Q / 菜单退出 */
   close: (quit = false): Promise<boolean> => ipcRenderer.invoke('window:close', quit),
   isFullscreen: (): Promise<boolean> => ipcRenderer.invoke('window:is-fullscreen'),
@@ -68,7 +73,10 @@ const api = {
     const off = subscribe<FileReadResult>('open-file-from-argv', callback)
     // 监听注册完成后再通知主进程放行排队的文件；
     // 不能用 did-finish-load 判断就绪：该事件触发时 isLoading() 仍可能为 true
-    ipcRenderer.send('renderer:ready')
+    if (!rendererReadyNotified) {
+      rendererReadyNotified = true
+      ipcRenderer.send('renderer:ready')
+    }
     return off
   },
   /** 监听窗口关闭请求（主进程 close 事件）；quit 表示本次关闭来自退出应用 */

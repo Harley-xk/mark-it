@@ -1,0 +1,21 @@
+# 仓库统一以 LF 存入；Windows 工作区由 git 按此规则检出，避免行尾抖动
+* text=auto eol=lf
+
+# 二进制资源不做行尾转换
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.bmp binary
+*.ico binary
+*.icns binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+*.zip binary
+*.exe binary
+*.dmg binary
+*.AppImage binary
+*.appimage binary

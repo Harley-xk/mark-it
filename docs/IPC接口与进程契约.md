@@ -32,11 +32,11 @@
 
 新增或修改 IPC 必须同时改三处，任何一处缺失都会造成「调用无响应」或「类型通过但运行时失败」：
 
-| 顺序 | 位置                                                  | 职责                                                                                     |
-| ---- | ----------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| 顺序 | 位置                                                                                 | 职责                                                                                     |
+| ---- | ------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------- |
 | 1    | 主进程 `registerHandle` / `registerOn`（[`ipc-guard.ts`](../src/main/ipc-guard.ts)） | 校验调用来源、注册通道、校验入参、执行副作用、返回结果                                   |
-| 2    | [`src/preload/index.ts`](../src/preload/index.ts)     | `ipcRenderer.invoke`（请求-响应）或 `ipcRenderer.send` / `ipcRenderer.on`（单向 / 事件） |
-| 3    | [`src/preload/index.d.ts`](../src/preload/index.d.ts) | `Window.api: ExposedAPI` 类型契约                                                        |
+| 2    | [`src/preload/index.ts`](../src/preload/index.ts)                                    | `ipcRenderer.invoke`（请求-响应）或 `ipcRenderer.send` / `ipcRenderer.on`（单向 / 事件） |
+| 3    | [`src/preload/index.d.ts`](../src/preload/index.d.ts)                                | `Window.api: ExposedAPI` 类型契约                                                        |
 
 第 3 处当前通过 `export type ExposedAPI = typeof api` 从 preload 的 `api` 对象自动派生，因此**不需要手写方法签名**；但仍必须保证 preload 的方法名、参数顺序、返回值与主进程一致，并在 preload 中显式标注返回类型（`ipcRenderer.invoke` 的返回值默认是 `any`，不标注会丢失类型检查）。
 
@@ -55,10 +55,10 @@
 
 | 方向                                  | 数量   | 说明                                                                             |
 | ------------------------------------- | ------ | -------------------------------------------------------------------------------- |
-| renderer → main `invoke`（请求-响应） | 22     | 文件 4、对话框 3、窗口 5、系统 1（`shell:openExternal`）、会话 2、导出 1、更新 6 |
+| renderer → main `invoke`（请求-响应） | 20     | 文件 4、对话框 3、窗口 3、系统 1（`shell:openExternal`）、会话 2、导出 1、更新 6 |
 | renderer → main `send`（单向）        | 2      | `renderer:ready`、`update:close-window`                                          |
 | main → renderer `send`（事件推送）    | 9      | 见 3.7                                                                           |
-| **合计**                              | **33** | 全部经 `window.api` 白名单暴露                                                    |
+| **合计**                              | **31** | 全部经 `window.api` 白名单暴露                                                   |
 
 > 计数口径：按 `registerHandle` / `registerOn` / `webContents.send` 中实际出现的通道名去重统计。`window:zoom-changed` 在两个位置发送但只算一个通道。
 
@@ -77,22 +77,20 @@
 
 ### 3.2 对话框
 
-| 通道名             | 方向       | preload 方法                           | 参数                                                                | 返回值                                         | 主进程处理位置                                  | 备注                                                                              |
-| ------------------ | ---------- | -------------------------------------- | ------------------------------------------------------------------- | ---------------------------------------------- | ----------------------------------------------- | --------------------------------------------------------------------------------- |
-| `dialog:openFiles` | R→M invoke | `openFiles()`                          | 无                                                                  | `Promise<{ path: string; content: string }[]>` | [`src/main/index.ts`](../src/main/index.ts) | 多选；过滤 `md` / `markdown` / `txt`；用户取消返回 `[]`；单个文件读取失败会被跳过 |
+| 通道名             | 方向       | preload 方法                           | 参数                                                                | 返回值                                         | 主进程处理位置                              | 备注                                                                                                  |
+| ------------------ | ---------- | -------------------------------------- | ------------------------------------------------------------------- | ---------------------------------------------- | ------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `dialog:openFiles` | R→M invoke | `openFiles()`                          | 无                                                                  | `Promise<{ path: string; content: string }[]>` | [`src/main/index.ts`](../src/main/index.ts) | 多选；过滤 `md` / `markdown` / `txt`；用户取消返回 `[]`；单个文件读取失败会被跳过                     |
 | `dialog:savePath`  | R→M invoke | `chooseSavePath(defaultFileName?)`     | `defaultFileName?: string`                                          | `Promise<string \| null>`                      | [`src/main/index.ts`](../src/main/index.ts) | **只选择路径，不写盘**；默认文件名清洗非法字符；取消返回 `null`；调用方确认无重复标签后走 `file:save` |
-| `dialog:saveImage` | R→M invoke | `saveImage(fileName, data, extension)` | `fileName: string`, `data: Uint8Array`, `extension: 'svg' \| 'png'` | `Promise<string \| null>`                      | [`src/main/index.ts`](../src/main/index.ts) | 预览区 Mermaid 图表下载；写 `Buffer.from(data)`；取消返回 `null`                  |
+| `dialog:saveImage` | R→M invoke | `saveImage(fileName, data, extension)` | `fileName: string`, `data: Uint8Array`, `extension: 'svg' \| 'png'` | `Promise<string \| null>`                      | [`src/main/index.ts`](../src/main/index.ts) | 预览区 Mermaid 图表下载；写 `Buffer.from(data)`；取消返回 `null`                                      |
 
 ### 3.3 窗口与系统
 
-| 通道名                 | 方向       | preload 方法        | 参数          | 返回值             | 主进程处理位置                                  | 备注                                                                                  |
-| ---------------------- | ---------- | ------------------- | ------------- | ------------------ | ----------------------------------------------- | ------------------------------------------------------------------------------------- |
-| `window:minimize`      | R→M invoke | `minimize()`        | 无            | `Promise<void>`    | [`src/main/index.ts:661`](../src/main/index.ts) | 最小化主窗口；**仅接受主窗口调用**；当前渲染进程无调用点（Windows 使用系统按钮 overlay） |
-| `window:maximize`      | R→M invoke | `maximize()`        | 无            | `Promise<void>`    | [`src/main/index.ts:665`](../src/main/index.ts) | **切换语义**：已最大化则还原，否则最大化；**仅接受主窗口调用**；当前渲染进程无调用点     |
-| `window:close`         | R→M invoke | `close(quit?)`      | `quit?: boolean` | `Promise<boolean>` | [`src/main/index.ts:670`](../src/main/index.ts) | 先置 `allowClose = true` 再关闭，**绕过窗口关闭守卫**；调用前必须已完成未保存内容确认。`quit = true` 表示在完成 Cmd+Q / 菜单退出，关窗后继续 `app.quit()`；**仅接受主窗口调用** |
-| `window:is-fullscreen` | R→M invoke | `isFullscreen()`    | 无            | `Promise<boolean>` | [`src/main/index.ts:653`](../src/main/index.ts) | 标题栏据此决定是否给系统按钮留位；**仅接受主窗口调用**                                |
-| `window:get-zoom`      | R→M invoke | `getZoom()`         | 无            | `Promise<number>`  | [`src/main/index.ts:657`](../src/main/index.ts) | 返回主进程维护的 `currentZoomFactor`（1 = 100%）；**仅接受主窗口调用**                |
-| `shell:openExternal`   | R→M invoke | `openExternal(url)` | `url: string` | `Promise<boolean>` | [`src/main/index.ts:553`](../src/main/index.ts) | 仅放行 `http` / `https` / `mailto`；`file:` 转为定位文件；其余协议忽略并返回 `false`  |
+| 通道名                 | 方向       | preload 方法        | 参数             | 返回值             | 主进程处理位置                                  | 备注                                                                                                                                                                            |
+| ---------------------- | ---------- | ------------------- | ---------------- | ------------------ | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `window:close`         | R→M invoke | `close(quit?)`      | `quit?: boolean` | `Promise<boolean>` | [`src/main/index.ts`](../src/main/index.ts)     | 先置 `allowClose = true` 再关闭，**绕过窗口关闭守卫**；调用前必须已完成未保存内容确认。`quit = true` 表示在完成 Cmd+Q / 菜单退出，关窗后继续 `app.quit()`；**仅接受主窗口调用** |
+| `window:is-fullscreen` | R→M invoke | `isFullscreen()`    | 无               | `Promise<boolean>` | [`src/main/index.ts:653`](../src/main/index.ts) | 标题栏据此决定是否给系统按钮留位；**仅接受主窗口调用**                                                                                                                          |
+| `window:get-zoom`      | R→M invoke | `getZoom()`         | 无               | `Promise<number>`  | [`src/main/index.ts:657`](../src/main/index.ts) | 返回主进程维护的 `currentZoomFactor`（1 = 100%）；**仅接受主窗口调用**                                                                                                          |
+| `shell:openExternal`   | R→M invoke | `openExternal(url)` | `url: string`    | `Promise<boolean>` | [`src/main/index.ts:553`](../src/main/index.ts) | 仅放行 `http` / `https` / `mailto`；`file:` 转为定位文件；其余协议忽略并返回 `false`                                                                                            |
 
 ### 3.4 会话
 
@@ -103,38 +101,38 @@
 
 ### 3.5 导出
 
-| 通道名       | 方向       | preload 方法               | 参数                                                                                                                          | 返回值                    | 主进程处理位置                                  | 备注                                                                                                                                            |
-| ------------ | ---------- | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ------------------------- | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| 通道名       | 方向       | preload 方法               | 参数                                                                                                          | 返回值                    | 主进程处理位置                              | 备注                                                                                                                                                              |
+| ------------ | ---------- | -------------------------- | ------------------------------------------------------------------------------------------------------------- | ------------------------- | ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `export:pdf` | R→M invoke | `exportPdf(html, options)` | `html: string`；`options: PdfExportOptions`（`pageSize`、`margin`、`showPageNumbers`、`showToc`、`fileName`） | `Promise<string \| null>` | [`src/main/index.ts`](../src/main/index.ts) | 渲染进程生成自包含 HTML；主进程用隐藏 `BrowserWindow` 等待图片加载后 `printToPDF`；`margins` / 页码 / 默认文件名均已生效；取消返回 `null`；`finally` 销毁隐藏窗口 |
 
 ### 3.6 更新
 
-| 通道名                   | 方向       | preload 方法              | 参数 | 返回值                 | 主进程处理位置                                      | 备注                                                                                                        |
-| ------------------------ | ---------- | ------------------------- | ---- | ---------------------- | --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `update:get-state`       | R→M invoke | `update.getState()`       | 无   | `Promise<UpdateState>` | [`src/main/updater.ts:244`](../src/main/updater.ts) | 读取主进程内存中的当前状态                                                                                  |
-| `update:check`           | R→M invoke | `update.check()`          | 无   | `Promise<UpdateState>` | [`src/main/updater.ts:245`](../src/main/updater.ts) | `disabled` / `checking` / `downloading` 直接返回现状；404 按「无更新」容错                                  |
-| `update:download`        | R→M invoke | `update.download()`       | 无   | `Promise<UpdateState>` | [`src/main/updater.ts:246`](../src/main/updater.ts) | 仅在 `available` / `error` 状态执行，其余原样返回                                                           |
+| 通道名                   | 方向       | preload 方法              | 参数 | 返回值                 | 主进程处理位置                                      | 备注                                                                                                                                                      |
+| ------------------------ | ---------- | ------------------------- | ---- | ---------------------- | --------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `update:get-state`       | R→M invoke | `update.getState()`       | 无   | `Promise<UpdateState>` | [`src/main/updater.ts:244`](../src/main/updater.ts) | 读取主进程内存中的当前状态                                                                                                                                |
+| `update:check`           | R→M invoke | `update.check()`          | 无   | `Promise<UpdateState>` | [`src/main/updater.ts:245`](../src/main/updater.ts) | `disabled` / `checking` / `downloading` 直接返回现状；404 按「无更新」容错                                                                                |
+| `update:download`        | R→M invoke | `update.download()`       | 无   | `Promise<UpdateState>` | [`src/main/updater.ts:246`](../src/main/updater.ts) | 仅在 `available` / `error` 状态执行，其余原样返回                                                                                                         |
 | `update:install`         | R→M invoke | `update.install()`        | 无   | `Promise<boolean>`     | [`src/main/updater.ts:249`](../src/main/updater.ts) | **只接受主窗口调用**（必须先完成未保存确认）；仅在 `downloaded` 状态执行；`beforeInstall()` 放行关闭守卫；`setImmediate` 调 `quitAndInstall(false, true)` |
-| `update:open-window`     | R→M invoke | `update.openWindow()`     | 无   | `Promise<void>`        | [`src/main/updater.ts:254`](../src/main/updater.ts) | 打开或聚焦单例「更新详情」窗口（560×680，无边框）                                                           |
-| `update:close-window`    | R→M send   | `update.closeWindow()`    | 无   | 无返回值               | [`src/main/updater.ts:257`](../src/main/updater.ts) | 只关闭 `event.sender` 所在窗口，**主窗口调用会被忽略**（防止绕过关闭守卫）；用 `send` 避免 `invoke` 的回复随窗口销毁丢失 |
-| `update:request-install` | R→M invoke | `update.requestInstall()` | 无   | `Promise<boolean>`     | [`src/main/updater.ts:263`](../src/main/updater.ts) | **只接受更新窗口调用**；仅 `downloaded` 状态生效，向主窗口推送 `update:install-request`                       |
+| `update:open-window`     | R→M invoke | `update.openWindow()`     | 无   | `Promise<void>`        | [`src/main/updater.ts:254`](../src/main/updater.ts) | 打开或聚焦单例「更新详情」窗口（560×680，无边框）                                                                                                         |
+| `update:close-window`    | R→M send   | `update.closeWindow()`    | 无   | 无返回值               | [`src/main/updater.ts:257`](../src/main/updater.ts) | 只关闭 `event.sender` 所在窗口，**主窗口调用会被忽略**（防止绕过关闭守卫）；用 `send` 避免 `invoke` 的回复随窗口销毁丢失                                  |
+| `update:request-install` | R→M invoke | `update.requestInstall()` | 无   | `Promise<boolean>`     | [`src/main/updater.ts:263`](../src/main/updater.ts) | **只接受更新窗口调用**；仅 `downloaded` 状态生效，向主窗口推送 `update:install-request`                                                                   |
 
 ### 3.7 事件推送（main → renderer）
 
-| 通道名                   | 方向     | preload 方法                  | 载荷                                   | 触发时机                                   | 发送位置                                                                        | 备注                                                         |
-| ------------------------ | -------- | ----------------------------- | -------------------------------------- | ------------------------------------------ | ------------------------------------------------------------------------------- | ------------------------------------------------------------ |
-| `open-file-from-argv`    | M→R send | `onOpenFile(cb)`              | `{ path: string; content: string }`    | 启动命令行参数 / 二次启动转发              | [`src/main/index.ts:211`](../src/main/index.ts)                                 | 渲染进程未就绪时先排队                                       |
-| `renderer:ready`         | R→M send | `onOpenFile` 内部自动发送     | 无                                     | 渲染进程注册 `open-file-from-argv` 监听后  | [`src/main/index.ts:499`](../src/main/index.ts)                                 | 主进程置 `rendererReady = true` 并放行 `pendingFilePaths`    |
-| `file:external-change`   | M→R send | `onExternalFileChange(cb)`    | `{ path: string; content: string }`    | 监视文件内容真实变化                       | [`src/main/index.ts:255`](../src/main/index.ts)                                 | 只在内容与 `watchedContent` 不同时发送；**返回取消监听函数** |
-| `window:zoom-changed`    | M→R send | `onZoomChange(cb)`            | `number`（缩放比例）                   | 应用缩放、页面加载完成恢复缩放             | [`src/main/index.ts:160`](../src/main/index.ts)、[`:437`](../src/main/index.ts) | 页面重载会重置缩放，`did-finish-load` 后重发                 |
-| `window:fullscreen`      | M→R send | `onFullscreenChange(cb)`      | `boolean`                              | 进入 / 退出全屏                            | [`src/main/index.ts:374`](../src/main/index.ts)                                 | 标题栏据此移除两侧留白                                       |
-| `window:close-request`   | M→R send | `onCloseRequest(cb)`          | `{ quit: boolean }`                    | 主窗口 `close` 事件被拦截时                | [`src/main/index.ts:406`](../src/main/index.ts)                                 | `quit` 表示本次关闭来自退出应用；渲染进程确认后带着同一标志调用 `window:close` |
-| `shortcut:close-tab`     | M→R send | `onCloseTabShortcut(cb)`      | 无                                     | macOS `Cmd+W` 被 `before-input-event` 拦截 | [`src/main/index.ts:353`](../src/main/index.ts)                                 | 仅 macOS；其他平台由渲染进程键盘处理                         |
-| `cursor-pos`             | M→R send | `onCursorPos(cb)`             | `{ x: number; y: number }`（页面坐标） | 每 300ms 轮询一次，窗口不可见时跳过        | [`src/main/index.ts:739`](../src/main/index.ts)                                 | 用于滚动条悬停状态自愈（标题栏拖拽区不派发鼠标事件）         |
-| `update:state`           | M→R send | `update.onState(cb)`          | `UpdateState`                          | 更新状态任意变化                           | [`src/main/updater.ts:63`](../src/main/updater.ts)                              | **广播给所有窗口**（主窗口 + 更新窗口）                      |
-| `update:install-request` | M→R send | `update.onInstallRequest(cb)` | 无                                     | 更新窗口请求安装                           | [`src/main/updater.ts:159`](../src/main/updater.ts)                             | 只发给主窗口；主窗口负责处理未保存内容                       |
+| 通道名                   | 方向     | preload 方法                  | 载荷                                   | 触发时机                                      | 发送位置                                                                        | 备注                                                                                                |
+| ------------------------ | -------- | ----------------------------- | -------------------------------------- | --------------------------------------------- | ------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `open-file-from-argv`    | M→R send | `onOpenFile(cb)`              | `{ path: string; content: string }`    | 启动命令行参数 / 二次启动转发                 | [`src/main/index.ts:211`](../src/main/index.ts)                                 | 渲染进程未就绪时先排队                                                                              |
+| `renderer:ready`         | R→M send | `onOpenFile` 内部自动发送     | 无                                     | 渲染进程首次注册 `open-file-from-argv` 监听后 | [`src/main/index.ts`](../src/main/index.ts)                                     | 每个页面只发送一次（preload 模块级标志），主进程置 `rendererReady = true` 并放行 `pendingFilePaths` |
+| `file:external-change`   | M→R send | `onExternalFileChange(cb)`    | `{ path: string; content: string }`    | 监视文件内容真实变化                          | [`src/main/index.ts:255`](../src/main/index.ts)                                 | 只在内容与 `watchedContent` 不同时发送；**返回取消监听函数**                                        |
+| `window:zoom-changed`    | M→R send | `onZoomChange(cb)`            | `number`（缩放比例）                   | 应用缩放、页面加载完成恢复缩放                | [`src/main/index.ts:160`](../src/main/index.ts)、[`:437`](../src/main/index.ts) | 页面重载会重置缩放，`did-finish-load` 后重发                                                        |
+| `window:fullscreen`      | M→R send | `onFullscreenChange(cb)`      | `boolean`                              | 进入 / 退出全屏                               | [`src/main/index.ts:374`](../src/main/index.ts)                                 | 标题栏据此移除两侧留白                                                                              |
+| `window:close-request`   | M→R send | `onCloseRequest(cb)`          | `{ quit: boolean }`                    | 主窗口 `close` 事件被拦截时                   | [`src/main/index.ts:406`](../src/main/index.ts)                                 | `quit` 表示本次关闭来自退出应用；渲染进程确认后带着同一标志调用 `window:close`                      |
+| `shortcut:close-tab`     | M→R send | `onCloseTabShortcut(cb)`      | 无                                     | macOS `Cmd+W` 被 `before-input-event` 拦截    | [`src/main/index.ts:353`](../src/main/index.ts)                                 | 仅 macOS；其他平台由渲染进程键盘处理                                                                |
+| `cursor-pos`             | M→R send | `onCursorPos(cb)`             | `{ x: number; y: number }`（页面坐标） | 每 300ms 轮询一次，窗口不可见时跳过           | [`src/main/index.ts:739`](../src/main/index.ts)                                 | 用于滚动条悬停状态自愈（标题栏拖拽区不派发鼠标事件）                                                |
+| `update:state`           | M→R send | `update.onState(cb)`          | `UpdateState`                          | 更新状态任意变化                              | [`src/main/updater.ts:63`](../src/main/updater.ts)                              | **广播给所有窗口**（主窗口 + 更新窗口）                                                             |
+| `update:install-request` | M→R send | `update.onInstallRequest(cb)` | 无                                     | 更新窗口请求安装                              | [`src/main/updater.ts:159`](../src/main/updater.ts)                             | 只发给主窗口；主窗口负责处理未保存内容                                                              |
 
-> 生命周期：所有 `on*` / `update.on*` 方法都返回取消函数（`() => ipcRenderer.removeListener(...)`）。调用方应在 `onUnmounted` 或模块级 dispose 中调用，避免 HMR / 重复挂载时监听累积。`onOpenFile` 额外承担发送 `renderer:ready` 的职责，注销函数只移除监听，不会重复发送。
+> 生命周期：所有 `on*` / `update.on*` 方法都返回取消函数（`() => ipcRenderer.removeListener(...)`）。调用方应在 `onUnmounted` 或模块级 dispose 中调用，避免 HMR / 重复挂载时监听累积。`onOpenFile` 额外承担发送 `renderer:ready` 的职责，但只在当前页面**首次注册**时发送；注销函数只移除监听，重复注册不会再次放行排队文件。页面重载会重新执行 preload，标志随之复位。
 
 ## 4. 入参与返回类型
 
@@ -169,12 +167,12 @@
 
 ### 4.2 内联对象类型
 
-| 结构                | 出现通道                                                                                 | 字段                                                                                                 |
-| ------------------- | ---------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `{ path, content }` | `dialog:openFiles` 返回、`file:read` 返回、`open-file-from-argv`、`file:external-change` | `path: string`、`content: string`                                                                    |
-| 图片保存参数        | `dialog:saveImage`                                                                       | `fileName: string`、`data: Uint8Array`、`extension: 'svg' \| 'png'`                                  |
+| 结构                | 出现通道                                                                                 | 字段                                                                                                                                          |
+| ------------------- | ---------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `{ path, content }` | `dialog:openFiles` 返回、`file:read` 返回、`open-file-from-argv`、`file:external-change` | `path: string`、`content: string`                                                                                                             |
+| 图片保存参数        | `dialog:saveImage`                                                                       | `fileName: string`、`data: Uint8Array`、`extension: 'svg' \| 'png'`                                                                           |
 | PDF 选项            | `export:pdf`                                                                             | `PdfExportOptions`（[`src/shared/pdf-types.ts`](../src/shared/pdf-types.ts)）：`pageSize`、`margin`、`showPageNumbers`、`showToc`、`fileName` |
-| 文件读取结果        | `dialog:openFiles` 返回、`file:read` 返回、`open-file-from-argv`、`file:external-change` | `FileReadResult`（[`src/shared/file-types.ts`](../src/shared/file-types.ts)）：`path`、`content` |
+| 文件读取结果        | `dialog:openFiles` 返回、`file:read` 返回、`open-file-from-argv`、`file:external-change` | `FileReadResult`（[`src/shared/file-types.ts`](../src/shared/file-types.ts)）：`path`、`content`                                              |
 
 > `PdfExportOptions` 与 `FileReadResult` 都放在 `src/shared`，preload、主进程与渲染进程共用同一份声明，不再维护内联重复类型。新增字段时改共享类型即可，类型检查会覆盖三处调用。
 
@@ -226,18 +224,18 @@
 
 ### 5.6 会话读写容错
 
-| 场景                                        | 行为                                                                 |
-| ------------------------------------------- | -------------------------------------------------------------------- |
-| `session.json` 不存在                       | `session:load` 返回 `null`                                           |
-| JSON 解析失败 / 读取异常                    | 记录 `console.error`，返回 `null`                                    |
-| 顶层不是对象 / `tabs` 非数组                | `parseSessionData` 返回 `null`，保持现有标签页                       |
-| 单个 tab 字段缺失或类型不符                 | 逐字段兜底：`path` 非字符串转 `null`、`content` 非字符串丢弃该 tab、`cursor*` 取正数、`eol` 取 `\n` / `\r\n`、`bom` 取布尔 |
-| `tabs` 为空数组                             | 返回 `null`，不替换标签                                              |
-| `activeIndex` 越界 / 非数字                 | 收敛到 `0..tabs.length - 1`                                          |
-| 写入失败                                    | 记录 `console.error`，返回 `false`；渲染进程在状态栏显示「会话保存失败」 |
-| 渲染进程恢复时 `tabs` 非数组或为空          | 保持现有标签页不变                                                   |
-| 恢复时某个 `path` 读取失败                  | 回退使用会话中保存的 `content`                                       |
-| 恢复时 `path` 读取成功                      | **以磁盘内容为准**覆盖会话内容，并同步磁盘当前的行尾 / BOM 策略     |
+| 场景                               | 行为                                                                                                                       |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `session.json` 不存在              | `session:load` 返回 `null`                                                                                                 |
+| JSON 解析失败 / 读取异常           | 记录 `console.error`，返回 `null`                                                                                          |
+| 顶层不是对象 / `tabs` 非数组       | `parseSessionData` 返回 `null`，保持现有标签页                                                                             |
+| 单个 tab 字段缺失或类型不符        | 逐字段兜底：`path` 非字符串转 `null`、`content` 非字符串丢弃该 tab、`cursor*` 取正数、`eol` 取 `\n` / `\r\n`、`bom` 取布尔 |
+| `tabs` 为空数组                    | 返回 `null`，不替换标签                                                                                                    |
+| `activeIndex` 越界 / 非数字        | 收敛到 `0..tabs.length - 1`                                                                                                |
+| 写入失败                           | 记录 `console.error`，返回 `false`；渲染进程在状态栏显示「会话保存失败」                                                   |
+| 渲染进程恢复时 `tabs` 非数组或为空 | 保持现有标签页不变                                                                                                         |
+| 恢复时某个 `path` 读取失败         | 回退使用会话中保存的 `content`                                                                                             |
+| 恢复时 `path` 读取成功             | **以磁盘内容为准**覆盖会话内容，并同步磁盘当前的行尾 / BOM 策略                                                            |
 
 ### 5.7 启动就绪与排队
 
@@ -249,12 +247,12 @@
 
 所有通道统一经 [`src/main/ipc-guard.ts`](../src/main/ipc-guard.ts) 的 `registerHandle` / `registerOn` 注册：
 
-| 校验项             | 规则                                                                                             |
-| ------------------ | ------------------------------------------------------------------------------------------------ |
-| 页面来源           | `event.senderFrame.url` 必须是应用自身页面（开发模式按 `ELECTRON_RENDERER_URL` 的 origin 比较，打包后比较 `renderer/` 目录） |
-| 拒绝行为           | `invoke` 通道抛出 `Untrusted IPC sender`；`send` 通道记录 `console.warn` 后忽略                   |
-| 窗口控制通道       | `window:*` 额外要求调用方是主窗口的 `webContents`，更新窗口无法借 `window:close` 绕过关闭守卫      |
-| `update:close-window` | 只关闭调用方自身窗口，主窗口调用被忽略                                                         |
+| 校验项                | 规则                                                                                                                         |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| 页面来源              | `event.senderFrame.url` 必须是应用自身页面（开发模式按 `ELECTRON_RENDERER_URL` 的 origin 比较，打包后比较 `renderer/` 目录） |
+| 拒绝行为              | `invoke` 通道抛出 `Untrusted IPC sender`；`send` 通道记录 `console.warn` 后忽略                                              |
+| 窗口控制通道          | `window:*` 额外要求调用方是主窗口的 `webContents`，更新窗口无法借 `window:close` 绕过关闭守卫                                |
+| `update:close-window` | 只关闭调用方自身窗口，主窗口调用被忽略                                                                                       |
 
 新增通道必须使用这两个封装，不要直接调用 `ipcMain.handle` / `ipcMain.on`。
 

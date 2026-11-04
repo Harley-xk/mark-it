@@ -2,7 +2,8 @@ import { app, shell, BrowserWindow, dialog, screen, protocol, net } from 'electr
 import type { IpcMainInvokeEvent } from 'electron'
 import { dirname, join } from 'path'
 import { fileURLToPath, pathToFileURL } from 'url'
-import { readFile, writeFile } from 'fs/promises'
+import { readFile, rm, writeFile } from 'fs/promises'
+import { randomUUID } from 'crypto'
 import { existsSync, readFileSync, watchFile, unwatchFile } from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
@@ -612,15 +613,23 @@ registerHandle('dialog:savePath', async (_e, defaultFileName?: string) => {
   return result.filePath
 })
 
-/** 三档页边距对应的打印边距（像素，Electron printToPDF.margins 使用像素） */
-const PDF_MARGIN_PX: Record<PdfExportOptions['margin'], number> = {
-  narrow: 40,
-  standard: 64,
-  wide: 96
+/**
+ * 三档页边距（英寸）。
+ * Electron / Chromium 的 printToPDF.margins 实际按英寸处理（与典型 d.ts 注释不一致），
+ * 传像素值会触发「margins must be less than or equal to pageSize」。
+ */
+const PDF_MARGIN_INCH: Record<PdfExportOptions['margin'], number> = {
+  narrow: 0.4,
+  standard: 0.65,
+  wide: 0.9
 }
 
-/** 页脚页码占用的额外底部空间，避免页码与正文重叠 */
-const PDF_FOOTER_HEIGHT_PX = 18
+/** 页脚页码占用的额外底部空间（英寸），避免页码与正文重叠 */
+const PDF_FOOTER_HEIGHT_INCH = 0.18
+/** 隐藏窗口等待字体 / 布局稳定的兜底上限（正常情况会提前完成） */
+const PDF_LAYOUT_TIMEOUT_MS = 1500
+/** 自包含 HTML 的硬上限，超过时直接提示，避免隐藏窗口因内存压力崩溃 */
+const PDF_HTML_MAX_BYTES = 64 * 1024 * 1024
 
 registerHandle('export:pdf', async (_e, html: string, options: PdfExportOptions) => {
   const result = await dialog.showSaveDialog(mainWindow!, {
@@ -629,36 +638,61 @@ registerHandle('export:pdf', async (_e, html: string, options: PdfExportOptions)
   })
   if (result.canceled || !result.filePath) return null
 
+  const htmlBytes = Buffer.byteLength(html, 'utf8')
+  if (htmlBytes > PDF_HTML_MAX_BYTES) {
+    const message = `PDF 内容过大（${(htmlBytes / 1024 / 1024).toFixed(1)} MB），请减少内嵌图片后重试`
+    dialog.showErrorBox('PDF 导出失败', message)
+    throw new Error(message)
+  }
+
   const pdfWin = new BrowserWindow({
     width: 800,
     height: 1100,
     show: false,
     webPreferences: { sandbox: false }
   })
+  // 写入临时文件后 loadFile，避免超大内容塞进 data: URL 触发长度 / 内存问题
+  const tempHtmlPath = join(app.getPath('temp'), `markit-pdf-${randomUUID()}.html`)
 
   try {
-    await pdfWin.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
-    // 等待文档内图片加载完成，避免导出时图片还是空白
-    await pdfWin.webContents.executeJavaScript(
-      `Promise.all(Array.from(document.images).map((img) =>
-        img.complete
-          ? null
-          : new Promise((resolve) => {
-              img.addEventListener('load', resolve, { once: true })
-              img.addEventListener('error', resolve, { once: true })
-            })
-      ))`
-    )
-    await new Promise((r) => setTimeout(r, 1500))
+    await writeFile(tempHtmlPath, html, 'utf-8')
+    await pdfWin.loadFile(tempHtmlPath)
+    // 等待图片、字体与两帧布局稳定；固定延时只作为兜底上限
+    const layoutReady = pdfWin.webContents
+      .executeJavaScript(
+        `(async () => {
+          await Promise.all(Array.from(document.images).map((img) =>
+            img.complete
+              ? null
+              : new Promise((resolve) => {
+                  img.addEventListener('load', resolve, { once: true })
+                  img.addEventListener('error', resolve, { once: true })
+                })
+          ))
+          if (document.fonts && document.fonts.ready) {
+            try { await document.fonts.ready } catch {}
+          }
+          await new Promise((resolve) =>
+            requestAnimationFrame(() => requestAnimationFrame(resolve))
+          )
+        })()`
+      )
+      .catch((err) => {
+        console.error('Failed to wait for PDF layout:', err)
+      })
+    await Promise.race([
+      layoutReady,
+      new Promise((resolve) => setTimeout(resolve, PDF_LAYOUT_TIMEOUT_MS))
+    ])
 
-    const margin = PDF_MARGIN_PX[options.margin] ?? PDF_MARGIN_PX.standard
+    const margin = PDF_MARGIN_INCH[options.margin] ?? PDF_MARGIN_INCH.standard
     const pdf = await pdfWin.webContents.printToPDF({
       pageSize: options.pageSize === 'Letter' ? 'Letter' : 'A4',
       printBackground: true,
       margins: {
         marginType: 'custom',
         top: margin,
-        bottom: margin + (options.showPageNumbers ? PDF_FOOTER_HEIGHT_PX : 0),
+        bottom: margin + (options.showPageNumbers ? PDF_FOOTER_HEIGHT_INCH : 0),
         left: margin,
         right: margin
       },
@@ -666,15 +700,18 @@ registerHandle('export:pdf', async (_e, html: string, options: PdfExportOptions)
       headerTemplate: '<span></span>',
       footerTemplate:
         '<div style="width:100%;font-size:9px;color:#888;text-align:center;' +
-        'font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',sans-serif;">' +
+        "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;\">" +
         '<span class="pageNumber"></span> / <span class="totalPages"></span></div>'
     })
 
     await writeFile(result.filePath, pdf)
     return result.filePath
   } finally {
-    // 无论成功、取消还是打印异常，都不能残留隐藏窗口
+    // 无论成功、取消还是打印异常，都不能残留隐藏窗口与临时文件
     if (!pdfWin.isDestroyed()) pdfWin.destroy()
+    await rm(tempHtmlPath, { force: true }).catch((err) => {
+      console.error('Failed to remove PDF temp file:', tempHtmlPath, err)
+    })
   }
 })
 
@@ -685,15 +722,6 @@ registerHandle('window:is-fullscreen', (event) => {
 registerHandle('window:get-zoom', (event) => {
   if (!isMainWindowSender(event)) return 1
   return currentZoomFactor
-})
-registerHandle('window:minimize', (event) => {
-  if (!isMainWindowSender(event)) return
-  mainWindow?.minimize()
-})
-registerHandle('window:maximize', (event) => {
-  if (!isMainWindowSender(event)) return
-  if (mainWindow?.isMaximized()) mainWindow.unmaximize()
-  else mainWindow?.maximize()
 })
 registerHandle('window:close', (event, quit = false) => {
   if (!isMainWindowSender(event)) return false

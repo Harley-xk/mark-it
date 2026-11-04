@@ -24,24 +24,27 @@ npm run build:win      # 构建并生成 Windows 安装包（mac/linux 同理）
 npm run build:unpack   # 仅生成未打包的目录产物，便于本地验证
 npm run lint           # ESLint（--cache）
 npm run format         # Prettier 写入
+npm test               # Vitest 纯函数单元测试（一次性运行）
+npm run test:watch     # Vitest 监听模式
+npm run test:e2e       # Playwright Electron e2e（需先 npm run build）
 npm run typecheck      # 主进程 + 渲染进程双 tsconfig
 npm run typecheck:node # 仅 src/main、src/preload、electron.vite.config.*
 npm run typecheck:web  # 仅 src/renderer 与 preload 的 .d.ts
 npm start              # 预览已构建产物（electron-vite preview）
 ```
 
-**仓库没有测试框架**（无 Jest / Vitest / Playwright），也没有 git 钩子。质量门槛与手工验证要求见 `@rules/testing.md`。
+**仓库已引入 Vitest（`src/**/*.spec.ts`）与 Playwright（`e2e/**`）**，但没有 git 钩子。纯函数改动需同步补 `*.spec.ts` 并跑 `npm test`；e2e 依赖 `npm run build` 产物。质量门槛与手工验证要求见 `@rules/testing.md`。
 
 ## 架构
 
 ### 进程与入口
 
-| 目录 | 职责 |
-| --- | --- |
-| `src/main/` | 主进程：窗口与生命周期、单实例锁、文件读写与监听、会话持久化、`markit-file://` 协议、PDF 导出、自动更新 |
-| `src/preload/` | `contextBridge` 暴露 `window.api`（业务能力）与 `window.electron`（toolkit）；`index.d.ts` 的 `ExposedAPI` 是渲染进程的类型契约 |
-| `src/renderer/src/` | 渲染进程（Vue 3 + Pinia），路径别名 `@renderer` |
-| `src/shared/` | 跨进程**纯类型**（`session-types.ts`、`update-types.ts`），禁止运行时依赖 |
+| 目录                | 职责                                                                                                                            |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `src/main/`         | 主进程：窗口与生命周期、单实例锁、文件读写与监听、会话持久化、`markit-file://` 协议、PDF 导出、自动更新                         |
+| `src/preload/`      | `contextBridge` 暴露 `window.api`（业务能力）与 `window.electron`（toolkit）；`index.d.ts` 的 `ExposedAPI` 是渲染进程的类型契约 |
+| `src/renderer/src/` | 渲染进程（Vue 3 + Pinia），路径别名 `@renderer`                                                                                 |
+| `src/shared/`       | 跨进程**纯类型**（`session-types.ts`、`update-types.ts`），禁止运行时依赖                                                       |
 
 渲染进程有**两个 HTML 入口**，由 `electron.vite.config.ts` 的 rollup input 配置：
 

@@ -7,15 +7,15 @@
 
 Mark It 是 **Electron + Vue 3 + TypeScript** 的桌面 Markdown 编辑器，**单包 npm 工程**（非 monorepo）：
 
-| 项目 | 现状 |
-| --- | --- |
-| 包管理器 | **npm**（`package-lock.json`，不使用 pnpm / yarn） |
-| 构建 | `electron-vite`，产物输出到 `out/`，安装包到 `dist/` |
+| 项目     | 现状                                                                                                    |
+| -------- | ------------------------------------------------------------------------------------------------------- |
+| 包管理器 | **npm**（`package-lock.json`，不使用 pnpm / yarn）                                                      |
+| 构建     | `electron-vite`，产物输出到 `out/`，安装包到 `dist/`                                                    |
 | 进程目录 | `src/main`（主进程）/ `src/preload`（预加载）/ `src/renderer`（渲染进程）/ `src/shared`（跨进程纯类型） |
-| 校验命令 | `npm run lint`、`npm run typecheck`、`npm run build` |
-| 测试框架 | **尚未引入**（无 Jest / Vitest，无测试文件），见 [testing.md](testing.md) |
-| git 钩子 | **未配置** lefthook / husky / commit-msg 钩子 |
-| 文档目录 | `docs/`（打包时已排除，见 `electron-builder.yml`） |
+| 校验命令 | `npm run lint`、`npm run typecheck`、`npm test`、`npm run build`                                        |
+| 测试框架 | **Vitest**（纯函数单元测试）+ **Playwright**（Electron e2e），见 [testing.md](testing.md)               |
+| git 钩子 | **未配置** lefthook / husky / commit-msg 钩子                                                           |
+| 文档目录 | `docs/`（打包时已排除，见 `electron-builder.yml`）                                                      |
 
 ## 1. 文件头部注释（仅限新增代码文件）
 
@@ -45,22 +45,22 @@ Mark It 是 **Electron + Vue 3 + TypeScript** 的桌面 Markdown 编辑器，**�
 
 字段说明：
 
-| 字段 | 说明 |
-| --- | --- |
+| 字段 | 说明                                                       |
+| ---- | ---------------------------------------------------------- |
 | 作者 | 统一填写项目维护者标识 `Harley-xk`（与 GitHub 仓库归一致） |
-| 创建 | 文件创建日期，格式 `YYYY-MM-DD` |
-| 描述 | 用一句话（中文）概括当前文件的职责或用途 |
+| 创建 | 文件创建日期，格式 `YYYY-MM-DD`                            |
+| 描述 | 用一句话（中文）概括当前文件的职责或用途                   |
 
 ## 2. 注释语法按语言适配
 
 头部注释的语法必须与文件实际使用的语言匹配：
 
-| 文件类型 | 注释语法 |
-| --- | --- |
-| `.ts` / `.js` / `.mjs` / `.cjs` | `/* ... */` 块注释，置于文件首行 |
-| `.vue` / `.html` | `<!-- ... -->`，置于文件首行（位于 `<script setup>` 之前） |
-| `.json` | JSON 标准不支持注释，跳过头部注释 |
-| `.md` | 文档文件，不强制携带头部注释 |
+| 文件类型                        | 注释语法                                                   |
+| ------------------------------- | ---------------------------------------------------------- |
+| `.ts` / `.js` / `.mjs` / `.cjs` | `/* ... */` 块注释，置于文件首行                           |
+| `.vue` / `.html`                | `<!-- ... -->`，置于文件首行（位于 `<script setup>` 之前） |
+| `.json`                         | JSON 标准不支持注释，跳过头部注释                          |
+| `.md`                           | 文档文件，不强制携带头部注释                               |
 
 ## 3. 开源许可
 
@@ -86,10 +86,11 @@ Mark It 是 **Electron + Vue 3 + TypeScript** 的桌面 Markdown 编辑器，**�
 
 1. `npm run lint` 通过（ESLint，含 Prettier 一致性检查）
 2. `npm run typecheck` 通过（主进程 + 渲染进程双 tsconfig）
-3. 涉及 `electron.vite.config.ts`、`electron-builder.yml`、`.github/workflows/**` 的改动，额外执行 `npm run build`（或对应平台的 `build:*`）
-4. 涉及主进程 / 窗口管理 / IPC / 文件读写 / 自动更新 的改动，必须用 `npm run dev` 实际启动验证，并在交付说明中写清验证方式
-5. 实现偏离设计或涉及接口 / 数据模型变更的，已按「文档先行」先更新文档
-6. 仓库当前**没有 pre-commit 钩子**，上述命令需在提交前由执行者自行运行，不得假设钩子会兜底
+3. `npm test` 通过（Vitest 纯函数回归；改动 `src/renderer/src/utils/**` 时必须同步补 / 改用例）
+4. 涉及 `electron.vite.config.ts`、`electron-builder.yml`、`.github/workflows/**` 的改动，额外执行 `npm run build`（或对应平台的 `build:*`）
+5. 涉及主进程 / 窗口管理 / IPC / 文件读写 / 自动更新 的改动，必须用 `npm run dev` 实际启动验证，并在交付说明中写清验证方式
+6. 实现偏离设计或涉及接口 / 数据模型变更的，已按「文档先行」先更新文档
+7. 仓库当前**没有 pre-commit 钩子**，上述命令需在提交前由执行者自行运行，不得假设钩子会兜底
 
 ## 6. 提交信息规范
 
@@ -99,11 +100,11 @@ Mark It 是 **Electron + Vue 3 + TypeScript** 的桌面 Markdown 编辑器，**�
 <type>(<scope>): 内容概述
 ```
 
-| 字段 | 约定 |
-| --- | --- |
-| type | `feat` / `fix` / `refactor` / `perf` / `style` / `docs` / `chore` / `build` / `ci` / `revert` |
-| scope | 改动所属模块，小写：`file` / `preview` / `editor` / `toolbar` / `tabs` / `outline` / `update` / `export` / `session` / `build` / `ci` / `docs` / `release` 等 |
-| 内容概述 | 一句话说明本次改动要点，**使用中文** |
+| 字段     | 约定                                                                                                                                                          |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| type     | `feat` / `fix` / `refactor` / `perf` / `style` / `docs` / `chore` / `build` / `ci` / `revert`                                                                 |
+| scope    | 改动所属模块，小写：`file` / `preview` / `editor` / `toolbar` / `tabs` / `outline` / `update` / `export` / `session` / `build` / `ci` / `docs` / `release` 等 |
+| 内容概述 | 一句话说明本次改动要点，**使用中文**                                                                                                                          |
 
 示例：
 

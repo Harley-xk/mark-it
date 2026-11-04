@@ -12,7 +12,7 @@
 3. **缩进 2 空格**，禁止 Tab
 4. **多行结构最后一项不保留尾逗号**（`trailingComma: none`）——注意与常见社区习惯相反，以本项目配置为准
 5. **单行长度 100 字符**（`printWidth: 100`），超长时优先拆分变量或换行
-6. 编码 UTF-8、文件末尾保留空行；**提交内容统一 LF**。仓库 `core.autocrlf=true` 且没有 `.gitattributes`，Windows 工作区检出后可能显示 CRLF，属正常现象——不要为换行符差异制造额外改动
+6. 编码 UTF-8、文件末尾保留空行；**提交内容统一 LF**。仓库通过 `.gitattributes`（`* text=auto eol=lf`）在提交 / 检出时统一行尾，但 Windows 工作区仍可能是 CRLF（`core.autocrlf=true`）；Prettier 配置 `endOfLine: auto` 会保留文件现状，因此不要为换行符差异制造额外改动
 
 ## 2. import 导入
 
@@ -22,17 +22,17 @@
 
 ## 3. 命名规范
 
-| 对象 | 风格 | 示例 |
-| --- | --- | --- |
-| 变量、函数、参数 | camelCase | `openFile`、`currentZoomFactor` |
-| 类、接口、类型、Vue 组件 | PascalCase | `SessionData`、`MarkdownPreview` |
-| 常量 | UPPER_SNAKE_CASE | `LOCAL_FILE_SCHEME`、`MERMAID_LANGUAGES` |
-| 对象结构 | 优先 `interface`；联合 / 字面量类型用 `type` | `interface HeadingItem`、`type ThemeMode = 'light' \| 'dark' \| 'system'` |
-| Vue 组件文件 | PascalCase | `EditorToolbar.vue` |
-| Composable 文件 | `useXxx.ts`（camelCase） | `useFile.ts`、`useScrollSync.ts` |
-| 工具、store 等非组件 ts 文件 | kebab-case | `text-diff.ts`、`local-image.ts` |
-| 入口文件 | `index.ts` | `src/main/index.ts`、`src/preload/index.ts` |
-| IPC 通道名 | `模块:动作` | `file:read`、`window:get-zoom`、`update:download` |
+| 对象                         | 风格                                         | 示例                                                                      |
+| ---------------------------- | -------------------------------------------- | ------------------------------------------------------------------------- |
+| 变量、函数、参数             | camelCase                                    | `openFile`、`currentZoomFactor`                                           |
+| 类、接口、类型、Vue 组件     | PascalCase                                   | `SessionData`、`MarkdownPreview`                                          |
+| 常量                         | UPPER_SNAKE_CASE                             | `LOCAL_FILE_SCHEME`、`MERMAID_LANGUAGES`                                  |
+| 对象结构                     | 优先 `interface`；联合 / 字面量类型用 `type` | `interface HeadingItem`、`type ThemeMode = 'light' \| 'dark' \| 'system'` |
+| Vue 组件文件                 | PascalCase                                   | `EditorToolbar.vue`                                                       |
+| Composable 文件              | `useXxx.ts`（camelCase）                     | `useFile.ts`、`useScrollSync.ts`                                          |
+| 工具、store 等非组件 ts 文件 | kebab-case                                   | `text-diff.ts`、`local-image.ts`                                          |
+| 入口文件                     | `index.ts`                                   | `src/main/index.ts`、`src/preload/index.ts`                               |
+| IPC 通道名                   | `模块:动作`                                  | `file:read`、`window:get-zoom`、`update:download`                         |
 
 ## 4. 进程边界与 IPC
 

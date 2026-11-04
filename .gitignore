@@ -6,6 +6,10 @@ out
 *.log*
 dist-verify
 
+# Playwright 产物
+test-results
+playwright-report
+
 # apphub 发版配置仅保留在本地
 .apphub-release.json
 

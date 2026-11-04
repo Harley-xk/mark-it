@@ -17,6 +17,14 @@ const FEED_URL = `${APPHUB_BASE_URL}/api/update/${APPHUB_APP_KEY}/${UPDATE_CHANN
 
 const FORCE_MARK = '[force]'
 
+/** 周期检测间隔，默认 4 小时；可用 MARKIT_UPDATE_CHECK_INTERVAL_MS 覆盖（便于手工验证） */
+const DEFAULT_PERIODIC_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000
+const configuredCheckInterval = Number(process.env['MARKIT_UPDATE_CHECK_INTERVAL_MS'])
+const PERIODIC_CHECK_INTERVAL_MS =
+  Number.isFinite(configuredCheckInterval) && configuredCheckInterval > 0
+    ? configuredCheckInterval
+    : DEFAULT_PERIODIC_CHECK_INTERVAL_MS
+
 interface ReleaseNotesItem {
   version: string
   note?: string | null
@@ -53,6 +61,7 @@ let onInstallFailed: (() => void) | null = null
 let getMainWindow: (() => BrowserWindow | null) | null = null
 /** 更新详情窗口（唯一实例，重复打开时聚焦已有窗口） */
 let updateWindow: BrowserWindow | null = null
+let periodicCheckTimer: ReturnType<typeof setInterval> | null = null
 
 function setState(patch: Partial<UpdateState>): void {
   state = { ...state, ...patch }
@@ -86,6 +95,22 @@ async function checkForUpdates(): Promise<UpdateState> {
     }
   }
   return state
+}
+
+/**
+ * 周期检测：跳过进行中的检查 / 下载，以及已发现新版本或已下载完成的状态，
+ * 避免自动检测打断用户正在处理（或等待安装）的更新。
+ */
+function periodicCheck(): void {
+  if (
+    state.status === 'checking' ||
+    state.status === 'downloading' ||
+    state.status === 'downloaded' ||
+    state.status === 'available'
+  ) {
+    return
+  }
+  void checkForUpdates()
 }
 
 async function downloadUpdate(): Promise<UpdateState> {
@@ -284,5 +309,13 @@ export function initAutoUpdater(
   if (!is.dev) {
     // 启动后延迟静默检测，避免与首屏渲染 / 文件加载抢资源
     setTimeout(() => void checkForUpdates(), 3000)
+    // 长期运行的应用也要周期检测，避免客户端停留在旧版本
+    periodicCheckTimer = setInterval(periodicCheck, PERIODIC_CHECK_INTERVAL_MS)
+    app.once('before-quit', () => {
+      if (periodicCheckTimer) {
+        clearInterval(periodicCheckTimer)
+        periodicCheckTimer = null
+      }
+    })
   }
 }
