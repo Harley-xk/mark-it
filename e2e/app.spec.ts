@@ -35,6 +35,71 @@ test('启动应用并显示主窗口', async () => {
   }
 })
 
+test('布局模式按标签独立保存并在重启后恢复', async () => {
+  test.skip(!existsSync(appEntry), '请先执行 npm run build 生成 out/main/index.js')
+
+  const workDir = mkdtempSync(join(tmpdir(), 'markit-e2e-layout-'))
+  const userDataDir = mkdtempSync(join(tmpdir(), 'markit-e2e-layout-user-'))
+  const firstPath = join(workDir, 'layout-first.md')
+  const secondPath = join(workDir, 'layout-second.md')
+  writeFileSync(firstPath, '# 第一个文档\n', 'utf-8')
+  writeFileSync(secondPath, '# 第二个文档\n', 'utf-8')
+
+  const launchOptions = {
+    args: ['.', `--user-data-dir=${userDataDir}`, firstPath, secondPath],
+    cwd: projectRoot,
+    env: getLaunchEnv()
+  }
+
+  const app = await electron.launch(launchOptions)
+  try {
+    const window = await app.firstWindow()
+    await expect(window.locator('.tab-name', { hasText: 'layout-first.md' })).toBeVisible()
+    await expect(window.locator('.tab-name', { hasText: 'layout-second.md' })).toBeVisible()
+
+    // 第二个标签切到仅预览
+    await window.locator('.tab-name', { hasText: 'layout-second.md' }).click()
+    await window.locator('.tb-btn[title="仅预览"]').click()
+    await expect(window.locator('.tb-btn[title="仅预览"]')).toHaveClass(/active/)
+    await expect(window.locator('.editor-pane')).toHaveCount(0)
+
+    // 第一个标签保持自己的默认双栏，并改为仅编辑
+    await window.locator('.tab-name', { hasText: 'layout-first.md' }).click()
+    await expect(window.locator('.tb-btn[title="左编辑 右预览"]')).toHaveClass(/active/)
+    await window.locator('.tb-btn[title="仅编辑"]').click()
+    await expect(window.locator('.tb-btn[title="仅编辑"]')).toHaveClass(/active/)
+    await expect(window.locator('.preview-container')).toHaveCount(0)
+
+    // 切回第二个标签，布局跟随标签而不是沿用上一个标签
+    await window.locator('.tab-name', { hasText: 'layout-second.md' }).click()
+    await expect(window.locator('.tb-btn[title="仅预览"]')).toHaveClass(/active/)
+    await expect(window.locator('.editor-pane')).toHaveCount(0)
+
+    // 等待会话防抖写入后再关闭，验证跨重启恢复
+    await window.waitForTimeout(1200)
+  } finally {
+    await app.close()
+  }
+
+  const restored = await electron.launch(launchOptions)
+  try {
+    const window = await restored.firstWindow()
+    await expect(window.locator('.tab-name', { hasText: 'layout-second.md' })).toBeVisible()
+
+    // 激活标签为第二个，应恢复仅预览
+    await expect(window.locator('.tb-btn[title="仅预览"]')).toHaveClass(/active/)
+    await expect(window.locator('.editor-pane')).toHaveCount(0)
+
+    await window.locator('.tab-name', { hasText: 'layout-first.md' }).click()
+    await expect(window.locator('.tb-btn[title="仅编辑"]')).toHaveClass(/active/)
+    await expect(window.locator('.preview-container')).toHaveCount(0)
+  } finally {
+    await restored.close()
+    rmSync(workDir, { recursive: true, force: true })
+    rmSync(userDataDir, { recursive: true, force: true })
+  }
+})
+
 test('导出 PDF 并生成有效产物', async () => {
   test.skip(!existsSync(appEntry), '请先执行 npm run build 生成 out/main/index.js')
 

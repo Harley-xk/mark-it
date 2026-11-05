@@ -1,9 +1,10 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import type { EditorState } from '@codemirror/state'
-import type { HeadingItem } from '../types'
+import type { HeadingItem, LayoutMode } from '../types'
 import type { SessionTab } from '../../../shared/session-types'
 import { normalizePath } from '../utils/path'
+import { isLayoutMode, loadSavedLayoutMode } from '../utils/layout-mode'
 import { decodeText, normalizeToLf, type LineEnding } from '../utils/text-encoding'
 import WELCOME_CONTENT from '../assets/welcome.md?raw'
 
@@ -24,6 +25,8 @@ export interface DocumentTab {
   eol: LineEnding
   /** 原文件是否带 UTF-8 BOM；保存时按此还原 */
   bom: boolean
+  /** 当前标签的布局模式；切换标签时由 app.layoutMode 读取 */
+  layoutMode: LayoutMode
 }
 
 export interface ScrollPosition {
@@ -71,11 +74,17 @@ export const useDocumentsStore = defineStore('documents', () => {
     return `untitled-${index}.md`
   }
 
+  /** 新标签默认继承当前激活标签的布局；没有激活标签时回退到最近一次使用的布局 */
+  function defaultTabLayoutMode(): LayoutMode {
+    const active = docs.value.find((d) => d.id === activeId.value)
+    return active?.layoutMode ?? loadSavedLayoutMode()
+  }
+
   function createTab(
     path: string | null,
     content: string,
     name?: string,
-    meta?: { eol?: LineEnding; bom?: boolean }
+    meta?: { eol?: LineEnding; bom?: boolean; layoutMode?: LayoutMode }
   ): DocumentTab {
     // 编辑器内部统一使用 LF；原文件的换行符与 BOM 记在标签上，保存时还原
     const decoded = decodeText(content)
@@ -92,7 +101,8 @@ export const useDocumentsStore = defineStore('documents', () => {
       wordCount: countWords(text),
       headings: [],
       eol: meta?.eol ?? decoded.eol,
-      bom: meta?.bom ?? decoded.bom
+      bom: meta?.bom ?? decoded.bom,
+      layoutMode: meta?.layoutMode ?? defaultTabLayoutMode()
     }
   }
 
@@ -146,7 +156,9 @@ export const useDocumentsStore = defineStore('documents', () => {
       const path = typeof tab.path === 'string' && tab.path.length > 0 ? tab.path : null
       const content = typeof tab.content === 'string' ? tab.content : ''
       const name = typeof tab.name === 'string' && tab.name.length > 0 ? tab.name : undefined
-      const doc = createTab(path, content, name, { eol: tab.eol, bom: tab.bom })
+      // 旧会话没有 layoutMode，按最近一次使用的布局兜底
+      const layoutMode = isLayoutMode(tab.layoutMode) ? tab.layoutMode : loadSavedLayoutMode()
+      const doc = createTab(path, content, name, { eol: tab.eol, bom: tab.bom, layoutMode })
       doc.isModified = tab.isModified === true
       doc.cursorLine = typeof tab.cursorLine === 'number' && tab.cursorLine > 0 ? tab.cursorLine : 1
       doc.cursorCol = typeof tab.cursorCol === 'number' && tab.cursorCol > 0 ? tab.cursorCol : 1
@@ -243,6 +255,12 @@ export const useDocumentsStore = defineStore('documents', () => {
     if (doc) doc.headings = headings
   }
 
+  /** 设置某个标签的布局模式；不影响其他标签 */
+  function setLayoutMode(id: string, mode: LayoutMode): void {
+    const doc = getDoc(id)
+    if (doc) doc.layoutMode = mode
+  }
+
   /** 保存成功后调用；传入路径表示另存为 */
   function markSaved(id: string, filePath?: string): void {
     const doc = getDoc(id)
@@ -301,6 +319,7 @@ export const useDocumentsStore = defineStore('documents', () => {
     replaceContent,
     setCursor,
     setHeadings,
+    setLayoutMode,
     markSaved,
     setEditorState,
     getEditorState,

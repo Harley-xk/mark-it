@@ -37,7 +37,8 @@ export function useSession(): { flush: () => Promise<void> } {
         cursorLine: doc.cursorLine,
         cursorCol: doc.cursorCol,
         eol: doc.eol,
-        bom: doc.bom
+        bom: doc.bom,
+        layoutMode: doc.layoutMode
       })),
       activeIndex: Math.max(
         docs.docs.findIndex((doc) => doc.id === docs.activeId),
@@ -123,7 +124,8 @@ export function useSession(): { flush: () => Promise<void> } {
           doc.content,
           doc.isModified,
           doc.cursorLine,
-          doc.cursorCol
+          doc.cursorCol,
+          doc.layoutMode
         ]),
       queueSave
     )

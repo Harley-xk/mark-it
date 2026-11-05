@@ -4,7 +4,14 @@
  *
  * 描述: 会话文件的运行时结构校验，避免损坏的 session.json 导致恢复异常
  */
-import type { SessionData, SessionTab } from '../shared/session-types'
+import type { LayoutMode, SessionData, SessionTab } from '../shared/session-types'
+
+/** 与渲染进程 utils/layout-mode 保持一致；主进程不能引用渲染进程模块 */
+const LAYOUT_MODES: LayoutMode[] = ['edit-left', 'edit-right', 'edit-only', 'preview-only']
+
+function isLayoutMode(value: unknown): value is LayoutMode {
+  return typeof value === 'string' && (LAYOUT_MODES as string[]).includes(value)
+}
 
 function positiveInt(value: unknown, fallback: number): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) return fallback
@@ -25,7 +32,9 @@ function normalizeTab(value: unknown): SessionTab | null {
     cursorLine: positiveInt(tab.cursorLine, 1),
     cursorCol: positiveInt(tab.cursorCol, 1),
     eol: tab.eol === '\r\n' ? '\r\n' : '\n',
-    bom: tab.bom === true
+    bom: tab.bom === true,
+    // 非法 / 缺失时保持 undefined，由渲染进程按 markit-layout 兜底
+    layoutMode: isLayoutMode(tab.layoutMode) ? tab.layoutMode : undefined
   }
 }
 

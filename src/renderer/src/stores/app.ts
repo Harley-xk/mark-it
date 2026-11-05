@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
 import type { LayoutMode, PdfExportStatus, PreviewWidthMode, ThemeMode } from '../types'
+import { LAYOUT_MODES, loadSavedLayoutMode, saveLayoutMode } from '../utils/layout-mode'
 import { useDocumentsStore } from './documents'
 
 function getSystemTheme(): 'light' | 'dark' {
@@ -11,19 +12,6 @@ function loadSavedTheme(): ThemeMode {
   const saved = localStorage.getItem('markit-theme')
   if (saved === 'light' || saved === 'dark' || saved === 'system') return saved
   return 'system'
-}
-
-function loadSavedLayoutMode(): LayoutMode {
-  const saved = localStorage.getItem('markit-layout')
-  if (
-    saved === 'edit-left' ||
-    saved === 'edit-right' ||
-    saved === 'edit-only' ||
-    saved === 'preview-only'
-  ) {
-    return saved
-  }
-  return 'edit-left'
 }
 
 function loadSavedPreviewWidthMode(): PreviewWidthMode {
@@ -39,7 +27,11 @@ function loadClampedNumber(key: string, fallback: number, min: number, max: numb
 
 export const useAppStore = defineStore('app', () => {
   const documents = useDocumentsStore()
-  const layoutMode = ref<LayoutMode>(loadSavedLayoutMode())
+  // 布局按标签保存；没有激活标签的瞬间（关闭最后一个标签到窗口关闭之间）用兜底值
+  const fallbackLayoutMode = ref<LayoutMode>(loadSavedLayoutMode())
+  const layoutMode = computed<LayoutMode>(
+    () => documents.activeDoc?.layoutMode ?? fallbackLayoutMode.value
+  )
   const themeMode = ref<ThemeMode>(loadSavedTheme())
   const systemIsDark = ref(getSystemTheme() === 'dark')
   const showOutline = ref(localStorage.getItem('markit-show-outline') !== '0')
@@ -80,9 +72,8 @@ export const useAppStore = defineStore('app', () => {
   watch(themeMode, (mode) => {
     localStorage.setItem('markit-theme', mode)
   })
-  watch(layoutMode, (mode) => {
-    localStorage.setItem('markit-layout', mode)
-  })
+  // markit-layout 记录最近一次使用的布局，作为新标签与旧会话的兜底
+  watch(layoutMode, saveLayoutMode)
   watch(showOutline, (v) => {
     localStorage.setItem('markit-show-outline', v ? '1' : '0')
   })
@@ -100,13 +91,13 @@ export const useAppStore = defineStore('app', () => {
   })
 
   function setLayoutMode(mode: LayoutMode): void {
-    layoutMode.value = mode
+    fallbackLayoutMode.value = mode
+    if (documents.activeDoc) documents.setLayoutMode(documents.activeDoc.id, mode)
   }
 
   function cycleLayout(): void {
-    const modes: LayoutMode[] = ['edit-left', 'edit-right', 'edit-only', 'preview-only']
-    const idx = modes.indexOf(layoutMode.value)
-    layoutMode.value = modes[(idx + 1) % modes.length]
+    const idx = LAYOUT_MODES.indexOf(layoutMode.value)
+    setLayoutMode(LAYOUT_MODES[(idx + 1) % LAYOUT_MODES.length])
   }
 
   function setThemeMode(mode: ThemeMode): void {

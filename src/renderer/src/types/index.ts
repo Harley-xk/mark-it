@@ -1,4 +1,4 @@
-export type LayoutMode = 'edit-left' | 'edit-right' | 'edit-only' | 'preview-only'
+export type { LayoutMode } from '../../../shared/session-types'
 
 export type ThemeMode = 'light' | 'dark' | 'system'
 
