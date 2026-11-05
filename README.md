@@ -117,7 +117,7 @@
 
 ## 截图
 
-![MarkIt 使用手册与实时预览](preview-manual.png)
+![MarkIt 使用手册与实时预览](preview-manual-light.png)
 
 ## 文档
 
@@ -181,56 +181,6 @@ npm run build:linux
 - **macOS 签名**：当前未配置 Apple Developer 证书与公证，未签名应用会被 Gatekeeper 拦截，Squirrel.Mac 也不会执行自动更新；启用签名前 macOS 只能手动安装。
 - **Linux 自动更新**：仅 AppImage 支持，deb 供手动安装；`snap` 已从默认 target 移除。
 - **首次多平台发布后**：请确认 `verify` 对 `macos` / `linux` 均返回通过，以验证 apphub 更新端点的平台支持。
-
-## 技术栈
-
-| 技术                                                            | 用途                 |
-| --------------------------------------------------------------- | -------------------- |
-| [Electron](https://www.electronjs.org/) 39                      | 跨平台桌面框架       |
-| [Vue 3](https://vuejs.org/) + [Pinia](https://pinia.vuejs.org/) | 响应式 UI + 状态管理 |
-| [CodeMirror 6](https://codemirror.net/)                         | 代码编辑器引擎       |
-| [markdown-it](https://github.com/markdown-it/markdown-it)       | Markdown 解析        |
-| [markdown-it-task-lists](https://github.com/revin/markdown-it-task-lists) | GitHub 任务列表 |
-| [highlight.js](https://highlightjs.org/)                        | 代码块语法高亮       |
-| [Mermaid](https://mermaid.js.org/)                              | 图表渲染             |
-| [TypeScript](https://www.typescriptlang.org/)                   | 类型安全             |
-| [electron-vite](https://electron-vite.org/)                     | 构建工具             |
-
-## 项目结构
-
-```
-mark-it/
-├── src/
-│   ├── main/                          # Electron 主进程
-│   │   ├── index.ts                   # 窗口管理、IPC、文件操作、PDF 导出、会话读写
-│   │   └── updater.ts                 # 自动更新
-│   ├── preload/                       # 预加载脚本
-│   │   └── index.ts                   # contextBridge API
-│   ├── shared/                        # 主进程与渲染进程共用的纯类型
-│   │   ├── update-types.ts            # 更新状态
-│   │   └── session-types.ts           # 会话（标签页）数据
-│   └── renderer/                      # Vue 渲染进程
-│       └── src/
-│           ├── components/
-│           │   ├── layout/            # TitleBar, TabBar, Toolbar, StatusBar, SplitPane
-│           │   ├── editor/            # CodeMirror 编辑器与格式化工具栏
-│           │   ├── preview/           # Markdown 预览、Mermaid 渲染与图表查看器
-│           │   ├── outline/           # 自动大纲面板
-│           │   ├── settings/          # 设置对话框
-│           │   └── export/            # PDF 导出对话框
-│           ├── stores/                # Pinia 状态管理
-│           │   ├── app.ts             # 布局、主题、缩放等全局状态
-│           │   ├── documents.ts       # 多标签文档与会话恢复
-│           │   ├── editor.ts          # 当前编辑器状态
-│           │   └── style.ts           # 预览样式
-│           ├── composables/           # 组合式函数（文件、会话、快捷键、滚动同步等）
-│           ├── utils/                 # Mermaid 代码块识别等工具
-│           ├── styles/preview/        # 内置预览样式 CSS
-│           └── types/                 # TypeScript 类型定义
-├── build/                             # 应用图标资源
-├── electron-builder.yml               # 打包配置
-└── electron.vite.config.ts            # 构建配置
-```
 
 ## 快捷键
 
