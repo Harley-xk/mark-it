@@ -79,6 +79,7 @@ Mark It 是 **Electron + Vue 3 + TypeScript** 的桌面 Markdown 编辑器，**�
 3. `docs/` 已从安装包中排除，可以放心存放设计与发版文档
 4. 代码实现与文档保持同步：实现偏离设计时，先更新文档再改代码
 5. 文档中的图表（架构图 / 流程图 / 时序图 / 状态机 / 实体关系图等）**一律使用 Mermaid 代码块（` ```mermaid `）绘制，禁止使用 ASCII 字符画**；公式、规则表、命令输出等非图形内容不在此限
+6. **内置用户手册同步**：用户可见的功能或交互发生变化时，除更新 `docs/` 外，还必须同步更新内置用户手册 [`src/renderer/src/assets/welcome.md`](../src/renderer/src/assets/welcome.md)（工具栏「使用手册」打开的内容，也是首次启动的欢迎页）。交付说明中要写明手册改了哪些条目；纯内部重构、不改变用户可见行为时可不改，但需在交付说明中说明理由
 
 ## 5. 完成定义（DoD）
 
@@ -90,7 +91,8 @@ Mark It 是 **Electron + Vue 3 + TypeScript** 的桌面 Markdown 编辑器，**�
 4. 涉及 `electron.vite.config.ts`、`electron-builder.yml`、`.github/workflows/**` 的改动，额外执行 `npm run build`（或对应平台的 `build:*`）
 5. 涉及主进程 / 窗口管理 / IPC / 文件读写 / 自动更新 的改动，必须用 `npm run dev` 实际启动验证，并在交付说明中写清验证方式
 6. 实现偏离设计或涉及接口 / 数据模型变更的，已按「文档先行」先更新文档
-7. 仓库当前**没有 pre-commit 钩子**，上述命令需在提交前由执行者自行运行，不得假设钩子会兜底
+7. 涉及用户可见行为变更的，已同步更新内置用户手册 `src/renderer/src/assets/welcome.md`（见第 4 节第 6 条）
+8. 仓库当前**没有 pre-commit 钩子**，上述命令需在提交前由执行者自行运行，不得假设钩子会兜底
 
 ## 6. 提交信息规范
 
