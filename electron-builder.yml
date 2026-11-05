@@ -14,6 +14,10 @@ files:
   - '!scripts/**'
   - '!docs'
   - '!docs/**'
+  # AI 协作规则与说明文档只在仓库内使用，且可能引用发版配置名，不能进入安装包
+  - '!rules'
+  - '!rules/**'
+  - '!CLAUDE.md'
   - '!electron.vite.config.{js,ts,mjs,cjs}'
   - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
   - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'

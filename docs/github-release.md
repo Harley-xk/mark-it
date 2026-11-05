@@ -149,9 +149,14 @@ gh workflow run release.yml --ref master \
    - '!.apphub-release*.json'
    - '!scripts'
    - '!scripts/**'
+   - '!docs'
+   - '!docs/**'
+   - '!rules'
+   - '!rules/**'
+   - '!CLAUDE.md'
    ```
 
-2. workflow 在每个平台构建后检查 `app.asar`，发现 `apphub-release` 或 `signSecret` 立即失败，阻断上传。
+2. workflow 在每个平台构建后检查 `app.asar`，发现 `apphub-release` 或 `signSecret` 立即失败，阻断上传。扫描按 `find -print0` 逐条处理并引用路径，避免 macOS 产物路径中的空格（`Mark It.app`）导致漏检。
 
 本地新增其他含密钥的文件时，务必同步加入 `files` 排除，或放进已被排除的目录。
 

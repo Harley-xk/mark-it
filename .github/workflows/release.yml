@@ -144,13 +144,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          found=$(find dist -name app.asar -print)
-          if [ -z "$found" ]; then
+          count=0
+          # app.asar 路径可能含空格（如 macOS 的 "Mark It.app"），必须逐条按原文处理
+          while IFS= read -r -d '' asar; do
+            count=$((count + 1))
+            if grep -a -q -e 'apphub-release' -e 'signSecret' "$asar"; then
+              echo "::error::app.asar 中包含发版凭据相关文件：$asar"
+              exit 1
+            fi
+          done < <(find dist -name app.asar -print0)
+          if [ "$count" -eq 0 ]; then
             echo "::error::未找到 app.asar，无法校验打包内容"
-            exit 1
-          fi
-          if grep -a -q -e 'apphub-release' -e 'signSecret' $found; then
-            echo "::error::app.asar 中包含发版凭据相关文件，已阻断发布"
             exit 1
           fi
 
