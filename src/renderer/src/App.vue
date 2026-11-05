@@ -117,13 +117,14 @@ body {
   background: transparent;
 }
 
-/* 滚动条：固定 12px 始终占位（宽度不变，避免内容抖动），
-   平时淡显，悬停/滚动时点亮，拖动时高亮（VS Code 风格）。
+/* 滚动条：固定 10px 始终占位。显隐只改滑块颜色、不改宽度，
+   所以隐藏状态下容器尺寸与内容排版不变，不会因显隐反复重排。
+   默认完全透明（隐藏），鼠标进入滚动容器或滚动时点亮，拖动时高亮（VS Code 风格）。
    悬停状态由 useScrollbarState 以 sb-active 类维护 —— CSS :hover 会在
    鼠标进入标题栏拖拽区等不派发事件的区域时卡住不消失 */
 ::-webkit-scrollbar {
-  width: 12px;
-  height: 12px;
+  width: 10px;
+  height: 10px;
 }
 
 ::-webkit-scrollbar-track {
@@ -137,8 +138,9 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.14);
-  border-radius: 6px;
+  /* 默认透明即「隐藏」，但仍占据 10px 槽位，避免显隐引起内容抖动 */
+  background: transparent;
+  border-radius: 5px;
   /* Chromium 的滑块最短只画 17px，超长文档里几乎点不中。
      竖向滑块由 min-height 兜底、横向滑块由 min-width 兜底，
      两个属性互不影响对方方向（实测横向滑块高度、竖向滑块宽度均不变） */
@@ -156,7 +158,7 @@ body {
 }
 
 .light ::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.14);
+  background: transparent;
 }
 
 .light .sb-active::-webkit-scrollbar-thumb,
