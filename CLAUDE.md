@@ -35,6 +35,8 @@ npm start              # 预览已构建产物（electron-vite preview）
 
 **仓库已引入 Vitest（`src/**/*.spec.ts`）与 Playwright（`e2e/**`）**，但没有 git 钩子。纯函数改动需同步补 `*.spec.ts` 并跑 `npm test`；e2e 依赖 `npm run build` 产物。质量门槛与手工验证要求见 `@rules/testing.md`。
 
+开发模式（`app.isPackaged === false`）会自动把 `userData` 切到 `mark-it-dev` 子目录，与已安装的正式版隔离，两者可同时运行。
+
 ## 架构
 
 ### 进程与入口
@@ -69,7 +71,7 @@ npm start              # 预览已构建产物（electron-vite preview）
 
 ### 预览与导出
 
-预览和 PDF 各自构建了一条 markdown-it 管线，**修改渲染行为时必须两处同步**（frontmatter 表格化、本地图片规则、Mermaid、链接分流）：
+预览和 PDF 各自构建了一条 markdown-it 管线（共享 `utils/markdown.ts` 的渲染器工厂），**修改渲染行为时必须两处同步**（frontmatter 表格化、任务列表、代码高亮、本地图片规则、Mermaid、链接分流）：
 
 - 预览：[MarkdownPreview.vue](src/renderer/src/components/preview/MarkdownPreview.vue) 负责 frontmatter 表格、标题锚点（`heading-N`，与 `useOutline` 约定一致）、Mermaid 渲染、链接点击分流
 - PDF：`usePdfExport` 在渲染进程生成自包含 HTML（含 Mermaid SVG），主进程用隐藏 `BrowserWindow` + `printToPDF` 输出，导出前等待 `<img>` 加载

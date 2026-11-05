@@ -199,7 +199,4 @@ async function onExport(options: PdfExportOptions): Promise<void> {
 .light .preview-container {
   background: #ffffff;
 }
-.light .preview-content {
-  color: #374151;
-}
 </style>

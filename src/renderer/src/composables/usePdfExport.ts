@@ -6,7 +6,7 @@ import { collectMermaidBlocks, formatMermaidError } from '../utils/mermaid'
 import { parseFrontmatter, renderFrontmatterTable } from '../utils/frontmatter'
 import { installLocalImageRule } from '../utils/local-image'
 import { installHeadingAnchors, parseHeadings, type ParsedHeading } from '../utils/headings'
-import MarkdownIt from 'markdown-it'
+import { createMarkdownRenderer } from '../utils/markdown'
 import type { PdfExportOptions } from '../types'
 
 interface UsePdfExport {
@@ -57,7 +57,7 @@ export function usePdfExport(): UsePdfExport {
   const app = useAppStore()
   const exporting = ref(false)
 
-  const md = new MarkdownIt({ html: true, linkify: true, breaks: true })
+  const md = createMarkdownRenderer()
   // 与预览一致：标题按文档顺序注入 heading-N 锚点
   installHeadingAnchors(md)
 
@@ -134,10 +134,19 @@ export function usePdfExport(): UsePdfExport {
   code { background: #f4f4f4; padding: 0.15em 0.4em; border-radius: 3px; font-size: 0.9em; }
   pre { background: #f8f8f8; border: 1px solid #e0e0e0; border-radius: 6px; padding: 14px 18px; overflow-x: auto; }
   pre code { background: transparent; padding: 0; }
+  .hljs-comment, .hljs-quote { color: #6e7781; font-style: italic; }
+  .hljs-keyword, .hljs-selector-tag, .hljs-doctag, .hljs-template-tag, .hljs-template-variable { color: #cf222e; }
+  .hljs-string, .hljs-regexp, .hljs-meta .hljs-string { color: #0a3069; }
+  .hljs-number, .hljs-literal, .hljs-variable, .hljs-attr, .hljs-attribute, .hljs-selector-attr, .hljs-selector-class, .hljs-selector-id { color: #0550ae; }
+  .hljs-title, .hljs-section { color: #8250df; font-weight: 600; }
+  .hljs-built_in, .hljs-type, .hljs-name, .hljs-tag { color: #953800; }
+  .hljs-meta, .hljs-symbol, .hljs-bullet, .hljs-link { color: #6e7781; }
   blockquote { border-left: 3px solid #ddd; padding: 0.5em 1em; color: #666; margin: 1em 0; }
   table { width: 100%; border-collapse: collapse; margin: 1em 0; }
   th { background: #f6f6f6; font-weight: 600; text-align: left; padding: 8px 12px; border: 1px solid #ddd; }
   td { padding: 6px 12px; border: 1px solid #ddd; }
+  .task-list-item { list-style-type: none; }
+  .task-list-item-checkbox { margin: 0 0.2em 0.25em -1.4em; vertical-align: middle; }
   .frontmatter-title { font-size: 12px; color: #666; margin-bottom: 6px; }
   .frontmatter-table .fm-key { width: 160px; color: #555; font-family: Consolas, monospace; font-size: 12px; }
   .frontmatter-table .fm-value { white-space: pre-wrap; word-break: break-word; }

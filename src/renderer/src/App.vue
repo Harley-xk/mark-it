@@ -252,6 +252,100 @@ body {
   color: rgba(0, 0, 0, 0.5);
 }
 
+/* 预览正文基础默认值：:where 保持零优先级，主题与导入的 GitHub CSS 可以覆盖 */
+:where(.preview-content) {
+  color: #d4d4d8;
+  line-height: 1.7;
+}
+
+:where(.light) :where(.preview-content) {
+  color: #374151;
+}
+
+/* 预览背景由 .preview-container 统一提供：导入的 GitHub CSS 常给 .markdown-body
+   设置实色背景，会在内容区形成与容器不一致的色块，这里只覆盖该元素自身的背景 */
+.preview-content.markdown-body {
+  background-color: transparent;
+}
+
+/* 代码块语法高亮：变量由全局提供，主题 CSS 可按需覆盖 */
+.markdown-body {
+  --hljs-keyword: #ff7b72;
+  --hljs-string: #a5d6ff;
+  --hljs-number: #79c0ff;
+  --hljs-comment: #8b949e;
+  --hljs-title: #d2a8ff;
+  --hljs-built-in: #ffa657;
+}
+
+.light .markdown-body {
+  --hljs-keyword: #cf222e;
+  --hljs-string: #0a3069;
+  --hljs-number: #0550ae;
+  --hljs-comment: #6e7781;
+  --hljs-title: #8250df;
+  --hljs-built-in: #953800;
+}
+
+.markdown-body .hljs-comment,
+.markdown-body .hljs-quote {
+  color: var(--hljs-comment);
+  font-style: italic;
+}
+
+.markdown-body .hljs-keyword,
+.markdown-body .hljs-selector-tag,
+.markdown-body .hljs-doctag,
+.markdown-body .hljs-template-tag,
+.markdown-body .hljs-template-variable {
+  color: var(--hljs-keyword);
+}
+
+.markdown-body .hljs-string,
+.markdown-body .hljs-regexp,
+.markdown-body .hljs-meta .hljs-string {
+  color: var(--hljs-string);
+}
+
+.markdown-body .hljs-number,
+.markdown-body .hljs-literal,
+.markdown-body .hljs-variable,
+.markdown-body .hljs-attr,
+.markdown-body .hljs-attribute,
+.markdown-body .hljs-selector-attr,
+.markdown-body .hljs-selector-class,
+.markdown-body .hljs-selector-id {
+  color: var(--hljs-number);
+}
+
+.markdown-body .hljs-title,
+.markdown-body .hljs-section {
+  color: var(--hljs-title);
+  font-weight: 600;
+}
+
+.markdown-body .hljs-built_in,
+.markdown-body .hljs-type,
+.markdown-body .hljs-name,
+.markdown-body .hljs-tag {
+  color: var(--hljs-built-in);
+}
+
+.markdown-body .hljs-meta,
+.markdown-body .hljs-symbol,
+.markdown-body .hljs-bullet,
+.markdown-body .hljs-link {
+  color: var(--hljs-comment);
+}
+
+.markdown-body .hljs-emphasis {
+  font-style: italic;
+}
+
+.markdown-body .hljs-strong {
+  font-weight: 600;
+}
+
 /* ── YAML frontmatter 文档信息表 ── */
 
 .preview-content .frontmatter-block {

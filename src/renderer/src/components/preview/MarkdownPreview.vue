@@ -14,8 +14,8 @@ import { parseFrontmatter, renderFrontmatterTable } from '../../utils/frontmatte
 import { saveDiagram, serializeSvg } from '../../utils/diagram-export'
 import { installLocalImageRule, resolveImageSrc, resolveLocalPath } from '../../utils/local-image'
 import { installHeadingAnchors } from '../../utils/headings'
+import { createMarkdownRenderer } from '../../utils/markdown'
 import DiagramPreviewModal from './DiagramPreviewModal.vue'
-import MarkdownIt from 'markdown-it'
 
 const editorStore = useEditorStore()
 const documentsStore = useDocumentsStore()
@@ -34,12 +34,7 @@ const contentStyle = computed(() => ({
     appStore.previewWidthMode === 'fixed' ? `${appStore.previewWidth}px` : 'none'
 }))
 
-const md = new MarkdownIt({
-  html: true,
-  linkify: true,
-  typographer: true,
-  breaks: true
-})
+const md = createMarkdownRenderer({ typographer: true })
 
 // 相对路径图片按当前文档所在目录解析（通过 markit-file 协议读取本地文件）
 installLocalImageRule(md, () => documentsStore.activeDoc?.path)
@@ -489,7 +484,7 @@ onUnmounted(() => {
       <!-- eslint-disable-next-line vue/no-v-html -->
       <component :is="'style'">{{ currentCss }}</component>
       <div
-        class="preview-content"
+        class="preview-content markdown-body"
         :style="contentStyle"
         v-html="renderedHtml"
         @click="handlePreviewLinkClick"
@@ -524,8 +519,6 @@ onUnmounted(() => {
 
 .preview-content {
   margin: 0 auto;
-  line-height: 1.7;
-  color: #d4d4d8;
 }
 
 :global(.light) .preview-container {

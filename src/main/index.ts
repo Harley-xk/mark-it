@@ -13,6 +13,15 @@ import { isAppUrl, registerHandle, registerOn } from './ipc-guard'
 import { parseSessionData } from './session-store'
 
 /**
+ * 开发模式使用独立的 userData 目录，避免与已安装的正式版共用单实例锁、
+ * 会话快照与窗口状态。必须在读取 app.getPath('userData') 之前设置：
+ * 下面的 windowStateFile / sessionFile 在模块加载时就会计算路径。
+ */
+if (!app.isPackaged) {
+  app.setPath('userData', join(app.getPath('appData'), 'mark-it-dev'))
+}
+
+/**
  * 文档内相对路径图片的自定义协议。
  * 渲染进程把本地绝对路径编码到查询参数里，主进程据此读取文件，
  * 这样开发模式（http://localhost）与打包后（file://）都能加载图片。

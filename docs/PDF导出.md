@@ -48,7 +48,7 @@ interface PdfExportOptions {
 
 ### 3.1 渲染进程（usePdfExport）
 
-[usePdfExport.ts](../src/renderer/src/composables/usePdfExport.ts) 在组合式函数创建时初始化一个独立的 `MarkdownIt` 实例（`html: true, linkify: true, breaks: true`），并：
+[usePdfExport.ts](../src/renderer/src/composables/usePdfExport.ts) 在组合式函数创建时通过共享工厂 `createMarkdownRenderer()` 创建独立渲染器（`html` / `linkify` / `breaks`，并安装任务列表扩展），并：
 
 1. 调用 `installHeadingAnchors(md)`：与预览共用同一套 `heading-N` 锚点规则；
 2. 安装与预览相同的本地图片规则 `installLocalImageRule`；
@@ -142,6 +142,8 @@ sequenceDiagram
 | 目录             | 无（由左侧大纲面板承担）                                                                             | `parseHeadings` 生成目录 HTML                       | PDF 独有                            |
 | 链接处理         | `handlePreviewLinkClick` 分流：外链走 `shell:openExternal`，本地文件在资源管理器中定位，其余协议忽略 | 无任何点击拦截，`href` 原样输出                     | 不一致                              |
 | markdown-it 选项 | `html`、`linkify`、`typographer`、`breaks`                                                           | `html`、`linkify`、`breaks`（**无 `typographer`**） | 轻微不一致（引号/破折号排版不转换） |
+| 任务列表         | `createMarkdownRenderer` 统一安装 `markdown-it-task-lists`                                           | 同左                                                | 一致                                |
+| 代码高亮         | `createMarkdownRenderer` 统一安装 highlight.js，颜色由 App.vue 的 `--hljs-*` 变量提供                | 同左，颜色写在 PDF 内联样式中                       | 标记一致，配色不同（PDF 固定浅色）  |
 | 预览样式         | 由 `styleStore` 注入当前主题 CSS                                                                     | 固定内置浅色模板，不使用任何预览主题 CSS            | 不一致（产品约定，见 6.1）          |
 
 PDF 中链接的具体行为：markdown-it 输出的 `<a href>` 原样保留，模板仅设置颜色 `#0366d6`。相对路径链接不会被转成绝对路径（只有图片经过 `installLocalImageRule` 改写），`file:` 链接也不会被改写；导出后链接是否可点击、点击后打开什么，取决于 PDF 阅读器本身，与预览的分流逻辑无关。因此**不要指望 PDF 内的相对链接可以跳转**；目录锚点在支持页内跳转的阅读器中可直接使用。

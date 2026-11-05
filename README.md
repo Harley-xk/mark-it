@@ -190,6 +190,8 @@ npm run build:linux
 | [Vue 3](https://vuejs.org/) + [Pinia](https://pinia.vuejs.org/) | 响应式 UI + 状态管理 |
 | [CodeMirror 6](https://codemirror.net/)                         | 代码编辑器引擎       |
 | [markdown-it](https://github.com/markdown-it/markdown-it)       | Markdown 解析        |
+| [markdown-it-task-lists](https://github.com/revin/markdown-it-task-lists) | GitHub 任务列表 |
+| [highlight.js](https://highlightjs.org/)                        | 代码块语法高亮       |
 | [Mermaid](https://mermaid.js.org/)                              | 图表渲染             |
 | [TypeScript](https://www.typescriptlang.org/)                   | 类型安全             |
 | [electron-vite](https://electron-vite.org/)                     | 构建工具             |

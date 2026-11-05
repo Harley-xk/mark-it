@@ -148,7 +148,7 @@ Mermaid 的语法错误通常是「Parse error on line N: + 源码行 + 指示�
 - 若 `import('mermaid')` 本身失败，整个函数静默返回，代码块保持未渲染状态（没有错误提示）。
 - 错误提示的样式分两层：
   - 基础样式（[App.vue](../src/renderer/src/App.vue)）：`margin: 8px 0 1.2em`、`padding: 8px 12px`、`font-size: 12px`、`white-space: pre-wrap`、`word-break: break-word`；深色主题为琥珀色 `#d97706` + 8% 透明背景 + 25% 透明边框，浅色主题为 `#b45309` + 6% 背景 + 20% 边框。
-  - 预览主题覆盖：`github.css`、`github-light.css`、`dark.css`、`dark-light.css` 各自定义了 `.preview-content .mermaid-error` 的前景色与底色（偏红色系），因此在其他预览主题下提示颜色会不同；`academic`、`minimal` 两套未覆盖，沿用基础样式。
+  - 预览主题覆盖：`github.css`、`github-light.css`、`dark.css`、`dark-light.css` 各自定义了 `.markdown-body .mermaid-error` 的前景色与底色（偏红色系），因此在其他预览主题下提示颜色会不同；`academic`、`minimal` 两套未覆盖，沿用基础样式。
 
 ## 5. 内联图表交互
 
