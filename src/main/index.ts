@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow, dialog, screen, protocol, net } from 'electron'
+import { app, shell, BrowserWindow, dialog, screen, protocol, net, nativeTheme } from 'electron'
 import type { IpcMainInvokeEvent } from 'electron'
 import { dirname, join } from 'path'
 import { fileURLToPath, pathToFileURL } from 'url'
@@ -741,6 +741,17 @@ registerHandle('window:is-fullscreen', (event) => {
 registerHandle('window:get-zoom', (event) => {
   if (!isMainWindowSender(event)) return 1
   return currentZoomFactor
+})
+/**
+ * 同步原生外观主题。Chromium 依据 nativeTheme 的明暗选择窗口按钮的
+ * hover 对比色：UI 是浅色而系统是深色时，hover 会被画成不可见的白色叠加。
+ * 因此把用户选择的 themeMode 传给 nativeTheme（system 保持跟随系统）。
+ * macOS 使用系统交通灯，无需处理。
+ */
+registerHandle('window:set-native-theme', (event, theme: 'light' | 'dark' | 'system') => {
+  if (!isMainWindowSender(event) || process.platform === 'darwin') return
+  if (theme !== 'light' && theme !== 'dark' && theme !== 'system') return
+  nativeTheme.themeSource = theme
 })
 registerHandle('window:close', (event, quit = false) => {
   if (!isMainWindowSender(event)) return false

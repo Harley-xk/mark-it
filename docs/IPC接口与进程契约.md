@@ -55,10 +55,10 @@
 
 | 方向                                  | 数量   | 说明                                                                             |
 | ------------------------------------- | ------ | -------------------------------------------------------------------------------- |
-| renderer → main `invoke`（请求-响应） | 20     | 文件 4、对话框 3、窗口 3、系统 1（`shell:openExternal`）、会话 2、导出 1、更新 6 |
+| renderer → main `invoke`（请求-响应） | 21     | 文件 4、对话框 3、窗口 4、系统 1（`shell:openExternal`）、会话 2、导出 1、更新 6 |
 | renderer → main `send`（单向）        | 2      | `renderer:ready`、`update:close-window`                                          |
 | main → renderer `send`（事件推送）    | 9      | 见 3.7                                                                           |
-| **合计**                              | **31** | 全部经 `window.api` 白名单暴露                                                   |
+| **合计**                              | **32** | 全部经 `window.api` 白名单暴露                                                   |
 
 > 计数口径：按 `registerHandle` / `registerOn` / `webContents.send` 中实际出现的通道名去重统计。`window:zoom-changed` 在两个位置发送但只算一个通道。
 
@@ -85,12 +85,13 @@
 
 ### 3.3 窗口与系统
 
-| 通道名                 | 方向       | preload 方法        | 参数             | 返回值             | 主进程处理位置                                  | 备注                                                                                                                                                                            |
-| ---------------------- | ---------- | ------------------- | ---------------- | ------------------ | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `window:close`         | R→M invoke | `close(quit?)`      | `quit?: boolean` | `Promise<boolean>` | [`src/main/index.ts`](../src/main/index.ts)     | 先置 `allowClose = true` 再关闭，**绕过窗口关闭守卫**；调用前必须已完成未保存内容确认。`quit = true` 表示在完成 Cmd+Q / 菜单退出，关窗后继续 `app.quit()`；**仅接受主窗口调用** |
-| `window:is-fullscreen` | R→M invoke | `isFullscreen()`    | 无               | `Promise<boolean>` | [`src/main/index.ts:653`](../src/main/index.ts) | 标题栏据此决定是否给系统按钮留位；**仅接受主窗口调用**                                                                                                                          |
-| `window:get-zoom`      | R→M invoke | `getZoom()`         | 无               | `Promise<number>`  | [`src/main/index.ts:657`](../src/main/index.ts) | 返回主进程维护的 `currentZoomFactor`（1 = 100%）；**仅接受主窗口调用**                                                                                                          |
-| `shell:openExternal`   | R→M invoke | `openExternal(url)` | `url: string`    | `Promise<boolean>` | [`src/main/index.ts:553`](../src/main/index.ts) | 仅放行 `http` / `https` / `mailto`；`file:` 转为定位文件；其余协议忽略并返回 `false`                                                                                            |
+| 通道名                    | 方向       | preload 方法            | 参数                                   | 返回值             | 主进程处理位置                                  | 备注                                                                                                                                                                                |
+| ------------------------- | ---------- | ----------------------- | -------------------------------------- | ------------------ | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `window:close`            | R→M invoke | `close(quit?)`          | `quit?: boolean`                       | `Promise<boolean>` | [`src/main/index.ts`](../src/main/index.ts)     | 先置 `allowClose = true` 再关闭，**绕过窗口关闭守卫**；调用前必须已完成未保存内容确认。`quit = true` 表示在完成 Cmd+Q / 菜单退出，关窗后继续 `app.quit()`；**仅接受主窗口调用**     |
+| `window:is-fullscreen`    | R→M invoke | `isFullscreen()`        | 无                                     | `Promise<boolean>` | [`src/main/index.ts:653`](../src/main/index.ts) | 标题栏据此决定是否给系统按钮留位；**仅接受主窗口调用**                                                                                                                              |
+| `window:get-zoom`         | R→M invoke | `getZoom()`             | 无                                     | `Promise<number>`  | [`src/main/index.ts:657`](../src/main/index.ts) | 返回主进程维护的 `currentZoomFactor`（1 = 100%）；**仅接受主窗口调用**                                                                                                              |
+| `window:set-native-theme` | R→M invoke | `setNativeTheme(theme)` | `theme: 'light' \| 'dark' \| 'system'` | `Promise<void>`    | [`src/main/index.ts`](../src/main/index.ts)     | 写入 `nativeTheme.themeSource`：Chromium 按它的明暗选择窗口按钮的 hover 对比色，浅色 UI + 深色系统会得到不可见的白色 hover；`system` 保持跟随系统；macOS 忽略；**仅接受主窗口调用** |
+| `shell:openExternal`      | R→M invoke | `openExternal(url)`     | `url: string`                          | `Promise<boolean>` | [`src/main/index.ts:553`](../src/main/index.ts) | 仅放行 `http` / `https` / `mailto`；`file:` 转为定位文件；其余协议忽略并返回 `false`                                                                                                |
 
 ### 3.4 会话
 
@@ -101,8 +102,8 @@
 
 ### 3.5 导出
 
-| 通道名       | 方向       | preload 方法               | 参数                                                                                                          | 返回值                    | 主进程处理位置                              | 备注                                                                                                                                                              |
-| ------------ | ---------- | -------------------------- | ------------------------------------------------------------------------------------------------------------- | ------------------------- | ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 通道名       | 方向       | preload 方法               | 参数                                                                                                                                           | 返回值                    | 主进程处理位置                              | 备注                                                                                                                                                              |
+| ------------ | ---------- | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- | ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `export:pdf` | R→M invoke | `exportPdf(html, options)` | `html: string`；`options: PdfExportOptions`（`pageSize`、`margin`、`showPageNumbers`、`showToc`、`showFrontmatter`、`fileName`、`sourcePath`） | `Promise<string \| null>` | [`src/main/index.ts`](../src/main/index.ts) | 渲染进程生成自包含 HTML；主进程用隐藏 `BrowserWindow` 等待图片加载后 `printToPDF`；`margins` / 页码 / 默认文件名均已生效；取消返回 `null`；`finally` 销毁隐藏窗口 |
 
 ### 3.6 更新
@@ -167,12 +168,12 @@
 
 ### 4.2 内联对象类型
 
-| 结构                | 出现通道                                                                                 | 字段                                                                                                                                          |
-| ------------------- | ---------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `{ path, content }` | `dialog:openFiles` 返回、`file:read` 返回、`open-file-from-argv`、`file:external-change` | `path: string`、`content: string`                                                                                                             |
-| 图片保存参数        | `dialog:saveImage`                                                                       | `fileName: string`、`data: Uint8Array`、`extension: 'svg' \| 'png'`                                                                           |
+| 结构                | 出现通道                                                                                 | 字段                                                                                                                                                                           |
+| ------------------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `{ path, content }` | `dialog:openFiles` 返回、`file:read` 返回、`open-file-from-argv`、`file:external-change` | `path: string`、`content: string`                                                                                                                                              |
+| 图片保存参数        | `dialog:saveImage`                                                                       | `fileName: string`、`data: Uint8Array`、`extension: 'svg' \| 'png'`                                                                                                            |
 | PDF 选项            | `export:pdf`                                                                             | `PdfExportOptions`（[`src/shared/pdf-types.ts`](../src/shared/pdf-types.ts)）：`pageSize`、`margin`、`showPageNumbers`、`showToc`、`showFrontmatter`、`fileName`、`sourcePath` |
-| 文件读取结果        | `dialog:openFiles` 返回、`file:read` 返回、`open-file-from-argv`、`file:external-change` | `FileReadResult`（[`src/shared/file-types.ts`](../src/shared/file-types.ts)）：`path`、`content`                                              |
+| 文件读取结果        | `dialog:openFiles` 返回、`file:read` 返回、`open-file-from-argv`、`file:external-change` | `FileReadResult`（[`src/shared/file-types.ts`](../src/shared/file-types.ts)）：`path`、`content`                                                                               |
 
 > `PdfExportOptions` 与 `FileReadResult` 都放在 `src/shared`，preload、主进程与渲染进程共用同一份声明，不再维护内联重复类型。新增字段时改共享类型即可，类型检查会覆盖三处调用。
 

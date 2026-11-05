@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onUnmounted } from 'vue'
+import { onUnmounted, watch } from 'vue'
 import AppLayout from './components/layout/AppLayout.vue'
 import ConfirmDialog from './components/common/ConfirmDialog.vue'
 import UpdateNotice from './components/update/UpdateNotice.vue'
@@ -9,6 +9,7 @@ import { useScrollbarState } from './composables/useScrollbarState'
 import { useWindowZoom } from './composables/useWindowZoom'
 import { useConfirmDialog, resolveConfirm } from './composables/useConfirmUnsaved'
 import { useUpdateStore } from './stores/update'
+import { useAppStore } from './stores/app'
 import { useFile } from './composables/useFile'
 import { useFileWatcher } from './composables/useFileWatcher'
 import { useSession } from './composables/useSession'
@@ -25,6 +26,16 @@ useSession()
 
 const update = useUpdateStore()
 update.init()
+const app = useAppStore()
+// 让原生外观跟随用户选择的主题：系统窗口按钮的 hover 对比色按 nativeTheme 计算，
+// 不传的话浅色 UI 在深色系统下会拿到几乎不可见的白色 hover（system 模式保持跟随系统）
+watch(
+  () => app.themeMode,
+  (mode) => {
+    window.api.setNativeTheme(mode)
+  },
+  { immediate: true }
+)
 const file = useFile()
 const {
   showConfirm,
@@ -119,9 +130,20 @@ body {
   background: transparent;
 }
 
+/* 纵横滚动条交汇处的方块不跟随 track 的透明样式，默认按浅色主题绘制，
+   深色模式下会露出一块白斑；显式置空与 track 保持一致 */
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
 ::-webkit-scrollbar-thumb {
   background: rgba(255, 255, 255, 0.14);
   border-radius: 6px;
+  /* Chromium 的滑块最短只画 17px，超长文档里几乎点不中。
+     竖向滑块由 min-height 兜底、横向滑块由 min-width 兜底，
+     两个属性互不影响对方方向（实测横向滑块高度、竖向滑块宽度均不变） */
+  min-height: 40px;
+  min-width: 40px;
 }
 
 .sb-active::-webkit-scrollbar-thumb,
