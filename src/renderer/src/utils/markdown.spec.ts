@@ -32,4 +32,17 @@ describe('Markdown 渲染器', () => {
     expect(html).toContain('<pre><code class="language-mermaid">')
     expect(html).not.toContain('hljs-')
   })
+
+  it('裸域名应自动转换为链接（保持升级前行为）', () => {
+    const html = createMarkdownRenderer().render('访问 www.example.com 与 example.com')
+
+    expect(html).toContain('<a href="http://www.example.com">www.example.com</a>')
+    expect(html).toContain('<a href="http://example.com">example.com</a>')
+  })
+
+  it('中文标点应终止自动链接', () => {
+    const html = createMarkdownRenderer().render('访问 https://example.com。')
+
+    expect(html).toContain('<a href="https://example.com">https://example.com</a>。')
+  })
 })

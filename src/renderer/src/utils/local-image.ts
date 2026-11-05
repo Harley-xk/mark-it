@@ -6,7 +6,7 @@
  * 协议读取本地文件，保证开发（http）与打包（file）两种运行方式都能显示。
  */
 
-import type MarkdownIt from 'markdown-it'
+import type { MarkdownIt } from 'markdown-it'
 
 const LOCAL_FILE_SCHEME = 'markit-file'
 const WINDOWS_DRIVE = /^[a-zA-Z]:([\\/]|$)/
@@ -141,7 +141,8 @@ export function installLocalImageRule(
   md.renderer.rules.image = (tokens, idx, options, env, self) => {
     const token = tokens[idx]
     const src = token.attrGet('src')
-    if (src) {
+    // markdown-it 15 的 attrGet 返回 string | number | null，图片地址只接受字符串
+    if (typeof src === 'string' && src) {
       const resolved = resolveImageSrc(src, getDocumentPath())
       if (resolved) token.attrSet('src', resolved)
     }

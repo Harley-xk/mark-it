@@ -1,5 +1,5 @@
 declare module 'markdown-it-task-lists' {
-  import type MarkdownIt from 'markdown-it'
+  import type { MarkdownIt } from 'markdown-it'
 
   interface TaskListOptions {
     /** 复选框是否可交互；默认 false，输出带 enabled 类名的可勾选清单 */

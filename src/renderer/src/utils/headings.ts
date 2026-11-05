@@ -4,9 +4,9 @@
  *
  * 描述: 基于 markdown-it 的统一标题解析与锚点注入，供大纲、预览与 PDF 共用
  */
-import MarkdownIt from 'markdown-it'
+import MarkdownIt, { type MarkdownIt as MarkdownItInstance } from 'markdown-it'
 
-type MarkdownToken = ReturnType<MarkdownIt['parse']>[number]
+type MarkdownToken = ReturnType<MarkdownItInstance['parse']>[number]
 
 export interface ParsedHeading {
   /** 与预览锚点一致的顺序 id：heading-0、heading-1 …… */
@@ -60,7 +60,7 @@ export function parseHeadings(body: string): ParsedHeading[] {
 }
 
 /** 给预览 / PDF 的标题按文档顺序注入 heading-N 锚点 */
-export function installHeadingAnchors(md: MarkdownIt): void {
+export function installHeadingAnchors(md: MarkdownItInstance): void {
   md.core.ruler.push('heading_anchor_ids', (state) => {
     let index = 0
     for (const token of state.tokens) {

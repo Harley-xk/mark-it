@@ -4,7 +4,7 @@
  *
  * 描述: 创建带 GitHub 规范扩展（任务列表）的 markdown-it 实例，供预览与 PDF 共用
  */
-import MarkdownIt from 'markdown-it'
+import MarkdownIt, { type MarkdownIt as MarkdownItInstance } from 'markdown-it'
 import taskLists from 'markdown-it-task-lists'
 import hljs from 'highlight.js/lib/common'
 
@@ -36,7 +36,7 @@ function highlightCode(code: string, language: string): string {
  * （输出 contains-task-list / task-list-item / task-list-item-checkbox）与
  * highlight.js 语法高亮，保证内置主题和导入的 GitHub 系 CSS 都能正确命中。
  */
-export function createMarkdownRenderer(options: MarkdownRendererOptions = {}): MarkdownIt {
+export function createMarkdownRenderer(options: MarkdownRendererOptions = {}): MarkdownItInstance {
   const md = new MarkdownIt({
     html: true,
     linkify: true,
@@ -44,6 +44,10 @@ export function createMarkdownRenderer(options: MarkdownRendererOptions = {}): M
     breaks: true,
     highlight: highlightCode
   })
+
+  // markdown-it 15 依赖的 linkify-it 6 默认关闭裸域名识别（fuzzyLink），
+  // 这里显式打开，保持升级前 www.example.com / example.com 自动链接的行为。
+  md.linkify.set({ fuzzyLink: true })
 
   md.use(taskLists)
 
