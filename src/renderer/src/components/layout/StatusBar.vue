@@ -24,8 +24,10 @@ const pdfStatusText = computed(() => {
   <div class="status-bar">
     <div class="status-left">
       <span class="status-item">{{ app.fileName }}</span>
-      <span class="status-sep">|</span>
-      <span class="status-item">行 {{ editor.cursorLine }}, 列 {{ editor.cursorCol }}</span>
+      <template v-if="app.showEditor">
+        <span class="status-sep">|</span>
+        <span class="status-item">行 {{ editor.cursorLine }}, 列 {{ editor.cursorCol }}</span>
+      </template>
     </div>
     <div class="status-right">
       <template v-if="app.pdfExportStatus !== 'idle'">
