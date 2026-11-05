@@ -16,8 +16,10 @@ import { parseSessionData } from './session-store'
  * 开发模式使用独立的 userData 目录，避免与已安装的正式版共用单实例锁、
  * 会话快照与窗口状态。必须在读取 app.getPath('userData') 之前设置：
  * 下面的 windowStateFile / sessionFile 在模块加载时就会计算路径。
+ * 调用方显式传入 --user-data-dir（如 e2e）时尊重该目录，不再覆盖，
+ * 否则测试会读到开发会话并在多次运行之间互相污染。
  */
-if (!app.isPackaged) {
+if (!app.isPackaged && !app.commandLine.hasSwitch('user-data-dir')) {
   app.setPath('userData', join(app.getPath('appData'), 'mark-it-dev'))
 }
 
