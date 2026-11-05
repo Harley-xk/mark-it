@@ -640,9 +640,17 @@ const PDF_LAYOUT_TIMEOUT_MS = 1500
 /** 自包含 HTML 的硬上限，超过时直接提示，避免隐藏窗口因内存压力崩溃 */
 const PDF_HTML_MAX_BYTES = 64 * 1024 * 1024
 
+/** 保存对话框的默认路径：优先定位到当前文档所在目录，文件名永不为空 */
+function buildPdfDefaultPath(fileName: string, sourcePath: string | null | undefined): string {
+  const base = sanitizeFileName(fileName || 'untitled.pdf', 'pdf')
+  if (!sourcePath) return base
+  const dir = dirname(sourcePath)
+  return dir && dir !== '.' ? join(dir, base) : base
+}
+
 registerHandle('export:pdf', async (_e, html: string, options: PdfExportOptions) => {
   const result = await dialog.showSaveDialog(mainWindow!, {
-    defaultPath: sanitizeFileName(options.fileName || 'untitled.pdf', 'pdf'),
+    defaultPath: buildPdfDefaultPath(options.fileName, options.sourcePath),
     filters: [{ name: 'PDF', extensions: ['pdf'] }]
   })
   if (result.canceled || !result.filePath) return null

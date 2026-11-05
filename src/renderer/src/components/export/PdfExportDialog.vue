@@ -2,6 +2,7 @@
 import { ref } from 'vue'
 import { useAppStore } from '../../stores/app'
 import { useDocumentsStore } from '../../stores/documents'
+import { derivePdfFileName } from '../../utils/pdf-name'
 import type { PdfExportOptions } from '../../types'
 
 const props = defineProps<{ exporting: boolean }>()
@@ -18,21 +19,21 @@ const pageSize = ref<'A4' | 'Letter'>('A4')
 const margin = ref<'narrow' | 'standard' | 'wide'>('standard')
 const showPageNumbers = ref(true)
 const showToc = ref(false)
-
-/** 默认文件名取自当前文档名，避免用户在保存对话框里重新输入 */
-function defaultFileName(): string {
-  const name = documents.activeDoc?.name || 'untitled.md'
-  return `${name.replace(/\.(md|markdown|txt)$/i, '')}.pdf`
-}
+const showFrontmatter = ref(true)
 
 function handleExport(): void {
   if (props.exporting) return
+  const doc = documents.activeDoc
   emit('export', {
     pageSize: pageSize.value,
     margin: margin.value,
     showPageNumbers: showPageNumbers.value,
     showToc: showToc.value,
-    fileName: defaultFileName()
+    showFrontmatter: showFrontmatter.value,
+    // 默认文件名取当前文档名且永不为空，避免保存对话框里重新输入
+    fileName: derivePdfFileName(doc?.name),
+    // 有磁盘路径时让对话框默认打开文档所在目录
+    sourcePath: doc?.path ?? null
   })
 }
 </script>
@@ -74,12 +75,16 @@ function handleExport(): void {
             </select>
           </label>
           <label class="field checkbox-field">
-            <input type="checkbox" v-model="showPageNumbers" />
+            <input v-model="showPageNumbers" type="checkbox" />
             <span>显示页码</span>
           </label>
           <label class="field checkbox-field">
-            <input type="checkbox" v-model="showToc" />
+            <input v-model="showToc" type="checkbox" />
             <span>生成目录</span>
+          </label>
+          <label class="field checkbox-field">
+            <input v-model="showFrontmatter" type="checkbox" />
+            <span>输出文档信息（YAML Frontmatter）</span>
           </label>
           <p class="export-hint">PDF 使用独立的浅色打印样式，不随预览主题变化。</p>
         </div>

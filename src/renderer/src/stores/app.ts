@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
-import type { LayoutMode, PreviewWidthMode, ThemeMode } from '../types'
+import type { LayoutMode, PdfExportStatus, PreviewWidthMode, ThemeMode } from '../types'
 import { useDocumentsStore } from './documents'
 
 function getSystemTheme(): 'light' | 'dark' {
@@ -53,6 +53,8 @@ export const useAppStore = defineStore('app', () => {
   const isModified = computed(() => documents.activeDoc?.isModified ?? false)
   const showPdfDialog = ref(false)
   const showSettingsDialog = ref(false)
+  /** PDF 导出状态，由 usePdfExport 驱动，状态栏据此展示「导出中… / 导出成功 / 导出失败」 */
+  const pdfExportStatus = ref<PdfExportStatus>('idle')
   /** 会话写盘失败（只读目录 / 磁盘已满等），状态栏据此给出可见提示 */
   const sessionSaveFailed = ref(false)
   // 整窗缩放比例由主进程维护，这里仅用于状态栏展示
@@ -139,6 +141,7 @@ export const useAppStore = defineStore('app', () => {
     isModified,
     showPdfDialog,
     showSettingsDialog,
+    pdfExportStatus,
     sessionSaveFailed,
     zoomFactor,
     zoomPercent,

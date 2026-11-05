@@ -103,7 +103,7 @@
 
 | 通道名       | 方向       | preload 方法               | 参数                                                                                                          | 返回值                    | 主进程处理位置                              | 备注                                                                                                                                                              |
 | ------------ | ---------- | -------------------------- | ------------------------------------------------------------------------------------------------------------- | ------------------------- | ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `export:pdf` | R→M invoke | `exportPdf(html, options)` | `html: string`；`options: PdfExportOptions`（`pageSize`、`margin`、`showPageNumbers`、`showToc`、`fileName`） | `Promise<string \| null>` | [`src/main/index.ts`](../src/main/index.ts) | 渲染进程生成自包含 HTML；主进程用隐藏 `BrowserWindow` 等待图片加载后 `printToPDF`；`margins` / 页码 / 默认文件名均已生效；取消返回 `null`；`finally` 销毁隐藏窗口 |
+| `export:pdf` | R→M invoke | `exportPdf(html, options)` | `html: string`；`options: PdfExportOptions`（`pageSize`、`margin`、`showPageNumbers`、`showToc`、`showFrontmatter`、`fileName`、`sourcePath`） | `Promise<string \| null>` | [`src/main/index.ts`](../src/main/index.ts) | 渲染进程生成自包含 HTML；主进程用隐藏 `BrowserWindow` 等待图片加载后 `printToPDF`；`margins` / 页码 / 默认文件名均已生效；取消返回 `null`；`finally` 销毁隐藏窗口 |
 
 ### 3.6 更新
 
@@ -171,7 +171,7 @@
 | ------------------- | ---------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
 | `{ path, content }` | `dialog:openFiles` 返回、`file:read` 返回、`open-file-from-argv`、`file:external-change` | `path: string`、`content: string`                                                                                                             |
 | 图片保存参数        | `dialog:saveImage`                                                                       | `fileName: string`、`data: Uint8Array`、`extension: 'svg' \| 'png'`                                                                           |
-| PDF 选项            | `export:pdf`                                                                             | `PdfExportOptions`（[`src/shared/pdf-types.ts`](../src/shared/pdf-types.ts)）：`pageSize`、`margin`、`showPageNumbers`、`showToc`、`fileName` |
+| PDF 选项            | `export:pdf`                                                                             | `PdfExportOptions`（[`src/shared/pdf-types.ts`](../src/shared/pdf-types.ts)）：`pageSize`、`margin`、`showPageNumbers`、`showToc`、`showFrontmatter`、`fileName`、`sourcePath` |
 | 文件读取结果        | `dialog:openFiles` 返回、`file:read` 返回、`open-file-from-argv`、`file:external-change` | `FileReadResult`（[`src/shared/file-types.ts`](../src/shared/file-types.ts)）：`path`、`content`                                              |
 
 > `PdfExportOptions` 与 `FileReadResult` 都放在 `src/shared`，preload、主进程与渲染进程共用同一份声明，不再维护内联重复类型。新增字段时改共享类型即可，类型检查会覆盖三处调用。

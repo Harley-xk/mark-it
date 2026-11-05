@@ -75,9 +75,17 @@ test('导出 PDF 并生成有效产物', async () => {
     const window = await app.firstWindow()
     await expect(window.locator('.tab-name', { hasText: 'pdf-smoke.md' })).toBeVisible()
 
-    // 替换系统保存对话框，避免原生弹窗阻塞自动化
+    // 替换系统保存对话框，避免原生弹窗阻塞自动化；
+    // 同时记录主进程收到的 defaultPath，用于校验默认文件名
     await app.evaluate(({ dialog }, filePath) => {
-      dialog.showSaveDialog = async () => ({ canceled: false, filePath })
+      const state = globalThis as { __pdfDefaultPath?: string }
+      state.__pdfDefaultPath = ''
+      const stub = async (...args: unknown[]): Promise<{ canceled: boolean; filePath: string }> => {
+        const options = args[args.length - 1] as { defaultPath?: string } | undefined
+        state.__pdfDefaultPath = options?.defaultPath ?? ''
+        return { canceled: false, filePath }
+      }
+      dialog.showSaveDialog = stub as typeof dialog.showSaveDialog
     }, pdfPath)
 
     const shortcut = process.platform === 'darwin' ? 'Meta+p' : 'Control+p'
@@ -85,6 +93,10 @@ test('导出 PDF 并生成有效产物', async () => {
     const exportButton = window.locator('.dialog .btn-primary')
     await expect(exportButton).toBeVisible()
     await exportButton.click()
+
+    // 确认导出后选项对话框立即关闭，进度改由状态栏展示
+    await expect(window.locator('.dialog')).toHaveCount(0)
+    await expect(window.locator('.status-export')).toBeVisible()
 
     await expect
       .poll(
@@ -99,6 +111,12 @@ test('导出 PDF 并生成有效产物', async () => {
       )
       .toBeGreaterThan(0)
     expect(readFileSync(pdfPath).subarray(0, 5).toString()).toBe('%PDF-')
+
+    // 默认文件名取当前文档名，并定位到文档所在目录
+    const defaultPath = await app.evaluate(
+      () => (globalThis as { __pdfDefaultPath?: string }).__pdfDefaultPath
+    )
+    expect(defaultPath).toBe(pdfPath)
   } finally {
     await app.close()
     rmSync(workDir, { recursive: true, force: true })

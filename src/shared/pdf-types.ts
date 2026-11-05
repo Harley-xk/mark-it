@@ -16,6 +16,10 @@ export interface PdfExportOptions {
   showPageNumbers: boolean
   /** 是否在正文前生成标题目录 */
   showToc: boolean
+  /** 是否在正文前输出 YAML frontmatter 的「文档信息」表格 */
+  showFrontmatter: boolean
   /** 保存对话框的默认文件名（由渲染进程按当前文档名生成） */
   fileName: string
+  /** 当前文档路径；有值时保存对话框默认定位到文档所在目录 */
+  sourcePath: string | null
 }

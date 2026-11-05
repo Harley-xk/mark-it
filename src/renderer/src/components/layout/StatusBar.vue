@@ -1,9 +1,23 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useEditorStore } from '../../stores/editor'
 import { useAppStore } from '../../stores/app'
 
 const editor = useEditorStore()
 const app = useAppStore()
+
+const pdfStatusText = computed(() => {
+  switch (app.pdfExportStatus) {
+    case 'exporting':
+      return '导出中…'
+    case 'success':
+      return '导出成功'
+    case 'error':
+      return '导出失败'
+    default:
+      return ''
+  }
+})
 </script>
 
 <template>
@@ -14,6 +28,23 @@ const app = useAppStore()
       <span class="status-item">行 {{ editor.cursorLine }}, 列 {{ editor.cursorCol }}</span>
     </div>
     <div class="status-right">
+      <template v-if="app.pdfExportStatus !== 'idle'">
+        <span
+          class="status-item status-export"
+          :class="`is-${app.pdfExportStatus}`"
+          :title="
+            app.pdfExportStatus === 'error' ? 'PDF 导出失败，详情见开发者工具控制台' : undefined
+          "
+        >
+          <span
+            v-if="app.pdfExportStatus === 'exporting'"
+            class="status-spinner"
+            aria-hidden="true"
+          ></span>
+          {{ pdfStatusText }}
+        </span>
+        <span class="status-sep">|</span>
+      </template>
       <template v-if="app.sessionSaveFailed">
         <span
           class="status-item status-warning"
@@ -27,7 +58,15 @@ const app = useAppStore()
       <span class="status-sep">|</span>
       <span class="status-item">UTF-8</span>
       <span class="status-sep">|</span>
-      <span class="status-item">{{ app.layoutMode === 'edit-left' ? '左编辑 右预览' : app.layoutMode === 'edit-right' ? '左预览 右编辑' : app.layoutMode === 'edit-only' ? '仅编辑' : '仅预览' }}</span>
+      <span class="status-item">{{
+        app.layoutMode === 'edit-left'
+          ? '左编辑 右预览'
+          : app.layoutMode === 'edit-right'
+            ? '左预览 右编辑'
+            : app.layoutMode === 'edit-only'
+              ? '仅编辑'
+              : '仅预览'
+      }}</span>
       <template v-if="app.zoomPercent !== 100">
         <span class="status-sep">|</span>
         <span class="status-item" title="Ctrl/Cmd + 0 恢复 100%">缩放 {{ app.zoomPercent }}%</span>
@@ -50,7 +89,8 @@ const app = useAppStore()
   user-select: none;
 }
 
-.status-left, .status-right {
+.status-left,
+.status-right {
   display: flex;
   align-items: center;
   gap: 4px;
@@ -64,6 +104,35 @@ const app = useAppStore()
   color: #e0a04a;
 }
 
+.status-export {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.status-export.is-success {
+  color: #4ade80;
+}
+
+.status-export.is-error {
+  color: #e0a04a;
+}
+
+.status-spinner {
+  width: 9px;
+  height: 9px;
+  border: 1.5px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: status-spin 0.8s linear infinite;
+}
+
+@keyframes status-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 :global(.light) .status-bar {
   background: #ffffff;
   border-top-color: rgba(0, 0, 0, 0.06);
@@ -75,6 +144,14 @@ const app = useAppStore()
 }
 
 :global(.light) .status-warning {
+  color: #b45309;
+}
+
+:global(.light) .status-export.is-success {
+  color: #15803d;
+}
+
+:global(.light) .status-export.is-error {
   color: #b45309;
 }
 </style>

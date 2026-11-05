@@ -7,12 +7,15 @@ import { parseFrontmatter, renderFrontmatterTable } from '../utils/frontmatter'
 import { installLocalImageRule } from '../utils/local-image'
 import { installHeadingAnchors, parseHeadings, type ParsedHeading } from '../utils/headings'
 import { createMarkdownRenderer } from '../utils/markdown'
-import type { PdfExportOptions } from '../types'
+import type { PdfExportOptions, PdfExportStatus } from '../types'
 
 interface UsePdfExport {
   exporting: Ref<boolean>
   exportPdf: (options: PdfExportOptions) => Promise<void>
 }
+
+/** 「导出成功 / 失败」在状态栏的展示时长，到时自动回到空闲 */
+const PDF_STATUS_VISIBLE_MS = 3000
 
 function escapeHtml(text: string): string {
   return text.replace(/[&<>"']/g, (char) => {
@@ -56,6 +59,22 @@ export function usePdfExport(): UsePdfExport {
   const documents = useDocumentsStore()
   const app = useAppStore()
   const exporting = ref(false)
+  let statusTimer: ReturnType<typeof setTimeout> | null = null
+
+  /** 更新状态栏提示；终态在若干秒后自动回到 idle，避免提示常驻 */
+  function setExportStatus(status: PdfExportStatus): void {
+    if (statusTimer) {
+      clearTimeout(statusTimer)
+      statusTimer = null
+    }
+    app.pdfExportStatus = status
+    if (status === 'success' || status === 'error') {
+      statusTimer = setTimeout(() => {
+        statusTimer = null
+        app.pdfExportStatus = 'idle'
+      }, PDF_STATUS_VISIBLE_MS)
+    }
+  }
 
   const md = createMarkdownRenderer()
   // 与预览一致：标题按文档顺序注入 heading-N 锚点
@@ -114,10 +133,15 @@ export function usePdfExport(): UsePdfExport {
     // 防重入：导出期间忽略再次触发（对话框同时会禁用按钮）
     if (exporting.value) return
     exporting.value = true
+    // 确认后立即关闭选项对话框，导出进度改由状态栏展示
+    app.showPdfDialog = false
+    setExportStatus('exporting')
     try {
-      // 与预览保持一致：frontmatter 渲染为文档信息表格，不输出原始 YAML
+      // 与预览保持一致：frontmatter 渲染为文档信息表格，不输出原始 YAML；
+      // 是否输出由导出选项控制（默认输出）
       const { entries, body } = parseFrontmatter(editor.content)
-      const frontmatter = entries.length > 0 ? renderFrontmatterTable(entries) : ''
+      const frontmatter =
+        options.showFrontmatter && entries.length > 0 ? renderFrontmatterTable(entries) : ''
       const toc = options.showToc ? renderToc(parseHeadings(body)) : ''
       let htmlBody = toc + frontmatter + md.render(body)
       htmlBody = await renderMermaidToSvg(htmlBody)
@@ -177,9 +201,11 @@ export function usePdfExport(): UsePdfExport {
 </html>`
 
       const filePath = await window.api.exportPdf(html, options)
-      if (filePath) {
-        app.showPdfDialog = false
-      }
+      // 用户在系统保存对话框取消时不算失败，直接回到空闲
+      setExportStatus(filePath ? 'success' : 'idle')
+    } catch (err) {
+      setExportStatus('error')
+      throw err
     } finally {
       exporting.value = false
     }
