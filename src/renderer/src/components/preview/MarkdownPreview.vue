@@ -5,6 +5,7 @@ import { useDocumentsStore } from '../../stores/documents'
 import { useAppStore } from '../../stores/app'
 import { useStyleStore } from '../../stores/style'
 import { useScrollSync } from '../../composables/useScrollSync'
+import { usePreviewTableResize } from '../../composables/usePreviewTableResize'
 import {
   collectMermaidBlocks,
   formatMermaidError,
@@ -23,6 +24,7 @@ const appStore = useAppStore()
 const styleStore = useStyleStore()
 const { suspendSync, registerPreview, unregisterPreview } = useScrollSync()
 const previewRef = ref<HTMLDivElement>()
+const { apply: applyTableWidths } = usePreviewTableResize(previewRef)
 let mermaidInitialized = false
 let currentMermaidTheme: string | null = null
 
@@ -411,6 +413,7 @@ async function scheduleRender(): Promise<void> {
       // 已有更新的内容时丢弃本次（等待中的）渲染
       if (token !== renderToken) return
       resolveHtmlImages()
+      applyTableWidths()
       await renderMermaid()
     })
     .catch((err) => {
@@ -429,6 +432,8 @@ watch(
   async () => {
     await nextTick()
     resolveHtmlImages()
+    // 文档路径变化后列宽存档的键随之改变，需要按新文档重新匹配
+    applyTableWidths()
   }
 )
 
@@ -523,5 +528,55 @@ onUnmounted(() => {
 
 :global(.light) .preview-container {
   background: #ffffff;
+}
+
+/* 表格列宽拖动：未调整过的表格仍保持主题原有的 auto 布局 */
+:deep(.markdown-body table.markit-table-resizable th) {
+  position: relative;
+}
+
+:deep(.markdown-body table.markit-table-resized) {
+  table-layout: fixed;
+  width: 100%;
+}
+
+:deep(.markdown-body table.markit-table-resized th),
+:deep(.markdown-body table.markit-table-resized td) {
+  overflow-wrap: anywhere;
+}
+
+:deep(.markit-table-dragging) {
+  user-select: none;
+}
+
+:deep(.markit-col-resizer) {
+  position: absolute;
+  top: 0;
+  right: -4px;
+  width: 8px;
+  height: 100%;
+  cursor: col-resize;
+  touch-action: none;
+  z-index: 2;
+}
+
+:deep(.markit-col-resizer::after) {
+  content: '';
+  position: absolute;
+  top: 20%;
+  bottom: 20%;
+  left: 50%;
+  width: 2px;
+  margin-left: -1px;
+  border-radius: 1px;
+  background: currentColor;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+:deep(.markit-table-resizable th:hover > .markit-col-resizer::after),
+:deep(.markit-col-resizer:hover::after),
+:deep(.markit-col-resizer.dragging::after) {
+  opacity: 0.35;
 }
 </style>
