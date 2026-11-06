@@ -91,4 +91,4 @@ npm start              # 预览已构建产物（electron-vite preview）
 - `markit-file://` 协议、`markit-*` 存储键、`appId` / `productName` / 更新端点不得顺手改名（后果见 `@rules/branding.md`）
 - 主进程的窗口关闭需经渲染进程确认未保存内容；不要在未走该流程时直接 `destroy`
 - 修改 `src/preload/**`、`src/shared/**`、`src/renderer/src/utils/**` 属于底座改动，必须跑全量 lint + typecheck
-- 涉及架构调整、数据结构、IPC 契约或交互设计的功能，开发前先在 `docs/` 写设计文档（见 `@rules/base.md` 第 4 节）
+- 所有业务改动开发前先在 `docs/` 更新设计或功能文档；涉及架构调整、数据结构、IPC 契约、持久化格式或交互设计的改动必须单独成文（见 `@rules/base.md` 第 4 节）
