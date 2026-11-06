@@ -45,7 +45,6 @@ concurrency:
 
 env:
   NODE_VERSION: '22'
-  CONFIG: .apphub-release.ci.json
 
 jobs:
   validate:
@@ -54,7 +53,18 @@ jobs:
     timeout-minutes: 5
     outputs:
       version: ${{ steps.version.outputs.version }}
+      channel: ${{ steps.version.outputs.channel }}
+      config: ${{ steps.version.outputs.config }}
     steps:
+      # 需要完整 tag 历史：通道与上一个发版节点都从 tag 计算
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
       - name: Resolve and validate version
         id: version
         env:
@@ -67,12 +77,22 @@ jobs:
           else
             VERSION="${REF_NAME#v}"
           fi
-          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.]+)?$ ]]; then
-            echo "::error::版本号不是合法 semver：$VERSION"
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-beta\.[0-9]+)?$ ]]; then
+            echo "::error::版本号不是合法 semver（允许 X.Y.Z 或 X.Y.Z-beta.N）：$VERSION"
             exit 1
           fi
+          # 严格单序列：任何新版本必须大于已发布的全部版本
+          node scripts/release/channel-state.mjs validate --version "$VERSION"
+          CHANNEL=$(node scripts/release/channel-state.mjs channel --version "$VERSION")
+          if [ "$CHANNEL" = "beta" ]; then
+            CONFIG=.apphub-release.beta.ci.json
+          else
+            CONFIG=.apphub-release.ci.json
+          fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "版本号：$VERSION"
+          echo "channel=$CHANNEL" >> "$GITHUB_OUTPUT"
+          echo "config=$CONFIG" >> "$GITHUB_OUTPUT"
+          echo "版本号：$VERSION（通道 $CHANNEL，配置 $CONFIG）"
 
   test:
     name: Unit tests
@@ -178,6 +198,8 @@ jobs:
       APPHUB_PASSWORD: ${{ secrets.APPHUB_PASSWORD }}
       APPHUB_SIGN_SECRET: ${{ secrets.APPHUB_SIGN_SECRET }}
       VERSION: ${{ needs.validate.outputs.version }}
+      CHANNEL: ${{ needs.validate.outputs.channel }}
+      CONFIG: ${{ needs.validate.outputs.config }}
       REPLACE: ${{ inputs.replace }}
     steps:
       - uses: actions/checkout@v4
@@ -207,7 +229,8 @@ jobs:
             NOTES="$INPUT_NOTES"
           else
             git fetch --tags --force
-            PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || true)
+            # 从上一个同通道节点开始收集；stable 因此天然覆盖其间所有 beta 提交
+            PREV_TAG=$(node scripts/release/channel-state.mjs previous-tag --channel "$CHANNEL" --version "$VERSION")
             if [ -n "$PREV_TAG" ]; then
               NOTES=$(git log "$PREV_TAG..HEAD" --no-merges --pretty='- %s' | grep -v '^- chore(release)' || true)
             else
@@ -283,6 +306,7 @@ jobs:
       APPHUB_PASSWORD: ${{ secrets.APPHUB_PASSWORD }}
       APPHUB_SIGN_SECRET: ${{ secrets.APPHUB_SIGN_SECRET }}
       VERSION: ${{ needs.validate.outputs.version }}
+      CONFIG: ${{ needs.validate.outputs.config }}
     steps:
       - uses: actions/checkout@v4
 

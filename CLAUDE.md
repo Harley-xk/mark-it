@@ -8,6 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 @rules/code-style.md
 @rules/testing.md
 @rules/branding.md
+@rules/release.md
 
 ## 项目概览
 
@@ -33,7 +34,7 @@ npm run typecheck:web  # 仅 src/renderer 与 preload 的 .d.ts
 npm start              # 预览已构建产物（electron-vite preview）
 ```
 
-**仓库已引入 Vitest（`src/**/*.spec.ts`）与 Playwright（`e2e/**`）**，但没有 git 钩子。纯函数改动需同步补 `*.spec.ts` 并跑 `npm test`；e2e 依赖 `npm run build` 产物。质量门槛与手工验证要求见 `@rules/testing.md`。
+**仓库已引入 Vitest（`src/**/*.spec.ts`）与 Playwright（`e2e/**`）**，但没有 git 钩子。纯函数改动需同步补 `*.spec.ts` 并跑 `npm test`；e2e 依赖 `npm run build` 产物。质量门槛与手工验证要求见 `@rules/testing.md`；stable / beta 双通道的版本号、发版节点与发布操作见 `@rules/release.md`。
 
 开发模式（`app.isPackaged === false`）会自动把 `userData` 切到 `mark-it-dev` 子目录，与已安装的正式版隔离，两者可同时运行。
 

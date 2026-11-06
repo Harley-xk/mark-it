@@ -8,6 +8,7 @@ const update = useUpdateStore()
 
 const visible = computed(() => update.showNotice && update.hasUpdate)
 const forced = computed(() => update.state.forceUpdate && update.hasUpdate)
+const isBeta = computed(() => update.state.latestChannel === 'beta')
 
 function handleView(): void {
   void update.openWindow()
@@ -42,6 +43,7 @@ function handleDismiss(): void {
           <div class="toast-text">
             <div class="toast-title">
               发现新版本 v{{ update.state.latestVersion }}
+              <span v-if="isBeta" class="toast-badge is-beta">Beta</span>
               <span v-if="forced" class="toast-badge">重要</span>
             </div>
             <p class="toast-sub">当前版本 v{{ update.state.currentVersion }}</p>
@@ -114,6 +116,12 @@ function handleDismiss(): void {
   color: #ffb020;
   background: rgba(255, 176, 32, 0.12);
   border: 1px solid rgba(255, 176, 32, 0.25);
+}
+
+.toast-badge.is-beta {
+  color: #8fb4ff;
+  background: rgba(108, 155, 255, 0.12);
+  border-color: rgba(108, 155, 255, 0.25);
 }
 
 .toast-sub {

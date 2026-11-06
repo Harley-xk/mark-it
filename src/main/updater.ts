@@ -1,19 +1,34 @@
-import { app, BrowserWindow } from 'electron'
+import { app, BrowserWindow, net } from 'electron'
 import { autoUpdater, type UpdateInfo, type ProgressInfo } from 'electron-updater'
 import { is } from '@electron-toolkit/utils'
+import { existsSync, readFileSync } from 'fs'
+import { writeFile } from 'fs/promises'
 import { join } from 'path'
-import type { UpdateState } from '../shared/update-types'
+import type { UpdateChannel, UpdateState } from '../shared/update-types'
+import {
+  channelFileName,
+  channelOfVersion,
+  parseChannelVersion,
+  selectUpdateCandidate
+} from './update-channel'
 import { registerHandle, registerOn } from './ipc-guard'
 
 /**
  * apphub 应用管理平台更新通道。
  * appKey 可随客户端公开分发（平台文档：更新检测零密钥，仅凭 appKey 识别应用）。
- * electron-updater 按 generic provider 协议拉取 `latest.yml`（Windows x64）。
+ * electron-updater 按 generic provider 协议拉取 `latest*.yml`；
+ * stable 为正式版，beta 为预发布版，检测范围由用户偏好决定。
  */
 const APPHUB_BASE_URL = 'https://appcenter.witice.top'
 const APPHUB_APP_KEY = 'ah_q100pquj6kxxj9at'
-const UPDATE_CHANNEL = 'stable'
-const FEED_URL = `${APPHUB_BASE_URL}/api/update/${APPHUB_APP_KEY}/${UPDATE_CHANNEL}/electron`
+const FEED_URLS: Record<UpdateChannel, string> = {
+  stable: `${APPHUB_BASE_URL}/api/update/${APPHUB_APP_KEY}/stable/electron`,
+  beta: `${APPHUB_BASE_URL}/api/update/${APPHUB_APP_KEY}/beta/electron`
+}
+const ALL_CHANNELS: UpdateChannel[] = ['stable', 'beta']
+/** 双通道元数据探测超时；超时按该通道不可达处理 */
+const PEEK_TIMEOUT_MS = 10_000
+const PREFERENCE_FILE_NAME = 'update-preference.json'
 
 const FORCE_MARK = '[force]'
 
@@ -52,6 +67,8 @@ function extractReleaseNotes(info: UpdateInfo): { notes: string; forceUpdate: bo
 let state: UpdateState = {
   status: 'idle',
   currentVersion: '0.0.0',
+  currentChannel: 'stable',
+  betaUpdatesEnabled: false,
   forceUpdate: false
 }
 
@@ -62,6 +79,14 @@ let getMainWindow: (() => BrowserWindow | null) | null = null
 /** 更新详情窗口（唯一实例，重复打开时聚焦已有窗口） */
 let updateWindow: BrowserWindow | null = null
 let periodicCheckTimer: ReturnType<typeof setInterval> | null = null
+/** 当前 feed 指向的通道，用于给 update-available 的结果标注来源 */
+let activeCheckChannel: UpdateChannel = 'stable'
+/** 检测过程中用户切换了 Beta 偏好：本次检测结束后按新偏好再检测一次 */
+let recheckPending = false
+/** 正在下载：切换偏好时不打断已开始的下载 */
+let downloading = false
+/** 偏好文件路径，首次使用时按 userData 计算（init 在 app ready 之后） */
+let preferenceFile = ''
 
 function setState(patch: Partial<UpdateState>): void {
   state = { ...state, ...patch }
@@ -80,12 +105,106 @@ function isNotFoundError(error: unknown): boolean {
   return message.includes('404') || message.toLowerCase().includes('cannot find latest')
 }
 
+function getPreferenceFile(): string {
+  if (!preferenceFile) preferenceFile = join(app.getPath('userData'), PREFERENCE_FILE_NAME)
+  return preferenceFile
+}
+
+/** 读取 Beta 偏好；文件不存在（首次启动）或损坏时按关闭处理 */
+function loadBetaPreference(): boolean {
+  const file = getPreferenceFile()
+  if (!existsSync(file)) return false
+  try {
+    const parsed = JSON.parse(readFileSync(file, 'utf-8')) as { betaUpdatesEnabled?: unknown }
+    return parsed.betaUpdatesEnabled === true
+  } catch (error) {
+    console.warn('Failed to load update preference:', error)
+    return false
+  }
+}
+
+function saveBetaPreference(enabled: boolean): void {
+  writeFile(getPreferenceFile(), JSON.stringify({ betaUpdatesEnabled: enabled }), 'utf-8').catch(
+    (error) => console.error('Failed to save update preference:', error)
+  )
+}
+
+function setFeed(channel: UpdateChannel): void {
+  activeCheckChannel = channel
+  autoUpdater.setFeedURL({ provider: 'generic', url: FEED_URLS[channel] })
+}
+
+interface ChannelPeek {
+  channel: UpdateChannel
+  version: string | null
+  reachable: boolean
+}
+
+/**
+ * 读取单个通道的元数据（与 electron-updater 读取的是同一份 latest*.yml），
+ * 只取顶层 version 用于选通道。404 表示通道暂无发布，属于正常状态。
+ */
+async function peekChannel(channel: UpdateChannel): Promise<ChannelPeek> {
+  const url = `${FEED_URLS[channel]}/${channelFileName(process.platform)}?noCache=${Date.now()}`
+  try {
+    const response = await net.fetch(url, { signal: AbortSignal.timeout(PEEK_TIMEOUT_MS) })
+    if (response.status === 404) return { channel, version: null, reachable: true }
+    if (!response.ok) {
+      console.warn('Failed to fetch update metadata:', channel, response.status)
+      return { channel, version: null, reachable: false }
+    }
+    const version = parseChannelVersion(await response.text())
+    if (!version) console.warn('Failed to parse update metadata:', channel, url)
+    return { channel, version, reachable: true }
+  } catch (error) {
+    console.warn('Failed to fetch update metadata:', channel, error)
+    return { channel, version: null, reachable: false }
+  }
+}
+
+function channelsToCheck(): UpdateChannel[] {
+  return state.betaUpdatesEnabled ? ALL_CHANNELS : ['stable']
+}
+
+/**
+ * 双通道检测：取两个通道中大于当前版本的最高版本，再让 electron-updater
+ * 对该通道执行正式检测。只开单通道时保持原有的单 feed 行为。
+ */
 async function checkForUpdates(): Promise<UpdateState> {
   if (state.status === 'disabled') return state
   if (state.status === 'checking' || state.status === 'downloading') return state
 
   setState({ status: 'checking', error: undefined, progress: undefined })
+
+  const channels = channelsToCheck()
+  let targetChannel: UpdateChannel = channels[0] ?? 'stable'
+
+  if (channels.length > 1) {
+    const peeks = await Promise.all(channels.map((channel) => peekChannel(channel)))
+    const candidates = peeks
+      .filter((peek): peek is ChannelPeek & { version: string } => peek.version !== null)
+      .map((peek) => ({ channel: peek.channel, version: peek.version }))
+    const candidate = selectUpdateCandidate(candidates, state.currentVersion)
+    if (!candidate) {
+      if (!peeks.some((peek) => peek.reachable)) {
+        setState({ status: 'error', error: '无法获取更新信息' })
+      } else {
+        setState({
+          status: 'not-available',
+          latestVersion: undefined,
+          latestChannel: undefined,
+          notes: undefined,
+          forceUpdate: false
+        })
+      }
+      finishCheck()
+      return state
+    }
+    targetChannel = candidate.channel
+  }
+
   try {
+    setFeed(targetChannel)
     await autoUpdater.checkForUpdates()
   } catch (error) {
     if (isNotFoundError(error)) {
@@ -94,7 +213,47 @@ async function checkForUpdates(): Promise<UpdateState> {
       setState({ status: 'error', error: error instanceof Error ? error.message : String(error) })
     }
   }
+  finishCheck()
   return state
+}
+
+/** 检测期间用户切换了偏好：结束后按新偏好补一次检测；正在下载则不打断 */
+function finishCheck(): void {
+  if (!recheckPending) return
+  recheckPending = false
+  if (downloading || state.status === 'downloading' || state.status === 'downloaded') return
+  void checkForUpdates()
+}
+
+/**
+ * 切换「接收 Beta 版更新」。
+ * - 检测中：等本次检测结束后按新偏好补检一次；
+ * - 下载中 / 已下载：不打断，下一次检测按新偏好执行；
+ * - 其余状态：清除旧提示并立即重新检测。
+ */
+async function setBetaEnabled(enabled: boolean): Promise<UpdateState> {
+  if (state.betaUpdatesEnabled === enabled) return state
+  state = { ...state, betaUpdatesEnabled: enabled }
+  saveBetaPreference(enabled)
+  broadcast()
+
+  if (state.status === 'disabled') return state
+  if (state.status === 'checking') {
+    recheckPending = true
+    return state
+  }
+  if (downloading || state.status === 'downloading' || state.status === 'downloaded') return state
+
+  setState({
+    status: 'idle',
+    latestVersion: undefined,
+    latestChannel: undefined,
+    notes: undefined,
+    forceUpdate: false,
+    error: undefined,
+    progress: undefined
+  })
+  return checkForUpdates()
 }
 
 /**
@@ -117,10 +276,13 @@ async function downloadUpdate(): Promise<UpdateState> {
   if (state.status === 'checking' || state.status === 'downloading') return state
   if (state.status !== 'available' && state.status !== 'error') return state
   // 检测与下载紧邻发生，下载地址仍在平台 2h 有效期内；失败重试会重新走下载
+  downloading = true
   try {
     await autoUpdater.downloadUpdate()
   } catch (error) {
     setState({ status: 'error', error: error instanceof Error ? error.message : String(error) })
+  } finally {
+    downloading = false
   }
   return state
 }
@@ -206,6 +368,7 @@ function bindEvents(): void {
     setState({
       status: 'available',
       latestVersion: info.version,
+      latestChannel: activeCheckChannel,
       notes,
       forceUpdate,
       progress: undefined,
@@ -219,6 +382,7 @@ function bindEvents(): void {
     setState({
       status: 'not-available',
       latestVersion: undefined,
+      latestChannel: undefined,
       notes: undefined,
       forceUpdate: false
     })
@@ -274,9 +438,17 @@ export function initAutoUpdater(
   onInstallFailed = options.onInstallFailed ?? null
   getMainWindow = options.getMainWindow ?? null
 
-  state = { ...state, currentVersion: app.getVersion(), status: is.dev ? 'disabled' : 'idle' }
+  const currentVersion = app.getVersion()
+  state = {
+    ...state,
+    currentVersion,
+    currentChannel: channelOfVersion(currentVersion),
+    betaUpdatesEnabled: loadBetaPreference(),
+    status: is.dev ? 'disabled' : 'idle'
+  }
 
-  autoUpdater.setFeedURL({ provider: 'generic', url: FEED_URL })
+  // 初始 feed 固定为 stable；每次检测会按偏好与候选结果重设
+  setFeed('stable')
   autoUpdater.autoDownload = false
   autoUpdater.autoInstallOnAppQuit = true
   bindEvents()
@@ -284,6 +456,10 @@ export function initAutoUpdater(
   registerHandle('update:get-state', () => state)
   registerHandle('update:check', () => checkForUpdates())
   registerHandle('update:download', () => downloadUpdate())
+  registerHandle('update:set-beta-enabled', (_event, enabled: unknown) => {
+    if (typeof enabled !== 'boolean') return state
+    return setBetaEnabled(enabled)
+  })
   // 只有主窗口能真正安装：它必须先完成未保存内容确认，
   // 更新窗口必须走 update:request-install 转交主窗口
   registerHandle('update:install', (event) => {

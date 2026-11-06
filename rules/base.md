@@ -125,4 +125,4 @@ chore(release): 发布 1.4.1
 
 ## 7. 后续规则
 
-其他 AI 工作规则（代码风格、测试策略、品牌标识等）以独立文件形式补充在本目录下，命名建议：`<主题>.md`。
+其他 AI 工作规则（代码风格、测试策略、品牌标识、发版通道等）以独立文件形式补充在本目录下，命名建议：`<主题>.md`。当前已有：[code-style.md](code-style.md)、[testing.md](testing.md)、[branding.md](branding.md)、[release.md](release.md)。

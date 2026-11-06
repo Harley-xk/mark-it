@@ -7,6 +7,7 @@ update.init()
 
 const state = computed(() => update.state)
 const forced = computed(() => state.value.forceUpdate)
+const isBeta = computed(() => state.value.latestChannel === 'beta')
 const isDownloading = computed(() => state.value.status === 'downloading')
 const isDownloaded = computed(() => state.value.status === 'downloaded')
 const canDownload = computed(
@@ -98,6 +99,7 @@ onUnmounted(() => {
     <main class="window-body">
       <section class="version-hero">
         <span v-if="forced" class="force-badge">重要更新</span>
+        <span v-if="isBeta" class="beta-badge">Beta</span>
         <h1>
           <template v-if="state.latestVersion">
             发现新版本 <span class="version-number">v{{ state.latestVersion }}</span>
@@ -105,7 +107,8 @@ onUnmounted(() => {
           <template v-else>软件更新</template>
         </h1>
         <p v-if="state.currentVersion" class="current-version">
-          当前版本 v{{ state.currentVersion }}
+          当前版本 v{{ state.currentVersion
+          }}<span v-if="state.currentChannel === 'beta'"> · Beta</span>
         </p>
       </section>
 
@@ -288,6 +291,19 @@ body,
   color: #ffb020;
   background: rgba(255, 176, 32, 0.12);
   border: 1px solid rgba(255, 176, 32, 0.25);
+}
+
+.beta-badge {
+  display: inline-block;
+  margin-bottom: 10px;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-border);
 }
 
 .version-hero h1 {

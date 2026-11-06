@@ -10,6 +10,9 @@ export type UpdateStatus =
   | 'downloaded'
   | 'error'
 
+/** 更新通道：stable 为正式版，beta 为预发布版 */
+export type UpdateChannel = 'stable' | 'beta'
+
 export interface UpdateProgress {
   percent: number
   bytesPerSecond: number
@@ -20,7 +23,13 @@ export interface UpdateProgress {
 export interface UpdateState {
   status: UpdateStatus
   currentVersion: string
+  /** 当前运行版本所属通道（版本号含预发布后缀即为 beta） */
+  currentChannel: UpdateChannel
+  /** 是否接收 Beta 版更新 */
+  betaUpdatesEnabled: boolean
   latestVersion?: string
+  /** 本次提供的更新来自哪个通道；无可用更新时为空 */
+  latestChannel?: UpdateChannel
   notes?: string
   forceUpdate: boolean
   progress?: UpdateProgress

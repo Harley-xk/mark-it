@@ -6,6 +6,8 @@ export const useUpdateStore = defineStore('update', () => {
   const state = ref<UpdateState>({
     status: 'idle',
     currentVersion: '',
+    currentChannel: 'stable',
+    betaUpdatesEnabled: false,
     forceUpdate: false
   })
   /** 是否展示更新提示卡片（设置页始终展示状态，不依赖此值） */
@@ -61,6 +63,12 @@ export const useUpdateStore = defineStore('update', () => {
     apply(await window.api.update.download())
   }
 
+  /** 切换「接收 Beta 版更新」：清空跳过记录，让新偏好下的结果重新提示 */
+  async function setBetaEnabled(enabled: boolean): Promise<void> {
+    dismissedVersion.value = null
+    apply(await window.api.update.setBetaEnabled(enabled))
+  }
+
   async function install(): Promise<boolean> {
     return window.api.update.install()
   }
@@ -91,6 +99,7 @@ export const useUpdateStore = defineStore('update', () => {
     dispose,
     check,
     download,
+    setBetaEnabled,
     install,
     openWindow,
     requestInstall,

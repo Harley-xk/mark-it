@@ -10,6 +10,9 @@ const app = useAppStore()
 const styleStore = useStyleStore()
 const update = useUpdateStore()
 
+/** Beta 通道的更新在状态文案后加标识，避免与正式版混淆 */
+const betaSuffix = computed(() => (update.state.latestChannel === 'beta' ? '（Beta）' : ''))
+
 const updateStatusText = computed(() => {
   const s = update.state
   switch (s.status) {
@@ -22,11 +25,11 @@ const updateStatusText = computed(() => {
     case 'not-available':
       return '已是最新版本'
     case 'available':
-      return `发现新版本 v${s.latestVersion}`
+      return `发现新版本 v${s.latestVersion}${betaSuffix.value}`
     case 'downloading':
       return `正在下载 ${Math.floor(s.progress?.percent ?? 0)}%`
     case 'downloaded':
-      return `v${s.latestVersion} 已下载，重启后安装`
+      return `v${s.latestVersion} 已下载，重启后安装${betaSuffix.value}`
     case 'error':
       return `更新检查失败：${s.error ?? '未知错误'}`
     default:
@@ -48,6 +51,10 @@ async function handleUpdateAction(): Promise<void> {
   }
   // error 可能是检测失败，重新检测而不是直接下载
   await update.check()
+}
+
+async function handleBetaToggle(): Promise<void> {
+  await update.setBetaEnabled(!update.state.betaUpdatesEnabled)
 }
 
 const updateActionText = computed(() => {
@@ -267,6 +274,32 @@ function removeStyle(id: string): void {
             </div>
           </div>
 
+          <!-- Update Channel -->
+          <div class="setting-section">
+            <div class="section-title">更新</div>
+            <div class="beta-row">
+              <div class="beta-text">
+                <span class="beta-label">接收 Beta 版更新</span>
+                <span class="beta-hint">
+                  开启后可提前体验新功能，更新可能不稳定。关闭后仅接收正式版；当前 Beta
+                  版本会在下一个正式版发布后自动归队，不会降级。
+                </span>
+              </div>
+              <button
+                class="switch"
+                :class="{ active: update.state.betaUpdatesEnabled }"
+                role="switch"
+                :aria-checked="update.state.betaUpdatesEnabled"
+                :aria-label="
+                  update.state.betaUpdatesEnabled ? '关闭 Beta 版更新' : '接收 Beta 版更新'
+                "
+                @click="handleBetaToggle"
+              >
+                <span class="switch-thumb"></span>
+              </button>
+            </div>
+          </div>
+
           <!-- About & Update -->
           <div class="setting-section">
             <div class="section-title">关于</div>
@@ -274,6 +307,9 @@ function removeStyle(id: string): void {
               <div class="about-info">
                 <span class="about-name">MarkIt</span>
                 <span class="about-version">v{{ update.state.currentVersion }}</span>
+                <span v-if="update.state.currentChannel === 'beta'" class="channel-badge">
+                  Beta
+                </span>
               </div>
               <button
                 class="update-btn"
@@ -366,6 +402,83 @@ function removeStyle(id: string): void {
   text-transform: uppercase;
   letter-spacing: 0.8px;
   color: rgba(255, 255, 255, 0.3);
+}
+
+/* Update channel */
+.beta-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+}
+
+.beta-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.beta-label {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.beta-hint {
+  font-size: 11px;
+  line-height: 1.6;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.switch {
+  position: relative;
+  flex: 0 0 auto;
+  width: 40px;
+  height: 22px;
+  padding: 0;
+  box-sizing: border-box;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.switch-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.6);
+  transition:
+    transform 0.15s ease,
+    background 0.15s ease;
+}
+
+.switch.active {
+  background: rgba(108, 155, 255, 0.35);
+  border-color: rgba(108, 155, 255, 0.5);
+}
+
+.switch.active .switch-thumb {
+  transform: translateX(18px);
+  background: #8fb4ff;
+}
+
+.channel-badge {
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  color: #8fb4ff;
+  background: rgba(108, 155, 255, 0.12);
+  border: 1px solid rgba(108, 155, 255, 0.25);
 }
 
 /* Theme options */
@@ -621,6 +734,43 @@ function removeStyle(id: string): void {
 
 .settings-dialog.light .section-title {
   color: rgba(0, 0, 0, 0.3);
+}
+
+.settings-dialog.light .beta-row {
+  background: rgba(0, 0, 0, 0.02);
+  border-color: rgba(0, 0, 0, 0.06);
+}
+
+.settings-dialog.light .beta-label {
+  color: rgba(0, 0, 0, 0.65);
+}
+
+.settings-dialog.light .beta-hint {
+  color: rgba(0, 0, 0, 0.4);
+}
+
+.settings-dialog.light .switch {
+  border-color: rgba(0, 0, 0, 0.12);
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.settings-dialog.light .switch-thumb {
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.settings-dialog.light .switch.active {
+  background: rgba(59, 130, 246, 0.28);
+  border-color: rgba(59, 130, 246, 0.45);
+}
+
+.settings-dialog.light .switch.active .switch-thumb {
+  background: #3b82f6;
+}
+
+.settings-dialog.light .channel-badge {
+  color: #3b82f6;
+  background: rgba(59, 130, 246, 0.08);
+  border-color: rgba(59, 130, 246, 0.2);
 }
 
 .settings-dialog.light .theme-option {
