@@ -5,6 +5,7 @@ import { useDocumentsStore } from '../../stores/documents'
 import { useAppStore } from '../../stores/app'
 import { useStyleStore } from '../../stores/style'
 import { useScrollSync } from '../../composables/useScrollSync'
+import { registerScrollCapture } from '../../composables/session-scroll'
 import { usePreviewTableResize } from '../../composables/usePreviewTableResize'
 import {
   collectMermaidBlocks,
@@ -27,6 +28,7 @@ const previewRef = ref<HTMLDivElement>()
 const { apply: applyTableWidths } = usePreviewTableResize(previewRef)
 let mermaidInitialized = false
 let currentMermaidTheme: string | null = null
+let unregisterScrollCapture: (() => void) | null = null
 
 const isDark = computed(() => appStore.resolvedTheme === 'dark')
 const currentCss = computed(() => styleStore.currentCss(isDark.value))
@@ -467,6 +469,8 @@ onMounted(async () => {
   await scheduleRender()
   if (previewRef.value) {
     registerPreview(previewRef.value)
+    // 写会话前把活跃标签的实时预览滚动位置刷回 store
+    unregisterScrollCapture = registerScrollCapture(savePreviewScroll)
     restorePreviewScroll(documentsStore.activeId)
   }
 })
@@ -479,6 +483,8 @@ onBeforeUnmount(() => {
 })
 
 onUnmounted(() => {
+  unregisterScrollCapture?.()
+  unregisterScrollCapture = null
   unregisterPreview()
 })
 </script>

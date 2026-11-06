@@ -3,6 +3,7 @@ import { useDocumentsStore } from '../stores/documents'
 import { useAppStore } from '../stores/app'
 import { useFile } from './useFile'
 import { markSessionReady } from './session-ready'
+import { captureScrollPositions } from './session-scroll'
 import { decodeText } from '../utils/text-encoding'
 import type { SessionData } from '../../../shared/session-types'
 
@@ -28,18 +29,27 @@ export function useSession(): { flush: () => Promise<void> } {
   let saveTimer: ReturnType<typeof setTimeout> | null = null
 
   function snapshot(): SessionData {
+    // 缓存里的滚动位置只在切换标签 / 卸载时写入，这里先刷新活跃标签的实时值
+    if (docs.activeId) captureScrollPositions(docs.activeId)
+
     return {
-      tabs: docs.docs.map((doc) => ({
-        path: doc.path,
-        name: doc.name,
-        content: doc.content,
-        isModified: doc.isModified,
-        cursorLine: doc.cursorLine,
-        cursorCol: doc.cursorCol,
-        eol: doc.eol,
-        bom: doc.bom,
-        layoutMode: doc.layoutMode
-      })),
+      tabs: docs.docs.map((doc) => {
+        const scroll = docs.getScrollPosition(doc.id)
+        return {
+          path: doc.path,
+          name: doc.name,
+          content: doc.content,
+          isModified: doc.isModified,
+          cursorLine: doc.cursorLine,
+          cursorCol: doc.cursorCol,
+          eol: doc.eol,
+          bom: doc.bom,
+          layoutMode: doc.layoutMode,
+          scrollAnchor: scroll.anchor,
+          scrollTop: scroll.top,
+          previewScrollTop: docs.getPreviewScrollPosition(doc.id)
+        }
+      }),
       activeIndex: Math.max(
         docs.docs.findIndex((doc) => doc.id === docs.activeId),
         0

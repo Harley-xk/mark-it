@@ -28,6 +28,7 @@ import { useEditorStore } from '../../stores/editor'
 import { useAppStore } from '../../stores/app'
 import { useDocumentsStore } from '../../stores/documents'
 import { useScrollSync } from '../../composables/useScrollSync'
+import { registerScrollCapture } from '../../composables/session-scroll'
 
 const editorStore = useEditorStore()
 const appStore = useAppStore()
@@ -35,6 +36,7 @@ const docs = useDocumentsStore()
 const { registerEditor, unregisterEditor } = useScrollSync()
 const editorRef = ref<HTMLDivElement>()
 let view: EditorView | null = null
+let unregisterScrollCapture: (() => void) | null = null
 
 // 主题 compartment 定义在模块级：EditorState 会被缓存并在组件重新挂载后复用，
 // 共享同一个 compartment 才能保证重新配置主题时生效
@@ -196,14 +198,16 @@ function saveScroll(id: string): void {
 function restoreScroll(id: string): void {
   if (!view) return
   const saved = docs.getScrollPosition(id)
+  // 会话保存后文件可能被外部改短：越界偏移会让 scrollIntoView 抛错，先夹到文档长度
+  const anchor = Math.min(saved.anchor, view.state.doc.length)
 
-  if (saved.anchor > 0) {
+  if (anchor > 0) {
     // 必须按"文档位置"而不是像素恢复：setState 之后 CodeMirror 的高度表是按
     // 默认行高估算的（14px，实际约 19.6px），直接写 scrollTop 会被 CM 以估算
     // 出的错误锚点行二次修正，造成可视内容与高度表错位——此时点击光标会落到
     // 相邻行、拖选范围错乱。scrollIntoView 在测量完成后按真实 DOM 定位。
     view.dispatch({
-      effects: EditorView.scrollIntoView(saved.anchor, { y: 'start' })
+      effects: EditorView.scrollIntoView(anchor, { y: 'start' })
     })
   } else if (saved.top > 0) {
     view.scrollDOM.scrollTop = saved.top
@@ -273,6 +277,10 @@ onMounted(() => {
 
   editorStore.setEditorView(view)
   registerEditor(view)
+  // 写会话前把活跃标签的实时滚动位置刷回 store（标签切换 / 卸载时已有一次记录）
+  unregisterScrollCapture = registerScrollCapture((id) => {
+    if (docs.getDoc(id)) saveScroll(id)
+  })
   restoreScroll(doc.id)
 
   window.addEventListener('focus', refreshMeasure)
@@ -298,6 +306,8 @@ onUnmounted(() => {
     docs.setEditorState(activeId, view.state)
   }
 
+  unregisterScrollCapture?.()
+  unregisterScrollCapture = null
   unregisterEditor()
   editorStore.setEditorView(null)
   view?.destroy()

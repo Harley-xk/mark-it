@@ -100,6 +100,96 @@ test('布局模式按标签独立保存并在重启后恢复', async () => {
   }
 })
 
+test('重启后恢复编辑区与预览区的滚动位置', async () => {
+  test.skip(!existsSync(appEntry), '请先执行 npm run build 生成 out/main/index.js')
+
+  const workDir = mkdtempSync(join(tmpdir(), 'markit-e2e-scroll-'))
+  const userDataDir = mkdtempSync(join(tmpdir(), 'markit-e2e-scroll-user-'))
+  const mdPath = join(workDir, 'scroll-restore.md')
+  writeFileSync(
+    mdPath,
+    Array.from(
+      { length: 200 },
+      (_, index) => `## 标题 ${index}\n\n第 ${index} 段正文，用于撑高编辑区与预览区。\n`
+    ).join('\n'),
+    'utf-8'
+  )
+
+  const launchOptions = {
+    args: ['.', `--user-data-dir=${userDataDir}`, mdPath],
+    cwd: projectRoot,
+    env: getLaunchEnv()
+  }
+
+  let before = { editor: 0, preview: 0 }
+  const app = await electron.launch(launchOptions)
+  try {
+    const window = await app.firstWindow()
+    await expect(window.locator('.tab-name', { hasText: 'scroll-restore.md' })).toBeVisible()
+
+    const scroller = window.locator('.cm-scroller')
+    await expect(scroller).toBeVisible()
+
+    // 预览挂载时要等 Mermaid 渲染链结束才恢复滚动位置，等它稳定后再操作，
+    // 否则程序化滚动会被随后的挂载恢复覆盖
+    await window.waitForTimeout(3000)
+
+    // 先点击正文建立光标（触发会话防抖写入），再分别滚动编辑区与预览区
+    await window.locator('.cm-content').click({ position: { x: 40, y: 40 } })
+    await scroller.evaluate((el) => {
+      el.scrollTop = 1600
+    })
+    await window.locator('.preview-container').evaluate((el) => {
+      el.scrollTop = 900
+    })
+    // 两个滚动容器会互相联动，等联动结束再读取最终位置
+    await window.waitForTimeout(300)
+
+    before = await window.evaluate(() => ({
+      editor: document.querySelector('.cm-scroller')?.scrollTop ?? 0,
+      preview: document.querySelector('.preview-container')?.scrollTop ?? 0
+    }))
+    expect(before.editor).toBeGreaterThan(500)
+    expect(before.preview).toBeGreaterThan(200)
+
+    // 等待 800ms 防抖把会话（含滚动位置）写入磁盘
+    await window.waitForTimeout(1200)
+  } finally {
+    await app.close()
+  }
+
+  const restored = await electron.launch(launchOptions)
+  try {
+    const window = await restored.firstWindow()
+    await expect(window.locator('.tab-name', { hasText: 'scroll-restore.md' })).toBeVisible()
+    await expect(window.locator('.cm-scroller')).toBeVisible()
+
+    const readScroll = (): Promise<{ editor: number; preview: number }> =>
+      window.evaluate(() => ({
+        editor: document.querySelector('.cm-scroller')?.scrollTop ?? 0,
+        preview: document.querySelector('.preview-container')?.scrollTop ?? 0
+      }))
+
+    // 会话恢复与预览的 Mermaid 渲染链都是异步的，轮询到两个位置都恢复为止
+    await expect
+      .poll(async () => (await readScroll()).editor, { timeout: 15_000 })
+      .toBeGreaterThan(before.editor - 60)
+    await expect
+      .poll(async () => (await readScroll()).preview, { timeout: 15_000 })
+      .toBeGreaterThan(before.preview - 80)
+
+    await window.waitForTimeout(300)
+    const after = await readScroll()
+    // 编辑区按文档锚点恢复，允许一行左右的误差；预览区按像素恢复
+    expect(Math.abs(after.editor - before.editor)).toBeLessThan(60)
+    expect(Math.abs(after.preview - before.preview)).toBeLessThan(80)
+  } finally {
+    await restored.close()
+    rmSync(workDir, { recursive: true, force: true })
+    rmSync(userDataDir, { recursive: true, force: true })
+  }
+})
+
 test('导出 PDF 并生成有效产物', async () => {
   test.skip(!existsSync(appEntry), '请先执行 npm run build 生成 out/main/index.js')
 

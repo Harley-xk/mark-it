@@ -51,6 +51,11 @@ function countWords(text: string): number {
   return text.replace(/\s/g, '').length
 }
 
+/** 会话里的滚动位置：允许 0，负数 / 非数字 / 非有限值一律按 0 处理 */
+function scrollAmount(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : 0
+}
+
 export const useDocumentsStore = defineStore('documents', () => {
   const docs = ref<DocumentTab[]>([])
   const activeId = ref('')
@@ -162,6 +167,12 @@ export const useDocumentsStore = defineStore('documents', () => {
       doc.isModified = tab.isModified === true
       doc.cursorLine = typeof tab.cursorLine === 'number' && tab.cursorLine > 0 ? tab.cursorLine : 1
       doc.cursorCol = typeof tab.cursorCol === 'number' && tab.cursorCol > 0 ? tab.cursorCol : 1
+      // 预填滚动缓存：标签首次挂载 / 激活时 restoreScroll 会读取这里
+      scrollPositions.set(doc.id, {
+        top: scrollAmount(tab.scrollTop),
+        anchor: scrollAmount(tab.scrollAnchor)
+      })
+      previewScrollPositions.set(doc.id, scrollAmount(tab.previewScrollTop))
       return doc
     })
 

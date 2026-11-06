@@ -19,6 +19,12 @@ function positiveInt(value: unknown, fallback: number): number {
   return rounded > 0 ? rounded : fallback
 }
 
+/** 滚动位置允许 0（从顶部开始）；负数、非数字、非有限值一律视为缺失 */
+function scrollAmount(value: unknown): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return undefined
+  return value
+}
+
 function normalizeTab(value: unknown): SessionTab | null {
   if (!value || typeof value !== 'object') return null
   const tab = value as Record<string, unknown>
@@ -34,7 +40,10 @@ function normalizeTab(value: unknown): SessionTab | null {
     eol: tab.eol === '\r\n' ? '\r\n' : '\n',
     bom: tab.bom === true,
     // 非法 / 缺失时保持 undefined，由渲染进程按 markit-layout 兜底
-    layoutMode: isLayoutMode(tab.layoutMode) ? tab.layoutMode : undefined
+    layoutMode: isLayoutMode(tab.layoutMode) ? tab.layoutMode : undefined,
+    scrollAnchor: scrollAmount(tab.scrollAnchor),
+    scrollTop: scrollAmount(tab.scrollTop),
+    previewScrollTop: scrollAmount(tab.previewScrollTop)
   }
 }
 
