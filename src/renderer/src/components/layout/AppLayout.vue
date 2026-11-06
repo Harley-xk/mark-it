@@ -116,6 +116,10 @@ async function onExport(options: PdfExportOptions): Promise<void> {
 .light .title-bar .tab-dot {
   background: #3b82f6;
 }
+.light .title-bar .tab.drop-before::before,
+.light .title-bar .tab.drop-after::after {
+  background: #3b82f6;
+}
 .light .title-bar .tab-close:hover {
   background: rgba(0, 0, 0, 0.08);
   color: #000;

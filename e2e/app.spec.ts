@@ -278,3 +278,64 @@ test('导出 PDF 并生成有效产物', async () => {
     rmSync(userDataDir, { recursive: true, force: true })
   }
 })
+
+test('标签页可以拖拽排序并在重启后保持顺序', async () => {
+  test.skip(!existsSync(appEntry), '请先执行 npm run build 生成 out/main/index.js')
+
+  const workDir = mkdtempSync(join(tmpdir(), 'markit-e2e-tabs-'))
+  const userDataDir = mkdtempSync(join(tmpdir(), 'markit-e2e-tabs-user-'))
+  const firstPath = join(workDir, 'tab-first.md')
+  const secondPath = join(workDir, 'tab-second.md')
+  writeFileSync(firstPath, '# 第一个\n', 'utf-8')
+  writeFileSync(secondPath, '# 第二个\n', 'utf-8')
+
+  const launchOptions = {
+    args: ['.', `--user-data-dir=${userDataDir}`, firstPath, secondPath],
+    cwd: projectRoot,
+    env: getLaunchEnv()
+  }
+
+  const app = await electron.launch(launchOptions)
+  try {
+    const window = await app.firstWindow()
+    const firstTab = window.locator('.tab', { hasText: 'tab-first.md' })
+    const secondTab = window.locator('.tab', { hasText: 'tab-second.md' })
+    await expect(firstTab).toBeVisible()
+    await expect(secondTab).toBeVisible()
+
+    // 拖到第二个标签右半区，插入位置落在它之后
+    const secondBox = await secondTab.boundingBox()
+    if (!secondBox) throw new Error('标签页未完成布局')
+    await firstTab.dragTo(secondTab, {
+      targetPosition: { x: secondBox.width / 2 + 20, y: secondBox.height / 2 }
+    })
+
+    const readNames = async (): Promise<string[]> =>
+      (await window.locator('.tab-name').allTextContents()).map((name) => name.trim())
+    await expect.poll(readNames).toEqual(['tab-second.md', 'tab-first.md'])
+
+    // 等待会话防抖写入后再关闭
+    await window.waitForTimeout(1200)
+  } finally {
+    await app.close()
+  }
+
+  const restored = await electron.launch({
+    args: ['.', `--user-data-dir=${userDataDir}`],
+    cwd: projectRoot,
+    env: getLaunchEnv()
+  })
+  try {
+    const window = await restored.firstWindow()
+    // 会话恢复是异步的，轮询到顺序稳定为止
+    await expect
+      .poll(async () =>
+        (await window.locator('.tab-name').allTextContents()).map((name) => name.trim())
+      )
+      .toEqual(['tab-second.md', 'tab-first.md'])
+  } finally {
+    await restored.close()
+    rmSync(workDir, { recursive: true, force: true })
+    rmSync(userDataDir, { recursive: true, force: true })
+  }
+})

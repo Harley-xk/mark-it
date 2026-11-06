@@ -5,6 +5,7 @@ import type { HeadingItem, LayoutMode } from '../types'
 import type { SessionTab } from '../../../shared/session-types'
 import { normalizePath } from '../utils/path'
 import { isLayoutMode, loadSavedLayoutMode } from '../utils/layout-mode'
+import { moveItem } from '../utils/tab-order'
 import { decodeText, normalizeToLf, type LineEnding } from '../utils/text-encoding'
 import WELCOME_CONTENT from '../assets/welcome.md?raw'
 
@@ -228,6 +229,19 @@ export const useDocumentsStore = defineStore('documents', () => {
     activeId.value = docs.value[(index + delta + length) % length].id
   }
 
+  /**
+   * 把指定标签移动到 insertBefore 指定的间隙（移动前数组的下标语义）。
+   * 排序只改变顺序，不触碰内容、光标、EditorState 缓存或激活标签。
+   */
+  function moveDocument(id: string, insertBefore: number): void {
+    const from = docs.value.findIndex((doc) => doc.id === id)
+    if (from === -1) return
+
+    const next = moveItem(docs.value, from, insertBefore)
+    if (next.every((doc, index) => doc === docs.value[index])) return
+    docs.value = next
+  }
+
   function updateContent(id: string, content: string): void {
     const doc = getDoc(id)
     if (!doc) return
@@ -326,6 +340,7 @@ export const useDocumentsStore = defineStore('documents', () => {
     activateDocument,
     closeDocument,
     cycleDocument,
+    moveDocument,
     updateContent,
     replaceContent,
     setCursor,

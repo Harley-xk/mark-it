@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useDocumentsStore } from '../../stores/documents'
 import { useFile } from '../../composables/useFile'
 import { useAppStore } from '../../stores/app'
+import { findInsertBefore } from '../../utils/tab-order'
 
 const docs = useDocumentsStore()
 const app = useAppStore()
@@ -37,6 +38,152 @@ function revealActiveTab(): void {
   } else if (rect.right > container.right) {
     el.scrollLeft += rect.right - container.right + margin
   }
+}
+
+// ── 标签拖拽排序 ──
+
+const dragTabId = ref<string | null>(null)
+const dropBefore = ref<number | null>(null)
+let dragging = false
+let suppressClickUntil = 0
+let autoScrollFrame: number | null = null
+let dragClientX = 0
+
+const draggingIndex = computed(() =>
+  dragTabId.value ? docs.docs.findIndex((doc) => doc.id === dragTabId.value) : -1
+)
+
+/** 移动后位置不变的间隙不显示插入指示线 */
+const dropIndicatorIndex = computed(() => {
+  const before = dropBefore.value
+  const from = draggingIndex.value
+  if (before === null || from === -1) return null
+  if (before === from || before === from + 1) return null
+  return before
+})
+
+function tabElements(): HTMLElement[] {
+  return Array.from(scrollRef.value?.querySelectorAll<HTMLElement>('.tab') ?? [])
+}
+
+function updateDropBefore(clientX: number): void {
+  const tabs = tabElements()
+  const from = tabs.findIndex((tab) => tab.dataset.docId === dragTabId.value)
+  if (from === -1) return
+
+  const rects = tabs.map((tab) => {
+    const rect = tab.getBoundingClientRect()
+    return { left: rect.left, width: rect.width }
+  })
+  dropBefore.value = findInsertBefore(rects, clientX, from)
+}
+
+function stopAutoScroll(): void {
+  if (autoScrollFrame !== null) {
+    cancelAnimationFrame(autoScrollFrame)
+    autoScrollFrame = null
+  }
+}
+
+function autoScrollStep(): void {
+  autoScrollFrame = null
+  if (!dragging || !scrollRef.value) return
+
+  const el = scrollRef.value
+  const rect = el.getBoundingClientRect()
+  const edge = 24
+  let delta = 0
+  if (dragClientX < rect.left + edge) delta = -8
+  else if (dragClientX > rect.right - edge) delta = 8
+  if (delta === 0) return
+
+  // 到达可滚动边界后停止，避免空转
+  const previous = el.scrollLeft
+  el.scrollLeft += delta
+  if (el.scrollLeft === previous) return
+
+  updateDropBefore(dragClientX)
+  autoScrollFrame = requestAnimationFrame(autoScrollStep)
+}
+
+function updateAutoScroll(): void {
+  if (!dragging || !scrollRef.value) return
+
+  const el = scrollRef.value
+  const rect = el.getBoundingClientRect()
+  const edge = 24
+  const nearEdge = dragClientX < rect.left + edge || dragClientX > rect.right - edge
+  if (!nearEdge) {
+    stopAutoScroll()
+    return
+  }
+  if (autoScrollFrame === null) {
+    autoScrollFrame = requestAnimationFrame(autoScrollStep)
+  }
+}
+
+function onDragStart(id: string, e: DragEvent): void {
+  const target = e.target as HTMLElement | null
+  // 从关闭按钮起手时拖动整个标签会误触，直接放弃本次拖拽
+  if (target?.closest('.tab-close')) {
+    e.preventDefault()
+    return
+  }
+  if (!e.dataTransfer) return
+
+  dragging = true
+  dragTabId.value = id
+  dropBefore.value = null
+  dragClientX = e.clientX
+  e.dataTransfer.effectAllowed = 'move'
+  e.dataTransfer.setData('text/plain', id)
+
+  const el = e.currentTarget as HTMLElement
+  e.dataTransfer.setDragImage(el, 20, el.offsetHeight / 2)
+}
+
+function onDragOver(e: DragEvent): void {
+  if (!dragTabId.value) return
+  e.preventDefault()
+  if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
+  dragClientX = e.clientX
+  updateDropBefore(e.clientX)
+  updateAutoScroll()
+}
+
+function resetDrag(): void {
+  dragging = false
+  dragTabId.value = null
+  dropBefore.value = null
+  stopAutoScroll()
+}
+
+function onDrop(e: DragEvent): void {
+  if (!dragTabId.value) return
+  e.preventDefault()
+
+  const id = dragTabId.value
+  const before = dropBefore.value
+  resetDrag()
+  // 抑制拖拽结束后紧随其后的 click，避免把拖拽误判为激活标签
+  suppressClickUntil = Date.now() + 50
+  if (before === null) return
+
+  docs.moveDocument(id, before)
+  void nextTick(revealActiveTab)
+}
+
+function onDragEnd(): void {
+  resetDrag()
+  suppressClickUntil = Date.now() + 50
+}
+
+function onTabClick(id: string, e: MouseEvent): void {
+  if (dragging || Date.now() < suppressClickUntil) {
+    e.preventDefault()
+    return
+  }
+  docs.activateDocument(id)
 }
 
 // 激活的标签滚动到可视区域内（标签增删后也重新对齐）
@@ -139,20 +286,36 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="tab-bar">
-    <div ref="scrollRef" class="tab-scroll" @wheel="onWheel">
+    <div ref="scrollRef" class="tab-scroll" @wheel="onWheel" @dragover="onDragOver" @drop="onDrop">
       <div
-        v-for="doc in docs.docs"
+        v-for="(doc, index) in docs.docs"
         :key="doc.id"
         class="tab"
-        :class="{ active: doc.id === docs.activeId, modified: doc.isModified }"
+        :class="{
+          active: doc.id === docs.activeId,
+          modified: doc.isModified,
+          dragging: dragTabId === doc.id,
+          'drop-before': dropIndicatorIndex === index,
+          'drop-after': dropIndicatorIndex === docs.docs.length && index === docs.docs.length - 1
+        }"
         :title="doc.path || doc.name"
-        @click="docs.activateDocument(doc.id)"
+        :data-doc-id="doc.id"
+        draggable="true"
+        @click="onTabClick(doc.id, $event)"
+        @dragstart="onDragStart(doc.id, $event)"
+        @dragend="onDragEnd"
         @mousedown="onMiddleClick(doc.id, $event)"
         @contextmenu="openContextMenu(doc.id, $event)"
       >
         <span class="tab-name">{{ doc.name }}</span>
         <span v-if="doc.isModified" class="tab-dot" title="未保存"></span>
-        <button class="tab-close" title="关闭标签页 (Ctrl+W)" @click.stop="file.closeTab(doc.id)">
+        <button
+          class="tab-close"
+          draggable="false"
+          title="关闭标签页 (Ctrl+W)"
+          @dragstart.stop.prevent
+          @click.stop="file.closeTab(doc.id)"
+        >
           <svg
             width="12"
             height="12"
@@ -168,7 +331,13 @@ onBeforeUnmount(() => {
         </button>
       </div>
 
-      <button class="tab-new" title="新建 (Ctrl+N)" @click="file.newFile()">
+      <button
+        class="tab-new"
+        draggable="false"
+        title="新建 (Ctrl+N)"
+        @dragstart.stop.prevent
+        @click="file.newFile()"
+      >
         <svg
           width="14"
           height="14"
@@ -291,6 +460,32 @@ onBeforeUnmount(() => {
   background: rgba(255, 255, 255, 0.11);
   color: #fff;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.tab.dragging {
+  opacity: 0.45;
+  cursor: grabbing;
+}
+
+.tab.drop-before::before,
+.tab.drop-after::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  z-index: 1;
+  width: 2px;
+  border-radius: 1px;
+  background: #6c9bff;
+  pointer-events: none;
+}
+
+.tab.drop-before::before {
+  left: -2px;
+}
+
+.tab.drop-after::after {
+  right: -2px;
 }
 
 .tab-name {
