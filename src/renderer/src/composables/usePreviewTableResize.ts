@@ -12,8 +12,10 @@ import {
   buildTableKey,
   hashTableHeaders,
   normalizeWidths,
-  resizeColumnWidths,
-  resolveMinColumnRatio
+  resizeAdjacentColumnWidths,
+  resizeLastColumn,
+  resolveMinColumnRatio,
+  type TableLayout
 } from '../utils/table-resize'
 
 const RESIZABLE_CLASS = 'markit-table-resizable'
@@ -28,11 +30,12 @@ interface DragState {
   tableKey: string
   handle: HTMLElement
   index: number
-  /** 按下时的列宽快照，拖动过程中始终以它为基准计算总增量 */
-  startWidths: number[]
+  /** 按下时的布局快照，拖动过程中始终以它为基准计算总增量 */
+  startLayout: TableLayout
   startX: number
+  /** 按下时的表格像素宽度；最右列拖动时用它换算总宽变化 */
   tableWidth: number
-  current: number[]
+  current: TableLayout
   /** 是否已经实际改动过列宽；仅点击手柄不写入存档 */
   changed: boolean
 }
@@ -87,6 +90,18 @@ export function usePreviewTableResize(previewRef: Ref<HTMLDivElement | undefined
     return normalizeWidths(cells.map((cell) => cell.getBoundingClientRect().width))
   }
 
+  /** 读取表格总宽相对预览内容宽度的缩放；未调整过最右列时内联宽度为 100% */
+  function readScale(table: HTMLTableElement): number {
+    const percent = Number.parseFloat(table.style.width)
+    return Number.isFinite(percent) && percent > 0 ? percent / 100 : 1
+  }
+
+  function measuredLayout(table: HTMLTableElement): TableLayout | null {
+    const widths = measuredWidths(table)
+    if (widths.length === 0) return null
+    return { widths, scale: readScale(table) }
+  }
+
   function ensureColgroup(table: HTMLTableElement, count: number): HTMLTableColElement {
     let colgroup = table.querySelector<HTMLTableColElement>(`colgroup.${COLGROUP_CLASS}`)
     if (!colgroup) {
@@ -99,16 +114,18 @@ export function usePreviewTableResize(previewRef: Ref<HTMLDivElement | undefined
     return colgroup
   }
 
-  function applyWidths(table: HTMLTableElement, widths: number[]): void {
+  function applyLayout(table: HTMLTableElement, layout: TableLayout): void {
     const cells = headerCells(table)
     // 列数变化（表格被编辑过）时不套用过期的列宽
-    if (cells.length === 0 || widths.length !== cells.length) {
+    if (cells.length === 0 || layout.widths.length !== cells.length) {
       resetTable(table)
       return
     }
     table.classList.add(RESIZABLE_CLASS, RESIZED_CLASS)
-    const colgroup = ensureColgroup(table, widths.length)
-    widths.forEach((ratio, index) => {
+    // scale > 1 时表格宽于预览内容，预览区出现横向滚动条
+    table.style.width = `${(layout.scale * 100).toFixed(2)}%`
+    const colgroup = ensureColgroup(table, layout.widths.length)
+    layout.widths.forEach((ratio, index) => {
       const col = colgroup.children[index] as HTMLTableColElement
       col.style.width = `${(ratio * 100).toFixed(2)}%`
     })
@@ -118,6 +135,7 @@ export function usePreviewTableResize(previewRef: Ref<HTMLDivElement | undefined
   function resetTable(table: HTMLTableElement): void {
     table.classList.add(RESIZABLE_CLASS)
     table.classList.remove(RESIZED_CLASS)
+    table.style.width = ''
     table.querySelector(`colgroup.${COLGROUP_CLASS}`)?.remove()
   }
 
@@ -158,8 +176,8 @@ export function usePreviewTableResize(previewRef: Ref<HTMLDivElement | undefined
       return
     }
 
-    const widths = measuredWidths(table)
-    if (widths.length !== headerCells(table).length || widths.length === 0) return
+    const layout = measuredLayout(table)
+    if (!layout || layout.widths.length !== headerCells(table).length) return
 
     event.preventDefault()
     event.stopPropagation()
@@ -170,10 +188,10 @@ export function usePreviewTableResize(previewRef: Ref<HTMLDivElement | undefined
       tableKey,
       handle,
       index,
-      startWidths: widths,
+      startLayout: layout,
       startX: event.clientX,
       tableWidth: table.getBoundingClientRect().width,
-      current: widths,
+      current: layout,
       changed: false
     }
     window.addEventListener('pointermove', onPointerMove)
@@ -191,11 +209,24 @@ export function usePreviewTableResize(previewRef: Ref<HTMLDivElement | undefined
     const delta = drag.tableWidth > 0 ? (event.clientX - drag.startX) / drag.tableWidth : 0
     // 最小宽度按像素定义，换算成本表宽度下的比例，避免宽预览下窄列压不下去
     const minRatio = resolveMinColumnRatio(drag.tableWidth)
-    const next = resizeColumnWidths(drag.startWidths, drag.index, delta, minRatio)
+    const lastIndex = drag.startLayout.widths.length - 1
+    // 最右列没有右邻列可让位，改为改变表格总宽；内部边界只调整相邻两列
+    const next =
+      drag.index === lastIndex
+        ? resizeLastColumn(drag.startLayout, delta, minRatio)
+        : {
+            widths: resizeAdjacentColumnWidths(
+              drag.startLayout.widths,
+              drag.index,
+              delta,
+              minRatio
+            ),
+            scale: drag.startLayout.scale
+          }
     drag.current = next
     drag.changed = true
     drag.table.classList.add(DRAGGING_CLASS)
-    applyWidths(drag.table, next)
+    applyLayout(drag.table, next)
   }
 
   function onPointerUp(): void {
@@ -204,7 +235,7 @@ export function usePreviewTableResize(previewRef: Ref<HTMLDivElement | undefined
     endDrag()
     if (!changed) return
     const docKey = currentDocKey()
-    if (docKey) widthStore.setWidths(docKey, tableKey, current)
+    if (docKey) widthStore.setLayout(docKey, tableKey, current)
   }
 
   function endDrag(): void {
@@ -251,8 +282,8 @@ export function usePreviewTableResize(previewRef: Ref<HTMLDivElement | undefined
       const tableKey = buildTableKey(headers, duplicateIndex)
       tableKeys.set(table, tableKey)
 
-      const saved = docKey ? widthStore.getWidths(docKey, tableKey) : null
-      if (saved && saved.length === headers.length) applyWidths(table, saved)
+      const saved = docKey ? widthStore.getLayout(docKey, tableKey) : null
+      if (saved && saved.widths.length === headers.length) applyLayout(table, saved)
       else resetTable(table)
       ensureHandles(table)
     }

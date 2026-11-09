@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildTableKey,
+  MAX_TABLE_SCALE,
   MIN_COLUMN_PX,
   MIN_COLUMN_RATIO,
   normalizeWidths,
-  resizeColumnWidths,
+  resizeAdjacentColumnWidths,
+  resizeLastColumn,
   resolveMinColumnRatio,
+  sanitizeLayout,
   sanitizeWidths
 } from './table-resize'
 
@@ -44,63 +47,123 @@ describe('像素最小宽度换算', () => {
 
   it('按换算后的下限拖动时，序号列应停在约 40px', () => {
     const tableWidth = 1200
-    const result = resizeColumnWidths([0.5, 0.5], 0, -1, resolveMinColumnRatio(tableWidth))
+    const result = resizeAdjacentColumnWidths([0.5, 0.5], 0, -1, resolveMinColumnRatio(tableWidth))
 
     expect(result[0] * tableWidth).toBeCloseTo(MIN_COLUMN_PX, 5)
   })
 })
 
-describe('拖动列宽重分配', () => {
-  it('被拖列变宽时其余列应按比例收缩，总和保持 1', () => {
-    const result = resizeColumnWidths([0.5, 0.25, 0.25], 0, 0.1)
+describe('内部边界相邻列让位', () => {
+  it('被拖列变宽时只收缩右邻列，其余列不动', () => {
+    const result = resizeAdjacentColumnWidths([0.5, 0.25, 0.25], 0, 0.1)
 
     expect(result[0]).toBeCloseTo(0.6)
-    expect(result[1]).toBeCloseTo(0.2)
-    expect(result[2]).toBeCloseTo(0.2)
+    expect(result[1]).toBeCloseTo(0.15)
+    expect(result[2]).toBeCloseTo(0.25)
     expect(result.reduce((sum, width) => sum + width, 0)).toBeCloseTo(1)
   })
 
-  it('被拖列变窄时其余列应按比例变宽', () => {
-    const result = resizeColumnWidths([0.5, 0.25, 0.25], 0, -0.1)
+  it('被拖列变窄时只放宽右邻列，其余列不动', () => {
+    const result = resizeAdjacentColumnWidths([0.5, 0.25, 0.25], 0, -0.1)
 
     expect(result[0]).toBeCloseTo(0.4)
-    expect(result[1]).toBeCloseTo(0.3)
-    expect(result[2]).toBeCloseTo(0.3)
+    expect(result[1]).toBeCloseTo(0.35)
+    expect(result[2]).toBeCloseTo(0.25)
   })
 
-  it('不应把任何列压到最小占比以下', () => {
-    const result = resizeColumnWidths([0.5, 0.5], 0, -1)
-
-    expect(result[0]).toBeCloseTo(0.06)
-    expect(result[1]).toBeCloseTo(0.94)
-  })
-
-  it('其余列已触底时被拖列应停在可分配的上限', () => {
-    const result = resizeColumnWidths([0.94, 0.06], 0, 1)
+  it('右侧列已触底时被拖列应停在可分配的上限', () => {
+    const result = resizeAdjacentColumnWidths([0.75, 0.25], 0, 1)
 
     expect(result[0]).toBeCloseTo(0.94)
     expect(result[1]).toBeCloseTo(0.06)
   })
 
-  it('列数很多时应按 1/n 收敛最小占比，不应出现 0 或负数', () => {
-    const widths = Array.from({ length: 20 }, () => 1 / 20)
-    const result = resizeColumnWidths(widths, 0, -1)
+  it('两列合计不足两倍像素下限时应各占一半，不应出现负宽度', () => {
+    const result = resizeAdjacentColumnWidths([0.2, 0.8], 0, 1, 0.6)
 
-    expect(result.every((width) => width >= 1 / 20 - 1e-9)).toBe(true)
-    expect(result.reduce((sum, width) => sum + width, 0)).toBeCloseTo(1)
+    expect(result[0]).toBeCloseTo(0.5)
+    expect(result[1]).toBeCloseTo(0.5)
   })
 
-  it('单列、越界下标与非有限增量应安全返回归一化结果', () => {
-    expect(resizeColumnWidths([1], 0, 0.5)).toEqual([1])
-    expect(resizeColumnWidths([1, 1], 5, 0.1)).toEqual([0.5, 0.5])
-    expect(resizeColumnWidths([1, 1], 0, Number.NaN)).toEqual([0.5, 0.5])
+  it('单列、末列下标、越界下标与非有限增量应安全返回归一化结果', () => {
+    expect(resizeAdjacentColumnWidths([1], 0, 0.5)).toEqual([1])
+    expect(resizeAdjacentColumnWidths([0.5, 0.5], 1, 0.1)).toEqual([0.5, 0.5])
+    expect(resizeAdjacentColumnWidths([1, 1], 5, 0.1)).toEqual([0.5, 0.5])
+    expect(resizeAdjacentColumnWidths([1, 1], 0, Number.NaN)).toEqual([0.5, 0.5])
   })
 
   it('不应修改入参', () => {
     const widths = [0.5, 0.5]
-    resizeColumnWidths(widths, 0, 0.2)
+    resizeAdjacentColumnWidths(widths, 0, 0.2)
 
     expect(widths).toEqual([0.5, 0.5])
+  })
+})
+
+describe('最右列拖动与表格总宽', () => {
+  it('变宽时其余列像素宽度不变，表格总宽按增量放大', () => {
+    const result = resizeLastColumn({ widths: [0.5, 0.3, 0.2], scale: 1 }, 0.1, 0.05)
+
+    expect(result.scale).toBeCloseTo(1.1)
+    expect(result.widths[2]).toBeCloseTo(0.3 / 1.1)
+    expect(result.widths[0] * result.scale).toBeCloseTo(0.5)
+    expect(result.widths[1] * result.scale).toBeCloseTo(0.3)
+    expect(result.widths.reduce((sum, width) => sum + width, 0)).toBeCloseTo(1)
+  })
+
+  it('变窄时其余列像素宽度不变，表格总宽随之缩小', () => {
+    const result = resizeLastColumn({ widths: [0.5, 0.5], scale: 1 }, -0.2, 0.05)
+
+    expect(result.scale).toBeCloseTo(0.8)
+    expect(result.widths[0] * result.scale).toBeCloseTo(0.5)
+    expect(result.widths[1]).toBeCloseTo(0.3 / 0.8)
+  })
+
+  it('末列不应低于最小宽度', () => {
+    const result = resizeLastColumn({ widths: [0.5, 0.5], scale: 1 }, -1, 0.2)
+
+    expect(result.widths[1] * result.scale).toBeCloseTo(0.2)
+    expect(result.scale).toBeCloseTo(0.7)
+  })
+
+  it('总宽不应超过缩放上限', () => {
+    const result = resizeLastColumn({ widths: [0.5, 0.5], scale: 1 }, 100, 0.05)
+
+    expect(result.scale).toBeCloseTo(MAX_TABLE_SCALE)
+    expect(result.widths[0] * result.scale).toBeCloseTo(0.5)
+  })
+
+  it('已有缩放时应在现有总宽上继续增减，其余列像素宽度不变', () => {
+    const result = resizeLastColumn({ widths: [0.5, 0.5], scale: 1.5 }, 0.15, 0.05)
+
+    expect(result.scale).toBeCloseTo(1.5 * 1.15)
+    expect(result.widths[0] * result.scale).toBeCloseTo(0.75)
+    expect(result.widths[1] * result.scale).toBeCloseTo(0.75 + 0.15 * 1.5)
+  })
+
+  it('只拖动最后一列时，单列表格应能整体缩放', () => {
+    const result = resizeLastColumn({ widths: [1], scale: 1 }, -0.9, 0.1)
+
+    expect(result.scale).toBeCloseTo(0.1)
+    expect(result.widths).toEqual([1])
+  })
+
+  it('增量非有限数或空列时应原样返回', () => {
+    expect(resizeLastColumn({ widths: [0.5, 0.5], scale: 1 }, Number.NaN, 0.05)).toEqual({
+      widths: [0.5, 0.5],
+      scale: 1
+    })
+    expect(resizeLastColumn({ widths: [], scale: 1 }, 0.1, 0.05)).toEqual({
+      widths: [],
+      scale: 1
+    })
+  })
+
+  it('不应修改入参', () => {
+    const layout = { widths: [0.5, 0.5], scale: 1 }
+    resizeLastColumn(layout, 0.1, 0.05)
+
+    expect(layout).toEqual({ widths: [0.5, 0.5], scale: 1 })
   })
 })
 
@@ -132,5 +195,33 @@ describe('存档校验', () => {
 
   it('合法数据应归一化后返回', () => {
     expect(sanitizeWidths([2, 2])).toEqual([0.5, 0.5])
+  })
+
+  it('旧版本的纯数组存档应迁移为 scale = 1', () => {
+    expect(sanitizeLayout([2, 2])).toEqual({ widths: [0.5, 0.5], scale: 1 })
+  })
+
+  it('新结构应保留合法 scale，缺失或非法时回退为 1', () => {
+    expect(sanitizeLayout({ widths: [0.5, 0.5], scale: 1.2 })).toEqual({
+      widths: [0.5, 0.5],
+      scale: 1.2
+    })
+    expect(sanitizeLayout({ widths: [0.5, 0.5] })).toEqual({ widths: [0.5, 0.5], scale: 1 })
+    expect(sanitizeLayout({ widths: [0.5, 0.5], scale: '1.2' })).toEqual({
+      widths: [0.5, 0.5],
+      scale: 1
+    })
+  })
+
+  it('scale 越界时应夹在合法区间内', () => {
+    expect(sanitizeLayout({ widths: [0.5, 0.5], scale: 0.01 })?.scale).toBeCloseTo(0.1)
+    expect(sanitizeLayout({ widths: [0.5, 0.5], scale: 99 })?.scale).toBeCloseTo(MAX_TABLE_SCALE)
+  })
+
+  it('结构非法或列宽非法时应丢弃整条存档', () => {
+    expect(sanitizeLayout(null)).toBeNull()
+    expect(sanitizeLayout('0.5')).toBeNull()
+    expect(sanitizeLayout({ widths: [], scale: 1 })).toBeNull()
+    expect(sanitizeLayout({ widths: [0.5, -1], scale: 1 })).toBeNull()
   })
 })

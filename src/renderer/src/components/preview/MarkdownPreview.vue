@@ -16,6 +16,7 @@ import { parseFrontmatter, renderFrontmatterTable } from '../../utils/frontmatte
 import { saveDiagram, serializeSvg } from '../../utils/diagram-export'
 import { installLocalImageRule, resolveImageSrc, resolveLocalPath } from '../../utils/local-image'
 import { installHeadingAnchors } from '../../utils/headings'
+import { installLinkTitles } from '../../utils/link-title'
 import { createMarkdownRenderer } from '../../utils/markdown'
 import DiagramPreviewModal from './DiagramPreviewModal.vue'
 
@@ -46,6 +47,9 @@ installLocalImageRule(md, () => documentsStore.activeDoc?.path)
 // 为标题赋予与大纲解析器（useOutline、parseHeadings）一致的顺序锚点 id
 // （heading-0, heading-1, ...），大纲面板点击时通过 document.getElementById 定位滚动
 installHeadingAnchors(md)
+
+// 悬停链接时由浏览器原生提示显示完整地址（含自动识别的裸网址）
+installLinkTitles(md)
 
 const renderedHtml = computed(() => {
   const { entries, body } = parseFrontmatter(editorStore.content)
@@ -612,9 +616,9 @@ onUnmounted(() => {
   position: relative;
 }
 
+/* 表格宽度由内联百分比决定：默认 100%，拖动最右列后可能宽于预览内容 */
 :deep(.markdown-body table.markit-table-resized) {
   table-layout: fixed;
-  width: 100%;
 }
 
 :deep(.markdown-body table.markit-table-resized th),

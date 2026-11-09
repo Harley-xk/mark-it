@@ -2,18 +2,18 @@
  * 作者: Harley-xk
  * 创建: 2026-11-06
  *
- * 描述: 按文档与表头保存预览表格列宽比例，仅用于界面展示，不写回 Markdown
+ * 描述: 按文档与表头保存预览表格的列宽与总宽缩放，仅用于界面展示，不写回 Markdown
  */
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { sanitizeWidths } from '../utils/table-resize'
+import { sanitizeLayout, type TableLayout } from '../utils/table-resize'
 
 /** localStorage 键；前缀 markit- 属于品牌不变量，不得改名 */
 const STORAGE_KEY = 'markit-table-widths'
 
-/** 表标识 → 列宽比例 */
-type TableWidthMap = Record<string, number[]>
-/** 文档键 → 表标识 → 列宽比例 */
+/** 表标识 → 表格布局 */
+type TableWidthMap = Record<string, TableLayout>
+/** 文档键 → 表标识 → 表格布局 */
 type TableWidthStore = Record<string, TableWidthMap>
 
 /** 未保存文档的键带此前缀，只在当前会话有效，不写入 localStorage */
@@ -24,7 +24,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /** 逐层校验存档，丢弃结构或数值非法的条目，避免损坏数据进入渲染 */
-function loadWidths(): TableWidthStore {
+function loadLayouts(): TableWidthStore {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return {}
@@ -34,12 +34,12 @@ function loadWidths(): TableWidthStore {
     const store: TableWidthStore = {}
     for (const [docKey, tables] of Object.entries(parsed)) {
       if (!isRecord(tables)) continue
-      const tableWidths: TableWidthMap = {}
-      for (const [tableKey, widths] of Object.entries(tables)) {
-        const sanitized = sanitizeWidths(widths)
-        if (sanitized) tableWidths[tableKey] = sanitized
+      const tableLayouts: TableWidthMap = {}
+      for (const [tableKey, layout] of Object.entries(tables)) {
+        const sanitized = sanitizeLayout(layout)
+        if (sanitized) tableLayouts[tableKey] = sanitized
       }
-      if (Object.keys(tableWidths).length > 0) store[docKey] = tableWidths
+      if (Object.keys(tableLayouts).length > 0) store[docKey] = tableLayouts
     }
     return store
   } catch (err) {
@@ -49,11 +49,11 @@ function loadWidths(): TableWidthStore {
 }
 
 export const useTableWidthsStore = defineStore('table-widths', () => {
-  const widths = ref<TableWidthStore>(loadWidths())
+  const layouts = ref<TableWidthStore>(loadLayouts())
 
   function persist(): void {
     const persistable: TableWidthStore = {}
-    for (const [docKey, tables] of Object.entries(widths.value)) {
+    for (const [docKey, tables] of Object.entries(layouts.value)) {
       if (!docKey.startsWith(UNTITLED_PREFIX)) persistable[docKey] = tables
     }
     try {
@@ -63,25 +63,25 @@ export const useTableWidthsStore = defineStore('table-widths', () => {
     }
   }
 
-  function getWidths(docKey: string, tableKey: string): number[] | null {
-    return widths.value[docKey]?.[tableKey] ?? null
+  function getLayout(docKey: string, tableKey: string): TableLayout | null {
+    return layouts.value[docKey]?.[tableKey] ?? null
   }
 
-  function setWidths(docKey: string, tableKey: string, next: number[]): void {
-    const sanitized = sanitizeWidths(next)
+  function setLayout(docKey: string, tableKey: string, next: TableLayout): void {
+    const sanitized = sanitizeLayout(next)
     if (!sanitized) return
-    if (!widths.value[docKey]) widths.value[docKey] = {}
-    widths.value[docKey][tableKey] = sanitized
+    if (!layouts.value[docKey]) layouts.value[docKey] = {}
+    layouts.value[docKey][tableKey] = sanitized
     persist()
   }
 
   function clearWidths(docKey: string, tableKey: string): void {
-    const tables = widths.value[docKey]
+    const tables = layouts.value[docKey]
     if (!tables || !tables[tableKey]) return
     delete tables[tableKey]
-    if (Object.keys(tables).length === 0) delete widths.value[docKey]
+    if (Object.keys(tables).length === 0) delete layouts.value[docKey]
     persist()
   }
 
-  return { getWidths, setWidths, clearWidths }
+  return { getLayout, setLayout, clearWidths }
 })
