@@ -39,7 +39,14 @@ nsis:
   artifactName: ${name}-${version}-setup.${ext}
   shortcutName: ${productName}
   uninstallDisplayName: ${productName}
-  createDesktopShortcut: always
+  # 交互式安装向导：允许选择安装范围、安装路径与快捷方式
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  allowElevation: true
+  # 快捷方式由 build/installer.nsh 按用户勾选创建，关闭内置创建逻辑
+  createDesktopShortcut: false
+  createStartMenuShortcut: false
+  include: installer.nsh
   # 安装包版本信息语言（2052 = 中文简体）与界面语言
   language: '2052'
   installerLanguages:
