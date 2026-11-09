@@ -190,6 +190,96 @@ test('重启后恢复编辑区与预览区的滚动位置', async () => {
   }
 })
 
+test('长文档来回切标签时滚动位置不累积偏移', async () => {
+  test.skip(!existsSync(appEntry), '请先执行 npm run build 生成 out/main/index.js')
+
+  const workDir = mkdtempSync(join(tmpdir(), 'markit-e2e-tabscroll-'))
+  const userDataDir = mkdtempSync(join(tmpdir(), 'markit-e2e-tabscroll-user-'))
+  const longPath = join(workDir, 'scroll-long.md')
+  const shortPath = join(workDir, 'scroll-short.md')
+  // Mermaid 放在文档前部：切换标签后它会异步重渲染并改变上方高度，
+  // 正是"按像素恢复 + 双向联动"逐次放大的来源
+  const sections = Array.from(
+    { length: 400 },
+    (_, index) => `## 小节 ${index}\n\n第 ${index} 段正文，用于撑高编辑区与预览区。\n`
+  ).join('\n')
+  writeFileSync(
+    longPath,
+    `# 长文档\n\n\`\`\`mermaid\ngraph TD\n  A[开始] --> B[结束]\n\`\`\`\n\n${sections}`,
+    'utf-8'
+  )
+  writeFileSync(shortPath, '# 短文档\n\n简短内容。\n', 'utf-8')
+
+  const app = await electron.launch({
+    args: ['.', `--user-data-dir=${userDataDir}`, longPath, shortPath],
+    cwd: projectRoot,
+    env: getLaunchEnv()
+  })
+  try {
+    const window = await app.firstWindow()
+    const longTab = window.locator('.tab-name', { hasText: 'scroll-long.md' })
+    const shortTab = window.locator('.tab-name', { hasText: 'scroll-short.md' })
+    await expect(longTab).toBeVisible()
+    await expect(shortTab).toBeVisible()
+    await window.waitForTimeout(2500)
+
+    // 布局按标签保存：两个标签统一为分栏，避免切换标签时面板重建干扰滚动恢复
+    const splitButton = window.locator('.tb-btn[title="左编辑 右预览"]')
+    await longTab.click()
+    await window.waitForTimeout(1500)
+    await splitButton.click()
+    await window.waitForTimeout(600)
+    await shortTab.click()
+    await window.waitForTimeout(600)
+    await splitButton.click()
+    await window.waitForTimeout(600)
+    await longTab.click()
+    await expect(window.locator('.preview-content .mermaid-diagram')).toHaveCount(1, {
+      timeout: 15_000
+    })
+
+    const readScroll = (): Promise<{ editor: number; preview: number }> =>
+      window.evaluate(() => ({
+        editor: document.querySelector('.cm-scroller')?.scrollTop ?? 0,
+        preview: document.querySelector('.preview-container')?.scrollTop ?? 0
+      }))
+
+    // 滚到文档中段后，先来回切一次取得稳定后的基准位置
+    await window.locator('.cm-scroller').evaluate((el) => {
+      el.scrollTop = 8000
+    })
+    await window.waitForTimeout(500)
+    await shortTab.click()
+    await window.waitForTimeout(400)
+    await longTab.click()
+    await expect(window.locator('.preview-content .mermaid-diagram')).toHaveCount(1, {
+      timeout: 15_000
+    })
+    await window.waitForTimeout(1000)
+    const baseline = await readScroll()
+    expect(baseline.editor).toBeGreaterThan(1000)
+    expect(baseline.preview).toBeGreaterThan(1000)
+
+    // 之后每次切回都必须落在同一位置，不允许逐次累积偏移
+    for (let round = 0; round < 3; round++) {
+      await shortTab.click()
+      await window.waitForTimeout(400)
+      await longTab.click()
+      await expect(window.locator('.preview-content .mermaid-diagram')).toHaveCount(1, {
+        timeout: 15_000
+      })
+      await window.waitForTimeout(1000)
+      const current = await readScroll()
+      expect(Math.abs(current.editor - baseline.editor)).toBeLessThan(5)
+      expect(Math.abs(current.preview - baseline.preview)).toBeLessThan(5)
+    }
+  } finally {
+    await app.close()
+    rmSync(workDir, { recursive: true, force: true })
+    rmSync(userDataDir, { recursive: true, force: true })
+  }
+})
+
 test('导出 PDF 并生成有效产物', async () => {
   test.skip(!existsSync(appEntry), '请先执行 npm run build 生成 out/main/index.js')
 

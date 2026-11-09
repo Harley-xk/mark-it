@@ -4,11 +4,17 @@ import type { EditorView } from '@codemirror/view'
 const scrollRegistry = {
   editorView: null as EditorView | null,
   previewEl: null as HTMLElement | null,
-  isSyncing: false
+  isSyncing: false,
+  // 切换标签 / 布局恢复滚动期间必须持续屏蔽联动，不能按帧计时：
+  // 预览内容是异步渲染的（Mermaid、图片、表格列宽），渲染前后的高度不同，
+  // 期间产生的滚动事件若参与联动，会按新旧高度比例反复改写两侧位置，
+  // 每切一次标签就累积一段偏移。
+  suspendCount: 0
 }
 
 interface UseScrollSync {
-  suspendSync: () => void
+  /** 屏蔽滚动联动，返回幂等的释放函数；必须与调用一一配对 */
+  suspendSync: () => () => void
   registerEditor: (view: EditorView) => void
   unregisterEditor: () => void
   registerPreview: (el: HTMLElement) => void
@@ -24,7 +30,13 @@ export function useScrollSync(): UseScrollSync {
   let registeredPreview: HTMLElement | null = null
 
   function onEditorScroll(): void {
-    if (scrollRegistry.isSyncing || !scrollRegistry.previewEl || !scrollRegistry.editorView) return
+    if (
+      scrollRegistry.isSyncing ||
+      scrollRegistry.suspendCount > 0 ||
+      !scrollRegistry.previewEl ||
+      !scrollRegistry.editorView
+    )
+      return
     scrollRegistry.isSyncing = true
     const editorDOM = scrollRegistry.editorView.scrollDOM
     const previewEl = scrollRegistry.previewEl
@@ -37,7 +49,13 @@ export function useScrollSync(): UseScrollSync {
   }
 
   function onPreviewScroll(): void {
-    if (scrollRegistry.isSyncing || !scrollRegistry.editorView || !scrollRegistry.previewEl) return
+    if (
+      scrollRegistry.isSyncing ||
+      scrollRegistry.suspendCount > 0 ||
+      !scrollRegistry.editorView ||
+      !scrollRegistry.previewEl
+    )
+      return
     scrollRegistry.isSyncing = true
     const editorDOM = scrollRegistry.editorView.scrollDOM
     const previewEl = scrollRegistry.previewEl
@@ -50,15 +68,17 @@ export function useScrollSync(): UseScrollSync {
   }
 
   /**
-   * 暂时屏蔽双向同步：用于切换标签时由代码设置滚动位置，
-   * 避免恢复程序自己写入的滚动被同步逻辑反向覆盖。
-   * 滚动事件在本帧的绘制步骤中触发，rAF 时解除即可覆盖到。
+   * 屏蔽双向同步：用于切换标签时由代码恢复滚动位置。
+   * 返回的释放函数幂等；调用方按配对释放，计数归零后联动才恢复。
    */
-  function suspendSync(): void {
-    scrollRegistry.isSyncing = true
-    requestAnimationFrame(() => {
-      scrollRegistry.isSyncing = false
-    })
+  function suspendSync(): () => void {
+    scrollRegistry.suspendCount += 1
+    let released = false
+    return () => {
+      if (released) return
+      released = true
+      scrollRegistry.suspendCount = Math.max(0, scrollRegistry.suspendCount - 1)
+    }
   }
 
   function registerEditor(view: EditorView): void {

@@ -25,6 +25,18 @@ function scrollAmount(value: unknown): number | undefined {
   return value
 }
 
+/** 渲染块下标：非负整数，其余视为缺失 */
+function anchorIndex(value: unknown): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return undefined
+  const rounded = Math.floor(value)
+  return rounded >= 0 ? rounded : undefined
+}
+
+/** 相对锚点的偏移允许负数：只要有限即可 */
+function signedAmount(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
 function normalizeTab(value: unknown): SessionTab | null {
   if (!value || typeof value !== 'object') return null
   const tab = value as Record<string, unknown>
@@ -43,7 +55,9 @@ function normalizeTab(value: unknown): SessionTab | null {
     layoutMode: isLayoutMode(tab.layoutMode) ? tab.layoutMode : undefined,
     scrollAnchor: scrollAmount(tab.scrollAnchor),
     scrollTop: scrollAmount(tab.scrollTop),
-    previewScrollTop: scrollAmount(tab.previewScrollTop)
+    previewScrollTop: scrollAmount(tab.previewScrollTop),
+    previewScrollAnchor: anchorIndex(tab.previewScrollAnchor),
+    previewScrollOffset: signedAmount(tab.previewScrollOffset)
   }
 }
 

@@ -31,6 +31,38 @@ describe('会话滚动位置校验', () => {
     expect(data?.tabs[0].scrollAnchor).toBeUndefined()
     expect(data?.tabs[0].scrollTop).toBeUndefined()
     expect(data?.tabs[0].previewScrollTop).toBeUndefined()
+    expect(data?.tabs[0].previewScrollAnchor).toBeUndefined()
+    expect(data?.tabs[0].previewScrollOffset).toBeUndefined()
+  })
+
+  it('应保留预览区内容锚点，偏移允许负数', () => {
+    const data = parseSessionData(
+      sessionWith({ previewScrollAnchor: 37, previewScrollOffset: -12.5 })
+    )
+    expect(data?.tabs[0].previewScrollAnchor).toBe(37)
+    expect(data?.tabs[0].previewScrollOffset).toBe(-12.5)
+  })
+
+  it('预览锚点下标非法时归一为 undefined', () => {
+    for (const value of [-1, Number.NaN, Number.POSITIVE_INFINITY, '3', null]) {
+      const data = parseSessionData(sessionWith({ previewScrollAnchor: value }))
+      expect(data?.tabs[0].previewScrollAnchor).toBeUndefined()
+    }
+  })
+
+  it('预览锚点偏移非有限值时归一为 undefined', () => {
+    for (const value of [Number.NaN, Number.POSITIVE_INFINITY, '3', null]) {
+      const data = parseSessionData(sessionWith({ previewScrollOffset: value }))
+      expect(data?.tabs[0].previewScrollOffset).toBeUndefined()
+    }
+  })
+
+  it('小数锚点下标向下取整，偏移保留原值', () => {
+    const data = parseSessionData(
+      sessionWith({ previewScrollAnchor: 1.7, previewScrollOffset: -3.2 })
+    )
+    expect(data?.tabs[0].previewScrollAnchor).toBe(1)
+    expect(data?.tabs[0].previewScrollOffset).toBe(-3.2)
   })
 })
 

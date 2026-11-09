@@ -33,7 +33,7 @@ import { registerScrollCapture } from '../../composables/session-scroll'
 const editorStore = useEditorStore()
 const appStore = useAppStore()
 const docs = useDocumentsStore()
-const { registerEditor, unregisterEditor } = useScrollSync()
+const { suspendSync, registerEditor, unregisterEditor } = useScrollSync()
 const editorRef = ref<HTMLDivElement>()
 let view: EditorView | null = null
 let unregisterScrollCapture: (() => void) | null = null
@@ -331,6 +331,11 @@ watch(
     const isDark = appStore.resolvedTheme === 'dark'
     const cached = docs.getEditorState(newId)
 
+    // 切换期间编辑区与预览区都会写滚动位置，任何一侧的程序化滚动都不应
+    // 反向驱动另一侧；预览区会一直持有屏蔽直到异步渲染完成，这里只需覆盖
+    // 编辑区自身的 setState 与恢复过程（跨两帧确保 CM 的滚动事件都已触发）。
+    const releaseSync = suspendSync()
+
     isExternalUpdate = true
     if (cached) {
       view.setState(cached)
@@ -347,6 +352,7 @@ watch(
     // 顺序反了会覆盖刚恢复的滚动位置
     view.focus()
     restoreScroll(newId)
+    requestAnimationFrame(() => requestAnimationFrame(releaseSync))
   },
   { flush: 'sync' }
 )

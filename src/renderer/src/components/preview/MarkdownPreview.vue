@@ -439,19 +439,72 @@ watch(
   }
 )
 
-/** 预览区是共用的滚动容器，必须按标签分别记录位置，否则新文档会沿用上一个文档的偏移 */
-function savePreviewScroll(id: string): void {
-  const el = previewRef.value
-  if (el) documentsStore.setPreviewScrollPosition(id, el.scrollTop)
+/** 等待下一帧渲染完成（scroll 事件在帧内派发，用于延后解除联动屏蔽） */
+function nextFrame(): Promise<void> {
+  return new Promise((resolve) => requestAnimationFrame(() => resolve()))
 }
 
+function previewContentEl(): HTMLElement | null {
+  return (previewRef.value?.querySelector('.preview-content') as HTMLElement | null) ?? null
+}
+
+/** 元素顶端相对滚动容器内容原点的像素位置 */
+function topWithin(node: HTMLElement, container: HTMLElement): number {
+  return (
+    node.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop
+  )
+}
+
+/** 找到视口顶部所在的顶层渲染元素，返回其下标与相对顶端的偏移 */
+function findPreviewAnchor(
+  content: HTMLElement,
+  container: HTMLElement
+): { anchor: number; offset: number } {
+  const children = content.children
+  if (children.length === 0) return { anchor: 0, offset: 0 }
+  const viewportTop = container.getBoundingClientRect().top
+  let index = -1
+  for (let i = 0; i < children.length; i++) {
+    if (children[i].getBoundingClientRect().bottom > viewportTop) {
+      index = i
+      break
+    }
+  }
+  if (index === -1) index = children.length - 1
+  const node = children[index] as HTMLElement
+  return { anchor: index, offset: container.scrollTop - topWithin(node, container) }
+}
+
+/**
+ * 预览区是共用的滚动容器，必须按标签分别记录位置。
+ * 只存像素不够：切换标签后 Mermaid / 图片 / 表格列宽会重新异步渲染，
+ * 高度变化会让同一像素值落到不同内容上，来回切换越滚越偏。
+ * 因此以"视口顶部所在的渲染块 + 块内偏移"作为锚点。
+ */
+function savePreviewScroll(id: string): void {
+  const el = previewRef.value
+  const content = previewContentEl()
+  if (!el || !content) return
+  const { anchor, offset } = findPreviewAnchor(content, el)
+  documentsStore.setPreviewScrollPosition(id, { top: el.scrollTop, anchor, offset })
+}
+
+/**
+ * 按内容锚点恢复预览滚动位置。
+ * 只负责写入，屏蔽联动由调用方在包含异步渲染的整个恢复窗口内持有。
+ */
 function restorePreviewScroll(id: string): void {
   const el = previewRef.value
   if (!el) return
-  // 程序化滚动会触发 scroll 事件，暂时屏蔽与编辑区的同步，
-  // 避免把编辑区刚恢复好的位置反向覆盖掉
-  suspendSync()
-  el.scrollTop = documentsStore.getPreviewScrollPosition(id)
+  const saved = documentsStore.getPreviewScrollPosition(id)
+  const children = previewContentEl()?.children
+  if (saved.anchor >= 0 && children && children.length > 0) {
+    const node = children[Math.min(saved.anchor, children.length - 1)] as HTMLElement
+    el.scrollTop = topWithin(node, el) + saved.offset
+  } else {
+    // 旧会话没有锚点，或内容尚未渲染出块级元素：退回像素位置
+    el.scrollTop = saved.top
+  }
 }
 
 watch(
@@ -460,8 +513,23 @@ watch(
     // 关闭标签同样会改变 activeId，此时旧标签已移除，不必再记录位置
     if (oldId && documentsStore.getDoc(oldId)) savePreviewScroll(oldId)
     if (!newId) return
-    await nextTick()
-    restorePreviewScroll(newId)
+
+    // 预览内容切换后会重新异步渲染（Mermaid、图片、表格列宽），高度在渲染
+    // 前后不同。整个恢复窗口都必须屏蔽滚动联动：先按缓存恢复一次避免看到
+    // 顶部闪动，渲染完成高度稳定后再对齐一次，保证来回切标签不会累积偏移。
+    const releaseSync = suspendSync()
+    try {
+      await nextTick()
+      restorePreviewScroll(newId)
+      await scheduleRender()
+      restorePreviewScroll(newId)
+      // 程序化写入 scrollTop 触发的 scroll 事件在下一帧才派发；
+      // 多等两帧再释放，避免恢复动作本身触发一次跨区联动
+      await nextFrame()
+      await nextFrame()
+    } finally {
+      releaseSync()
+    }
   }
 )
 
@@ -471,7 +539,10 @@ onMounted(async () => {
     registerPreview(previewRef.value)
     // 写会话前把活跃标签的实时预览滚动位置刷回 store
     unregisterScrollCapture = registerScrollCapture(savePreviewScroll)
+    // 挂载时同样会写滚动位置：与编辑区恢复的先后顺序不固定，先屏蔽联动
+    const releaseSync = suspendSync()
     restorePreviewScroll(documentsStore.activeId)
+    requestAnimationFrame(() => requestAnimationFrame(releaseSync))
   }
 })
 

@@ -35,6 +35,7 @@ export function useSession(): { flush: () => Promise<void> } {
     return {
       tabs: docs.docs.map((doc) => {
         const scroll = docs.getScrollPosition(doc.id)
+        const previewScroll = docs.getPreviewScrollPosition(doc.id)
         return {
           path: doc.path,
           name: doc.name,
@@ -47,7 +48,9 @@ export function useSession(): { flush: () => Promise<void> } {
           layoutMode: doc.layoutMode,
           scrollAnchor: scroll.anchor,
           scrollTop: scroll.top,
-          previewScrollTop: docs.getPreviewScrollPosition(doc.id)
+          previewScrollTop: previewScroll.top,
+          previewScrollAnchor: previewScroll.anchor,
+          previewScrollOffset: previewScroll.offset
         }
       }),
       activeIndex: Math.max(

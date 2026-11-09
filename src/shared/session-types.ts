@@ -22,8 +22,12 @@ export interface SessionTab {
   scrollAnchor?: number
   /** 编辑区像素滚动位置，anchor 不可用时的兜底；缺失或 0 时从顶部开始（兼容旧会话） */
   scrollTop?: number
-  /** 预览区像素滚动位置；缺失或 0 时从顶部开始（兼容旧会话） */
+  /** 预览区像素滚动位置（内容锚点不可用时的兜底）；缺失或 0 时从顶部开始（兼容旧会话） */
   previewScrollTop?: number
+  /** 预览区顶部可见的 .preview-content 直接子元素下标；缺失时按像素兜底（兼容旧会话） */
+  previewScrollAnchor?: number
+  /** 预览区视口顶部相对锚点元素顶部的偏移（像素，向下为正）；缺失时按 0 处理（兼容旧会话） */
+  previewScrollOffset?: number
 }
 
 export interface SessionData {

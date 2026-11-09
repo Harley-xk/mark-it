@@ -37,6 +37,15 @@ export interface ScrollPosition {
   anchor: number
 }
 
+export interface PreviewScrollPosition {
+  /** 像素滚动位置（兜底） */
+  top: number
+  /** 视口顶部所在的 .preview-content 直接子元素下标；-1 表示未记录（旧会话），恢复时退回像素 */
+  anchor: number
+  /** 视口顶部相对锚点元素顶部的偏移（像素，向下为正） */
+  offset: number
+}
+
 let docSequence = 0
 
 function nextDocId(): string {
@@ -57,6 +66,18 @@ function scrollAmount(value: unknown): number {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : 0
 }
 
+/** 相对锚点元素的偏移：允许负数（锚点元素顶端位于视口下方），非法值按 0 处理 */
+function scrollOffset(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0
+}
+
+/** 预览锚点下标；-1 表示没有记录（旧会话），恢复时退回像素 */
+function previewAnchor(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0
+    ? Math.floor(value)
+    : -1
+}
+
 export const useDocumentsStore = defineStore('documents', () => {
   const docs = ref<DocumentTab[]>([])
   const activeId = ref('')
@@ -65,8 +86,8 @@ export const useDocumentsStore = defineStore('documents', () => {
   // 用于保留每个标签的撤销历史、选区与滚动位置
   const editorStates = new Map<string, EditorState>()
   const scrollPositions = new Map<string, ScrollPosition>()
-  // 预览区与编辑区是两套独立的滚动容器，预览按像素单独记录
-  const previewScrollPositions = new Map<string, number>()
+  // 预览区与编辑区是两套独立的滚动容器，各自记录内容锚点
+  const previewScrollPositions = new Map<string, PreviewScrollPosition>()
 
   const activeDoc = computed<DocumentTab | null>(
     () => docs.value.find((d) => d.id === activeId.value) ?? null
@@ -173,7 +194,12 @@ export const useDocumentsStore = defineStore('documents', () => {
         top: scrollAmount(tab.scrollTop),
         anchor: scrollAmount(tab.scrollAnchor)
       })
-      previewScrollPositions.set(doc.id, scrollAmount(tab.previewScrollTop))
+      previewScrollPositions.set(doc.id, {
+        top: scrollAmount(tab.previewScrollTop),
+        // 旧会话没有锚点：-1 让恢复逻辑退回像素位置
+        anchor: previewAnchor(tab.previewScrollAnchor),
+        offset: scrollOffset(tab.previewScrollOffset)
+      })
       return doc
     })
 
@@ -314,13 +340,13 @@ export const useDocumentsStore = defineStore('documents', () => {
     return scrollPositions.get(id) ?? { top: 0, anchor: 0 }
   }
 
-  function setPreviewScrollPosition(id: string, top: number): void {
-    previewScrollPositions.set(id, top)
+  function setPreviewScrollPosition(id: string, position: PreviewScrollPosition): void {
+    previewScrollPositions.set(id, position)
   }
 
-  /** 预览区滚动位置（像素）；没有记录（新文档）时从顶部开始 */
-  function getPreviewScrollPosition(id: string): number {
-    return previewScrollPositions.get(id) ?? 0
+  /** 预览区滚动位置（内容锚点 + 像素兜底）；没有记录（新文档）时从顶部开始 */
+  function getPreviewScrollPosition(id: string): PreviewScrollPosition {
+    return previewScrollPositions.get(id) ?? { top: 0, anchor: -1, offset: 0 }
   }
 
   // 初始标签：欢迎示例文档
