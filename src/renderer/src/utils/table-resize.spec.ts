@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { buildTableKey, normalizeWidths, resizeColumnWidths, sanitizeWidths } from './table-resize'
+import {
+  buildTableKey,
+  MIN_COLUMN_PX,
+  MIN_COLUMN_RATIO,
+  normalizeWidths,
+  resizeColumnWidths,
+  resolveMinColumnRatio,
+  sanitizeWidths
+} from './table-resize'
 
 describe('列宽比例归一化', () => {
   it('应把任意正数数组归一化为和为 1 的比例', () => {
@@ -16,6 +24,29 @@ describe('列宽比例归一化', () => {
 
   it('空数组应返回空数组', () => {
     expect(normalizeWidths([])).toEqual([])
+  })
+})
+
+describe('像素最小宽度换算', () => {
+  it('应把像素下限换算为当前表格宽度对应的比例', () => {
+    expect(resolveMinColumnRatio(800)).toBeCloseTo(MIN_COLUMN_PX / 800)
+  })
+
+  it('宽表格的最小占比应低于固定 6%，窄列才压得下去', () => {
+    expect(resolveMinColumnRatio(1200)).toBeLessThan(MIN_COLUMN_RATIO)
+  })
+
+  it('宽度非法或非正时应回退为固定占比', () => {
+    expect(resolveMinColumnRatio(0)).toBe(MIN_COLUMN_RATIO)
+    expect(resolveMinColumnRatio(-1)).toBe(MIN_COLUMN_RATIO)
+    expect(resolveMinColumnRatio(Number.NaN)).toBe(MIN_COLUMN_RATIO)
+  })
+
+  it('按换算后的下限拖动时，序号列应停在约 40px', () => {
+    const tableWidth = 1200
+    const result = resizeColumnWidths([0.5, 0.5], 0, -1, resolveMinColumnRatio(tableWidth))
+
+    expect(result[0] * tableWidth).toBeCloseTo(MIN_COLUMN_PX, 5)
   })
 })
 

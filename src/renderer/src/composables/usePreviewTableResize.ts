@@ -11,9 +11,9 @@ import { normalizePath } from '../utils/path'
 import {
   buildTableKey,
   hashTableHeaders,
-  MIN_COLUMN_RATIO,
   normalizeWidths,
-  resizeColumnWidths
+  resizeColumnWidths,
+  resolveMinColumnRatio
 } from '../utils/table-resize'
 
 const RESIZABLE_CLASS = 'markit-table-resizable'
@@ -189,7 +189,9 @@ export function usePreviewTableResize(previewRef: Ref<HTMLDivElement | undefined
       return
     }
     const delta = drag.tableWidth > 0 ? (event.clientX - drag.startX) / drag.tableWidth : 0
-    const next = resizeColumnWidths(drag.startWidths, drag.index, delta, MIN_COLUMN_RATIO)
+    // 最小宽度按像素定义，换算成本表宽度下的比例，避免宽预览下窄列压不下去
+    const minRatio = resolveMinColumnRatio(drag.tableWidth)
+    const next = resizeColumnWidths(drag.startWidths, drag.index, delta, minRatio)
     drag.current = next
     drag.changed = true
     drag.table.classList.add(DRAGGING_CLASS)

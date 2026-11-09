@@ -5,10 +5,22 @@
  * 描述: 预览表格列宽的纯计算：比例归一化、拖动重分配、表标识生成与存档校验
  */
 
-/** 单列最小宽度占比；列数过多时按 1/n 收敛，保证每列都放得下 */
+/** 单列最小宽度（像素）：按表格实际像素宽度换算为比例，宽预览下窄列（如序号）才压得下去 */
+export const MIN_COLUMN_PX = 40
+
+/** 无法取得表格像素宽度时退化的最小占比；列数过多时按 1/n 继续收敛 */
 export const MIN_COLUMN_RATIO = 0.06
 
 const EPSILON = 1e-9
+
+/**
+ * 把像素下限换算为当前表格宽度下的最小占比。
+ * 表格宽度非法或非正时回退为 MIN_COLUMN_RATIO。
+ */
+export function resolveMinColumnRatio(tableWidth: number): number {
+  if (!Number.isFinite(tableWidth) || tableWidth <= 0) return MIN_COLUMN_RATIO
+  return MIN_COLUMN_PX / tableWidth
+}
 
 /**
  * 把任意数值数组归一化为和为 1 的比例。
@@ -40,7 +52,7 @@ export function resizeColumnWidths(
     return base
   }
 
-  // 列数很多时 0.06 可能让所有列都放不下，收敛到平均宽度
+  // 列数很多时最小宽度可能让所有列都放不下，收敛到平均宽度
   const safeMin = Math.min(Math.max(minRatio, 0), 1 / base.length)
   const result = base.slice()
   const current = result[index]
