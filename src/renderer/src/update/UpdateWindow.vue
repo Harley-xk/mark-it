@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
+import appIconUrl from '@resources/icon.png'
 import { useUpdateStore } from '../stores/update'
 
 const update = useUpdateStore()
@@ -77,7 +78,7 @@ onUnmounted(() => {
   <div class="update-window" :class="theme">
     <header class="window-header">
       <div class="window-title">
-        <span class="brand-mark" aria-hidden="true">M</span>
+        <img class="brand-mark" :src="appIconUrl" alt="" aria-hidden="true" />
         <span>软件更新</span>
       </div>
       <button class="window-close" title="关闭" @click="handleClose">
@@ -234,17 +235,11 @@ body,
 }
 
 .brand-mark {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+  display: block;
   width: 18px;
   height: 18px;
-  border-radius: 5px;
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--accent);
-  background: var(--accent-soft);
-  border: 1px solid var(--accent-border);
+  border-radius: 4px;
+  object-fit: contain;
 }
 
 .window-close {

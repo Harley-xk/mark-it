@@ -8,7 +8,9 @@ export default defineConfig({
   renderer: {
     resolve: {
       alias: {
-        '@renderer': resolve('src/renderer/src')
+        '@renderer': resolve('src/renderer/src'),
+        // 运行时资源（如应用图标），避免在渲染层复制一份二进制
+        '@resources': resolve('resources')
       }
     },
     plugins: [vue()],
