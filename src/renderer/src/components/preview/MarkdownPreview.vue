@@ -4,6 +4,7 @@ import { useEditorStore } from '../../stores/editor'
 import { useDocumentsStore } from '../../stores/documents'
 import { useAppStore } from '../../stores/app'
 import { useStyleStore } from '../../stores/style'
+import { useSearchStore } from '../../stores/search'
 import { useScrollSync } from '../../composables/useScrollSync'
 import { registerScrollCapture } from '../../composables/session-scroll'
 import { usePreviewTableResize } from '../../composables/usePreviewTableResize'
@@ -18,12 +19,15 @@ import { installLocalImageRule, resolveImageSrc, resolveLocalPath } from '../../
 import { installHeadingAnchors } from '../../utils/headings'
 import { installLinkTitles } from '../../utils/link-title'
 import { createMarkdownRenderer } from '../../utils/markdown'
+import { collectPreviewRanges } from '../../utils/search'
+import SearchPanel from '../common/SearchPanel.vue'
 import DiagramPreviewModal from './DiagramPreviewModal.vue'
 
 const editorStore = useEditorStore()
 const documentsStore = useDocumentsStore()
 const appStore = useAppStore()
 const styleStore = useStyleStore()
+const search = useSearchStore()
 const { suspendSync, registerPreview, unregisterPreview } = useScrollSync()
 const previewRef = ref<HTMLDivElement>()
 const { apply: applyTableWidths } = usePreviewTableResize(previewRef)
@@ -421,6 +425,8 @@ async function scheduleRender(): Promise<void> {
       resolveHtmlImages()
       applyTableWidths()
       await renderMermaid()
+      // Mermaid / 图片 / 表格列宽渲染完成后 DOM 已稳定，重新收集搜索范围
+      applyPreviewSearch(false)
     })
     .catch((err) => {
       console.error('Mermaid render failed:', err)
@@ -451,6 +457,101 @@ function nextFrame(): Promise<void> {
 function previewContentEl(): HTMLElement | null {
   return (previewRef.value?.querySelector('.preview-content') as HTMLElement | null) ?? null
 }
+
+// ── 搜索高亮（CSS Custom Highlight API） ──
+
+/** 当前匹配的 Range，顺序与搜索计数一致 */
+let searchRanges: Range[] = []
+/** 本实例注册的高亮对象：布局切换时新旧实例短暂共存，只能清理自己注册的项 */
+let registeredAll: Highlight | null = null
+let registeredActive: Highlight | null = null
+/** 卸载后仍可能有已排队的异步渲染回调，需要主动丢弃 */
+let previewUnmounted = false
+
+function clearPreviewSearch(): void {
+  searchRanges = []
+  if (registeredAll && CSS.highlights.get('markit-search') === registeredAll) {
+    CSS.highlights.delete('markit-search')
+  }
+  if (registeredActive && CSS.highlights.get('markit-search-active') === registeredActive) {
+    CSS.highlights.delete('markit-search-active')
+  }
+  registeredAll = null
+  registeredActive = null
+}
+
+function updatePreviewHighlights(): void {
+  if (searchRanges.length === 0) {
+    clearPreviewSearch()
+    return
+  }
+
+  // 只注册 Range，不修改 v-html 生成的 DOM，渲染与表格列宽 / Mermaid 替换互不干扰
+  registeredAll = new Highlight(...searchRanges)
+  CSS.highlights.set('markit-search', registeredAll)
+
+  const active = search.index >= 0 ? searchRanges[search.index] : undefined
+  registeredActive = active ? new Highlight(active) : null
+  if (registeredActive) CSS.highlights.set('markit-search-active', registeredActive)
+  else CSS.highlights.delete('markit-search-active')
+}
+
+/** 仅预览上下文下把当前匹配滚动到预览容器中部 */
+function scrollToPreviewMatch(): void {
+  if (previewUnmounted) return
+  const container = previewRef.value
+  const range = searchRanges[search.index]
+  if (!container || !range) return
+
+  const rect = range.getBoundingClientRect()
+  if (rect.width === 0 && rect.height === 0) return
+  const box = container.getBoundingClientRect()
+  container.scrollTop += rect.top - box.top - box.height / 2 + rect.height / 2
+}
+
+/**
+ * 重新收集预览区的匹配范围。
+ * reset 为 true（查询变化 / 面板打开）时，仅预览上下文回到首项并滚动。
+ */
+function applyPreviewSearch(reset: boolean): void {
+  if (previewUnmounted) return
+
+  const root = previewContentEl()
+  // 挂载 / 卸载过渡期间容器可能还不在 DOM 上：跳过本次，等渲染完成后再收集，
+  // 不能在这里把计数清零，否则旧实例的排队回调会覆盖新实例的结果
+  if (!root) return
+
+  if (!search.isOpen || search.query.length === 0) {
+    clearPreviewSearch()
+    if (search.surface === 'preview') search.updateResult(0, reset)
+    return
+  }
+
+  searchRanges = collectPreviewRanges(root, search.query, search.caseSensitive)
+  if (search.surface === 'preview') search.updateResult(searchRanges.length, reset)
+  updatePreviewHighlights()
+  if (reset && search.surface === 'preview') scrollToPreviewMatch()
+}
+
+// 查询 / 大小写 / 面板开关 / 搜索上下文变化：等 DOM 稳定后重新标注
+watch(
+  [() => search.isOpen, () => search.query, () => search.caseSensitive, () => search.surface],
+  async () => {
+    await nextTick()
+    if (previewUnmounted) return
+    applyPreviewSearch(true)
+  }
+)
+
+// 用户主动导航：更新当前项高亮，仅预览上下文跟随滚动
+watch(
+  () => search.navToken,
+  () => {
+    if (previewUnmounted || !search.isOpen) return
+    updatePreviewHighlights()
+    if (search.surface === 'preview') scrollToPreviewMatch()
+  }
+)
 
 /** 元素顶端相对滚动容器内容原点的像素位置 */
 function topWithin(node: HTMLElement, container: HTMLElement): number {
@@ -558,9 +659,11 @@ onBeforeUnmount(() => {
 })
 
 onUnmounted(() => {
+  previewUnmounted = true
   unregisterScrollCapture?.()
   unregisterScrollCapture = null
   unregisterPreview()
+  clearPreviewSearch()
 })
 </script>
 
@@ -577,6 +680,7 @@ onUnmounted(() => {
       ></div>
     </div>
 
+    <SearchPanel v-if="search.isOpen && search.surface === 'preview'" />
     <DiagramPreviewModal
       :visible="diagramModalVisible"
       :svg-xml="diagramPreview.svgXml"
@@ -590,6 +694,7 @@ onUnmounted(() => {
 
 <style scoped>
 .preview-wrapper {
+  position: relative;
   width: 100%;
   height: 100%;
   display: flex;

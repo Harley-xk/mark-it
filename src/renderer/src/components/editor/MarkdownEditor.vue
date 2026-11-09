@@ -27,12 +27,16 @@ import { tags } from '@lezer/highlight'
 import { useEditorStore } from '../../stores/editor'
 import { useAppStore } from '../../stores/app'
 import { useDocumentsStore } from '../../stores/documents'
+import { useSearchStore } from '../../stores/search'
 import { useScrollSync } from '../../composables/useScrollSync'
 import { registerScrollCapture } from '../../composables/session-scroll'
+import { findTextMatches, type TextMatch } from '../../utils/search'
+import { applySearchDecorations, searchMatchExtension } from '../../utils/editor-search'
 
 const editorStore = useEditorStore()
 const appStore = useAppStore()
 const docs = useDocumentsStore()
+const search = useSearchStore()
 const { suspendSync, registerEditor, unregisterEditor } = useScrollSync()
 const editorRef = ref<HTMLDivElement>()
 let view: EditorView | null = null
@@ -155,6 +159,7 @@ function buildExtensions(isDark: boolean): Extension[] {
     indentOnInput(),
     bracketMatching(),
     rectangularSelection(),
+    searchMatchExtension,
     syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
     markdown({ base: markdownLanguage, codeLanguages: languages }),
     themeCompartment.of(getThemeExtensions(isDark)),
@@ -256,6 +261,75 @@ function replaceDocContent(newText: string): void {
   })
 }
 
+// ── 搜索与替换 ──
+
+/** 当前文档的匹配结果（非响应式：仅用于生成装饰与选区） */
+let searchMatches: TextMatch[] = []
+/** 视图上是否已有搜索装饰，避免搜索关闭时为每次正文输入都派发一次清理事务 */
+let searchDecorationsApplied = false
+
+function clearSearchHighlights(): void {
+  const hadMatches = searchMatches.length > 0 || searchDecorationsApplied
+  searchMatches = []
+  searchDecorationsApplied = false
+  if (view && hadMatches) applySearchDecorations(view, [], -1)
+}
+
+function renderSearchDecorations(): void {
+  if (!view) return
+  searchDecorationsApplied = searchMatches.length > 0
+  applySearchDecorations(view, searchMatches, search.index)
+}
+
+/** 重新计算匹配；reveal 只在查询变化时使用，避免正文编辑过程中反复移动选区 */
+function refreshEditorSearch(options: { reset: boolean; reveal: boolean }): void {
+  if (!view) return
+
+  if (!search.isOpen || search.surface !== 'editor' || search.query.length === 0) {
+    clearSearchHighlights()
+    if (search.surface === 'editor') search.updateResult(0, options.reset)
+    return
+  }
+
+  searchMatches = findTextMatches(view.state.doc.toString(), search.query, search.caseSensitive)
+  search.updateResult(searchMatches.length, options.reset)
+  renderSearchDecorations()
+  if (options.reveal) revealSearchMatch('nearest')
+}
+
+/** 选中当前匹配并滚动；仅在用户导航或查询变化时调用 */
+function revealSearchMatch(vertical: 'nearest' | 'center'): void {
+  if (!view) return
+  const match = searchMatches[search.index]
+  if (!match) return
+  view.dispatch({
+    selection: { anchor: match.from, head: match.to },
+    effects: EditorView.scrollIntoView(match.from, { y: vertical })
+  })
+}
+
+// 查询 / 大小写 / 面板开关 / 搜索上下文变化：重算并显示首项
+watch(
+  [() => search.isOpen, () => search.query, () => search.caseSensitive, () => search.surface],
+  () => refreshEditorSearch({ reset: true, reveal: true })
+)
+
+// 正文编辑或外部刷新：只更新装饰与计数，不改写选区
+watch(
+  () => docs.activeDoc?.content,
+  () => refreshEditorSearch({ reset: false, reveal: false })
+)
+
+// 用户主动导航：选中当前项并居中滚动
+watch(
+  () => search.navToken,
+  () => {
+    if (!view || !search.isOpen || search.surface !== 'editor') return
+    renderSearchDecorations()
+    revealSearchMatch('center')
+  }
+)
+
 onMounted(() => {
   if (!editorRef.value) return
 
@@ -282,6 +356,10 @@ onMounted(() => {
     if (docs.getDoc(id)) saveScroll(id)
   })
   restoreScroll(doc.id)
+  // 缓存的 EditorState 可能带着旧的搜索装饰：置位后强制重新派发一次
+  searchDecorationsApplied = true
+  // 布局从「仅预览」切回编辑时搜索面板可能仍打开，需要在新视图里重新标注
+  refreshEditorSearch({ reset: true, reveal: true })
 
   window.addEventListener('focus', refreshMeasure)
   document.addEventListener('visibilitychange', refreshMeasure)
@@ -352,6 +430,9 @@ watch(
     // 顺序反了会覆盖刚恢复的滚动位置
     view.focus()
     restoreScroll(newId)
+    // 旧标签缓存的状态里可能还带着搜索装饰，强制重新派发一次
+    searchDecorationsApplied = true
+    refreshEditorSearch({ reset: true, reveal: true })
     requestAnimationFrame(() => requestAnimationFrame(releaseSync))
   },
   { flush: 'sync' }
@@ -398,5 +479,25 @@ watch(
 
 .editor-container :deep(.cm-focused) {
   outline: none;
+}
+
+/* ── 搜索匹配高亮 ── */
+
+.editor-container :deep(.markit-search-match) {
+  background: rgba(255, 193, 7, 0.28);
+  border-radius: 2px;
+}
+
+.editor-container :deep(.markit-search-match-active) {
+  background: rgba(255, 152, 0, 0.62);
+  border-radius: 2px;
+}
+
+:global(.light) .editor-container :deep(.markit-search-match) {
+  background: rgba(255, 193, 7, 0.42);
+}
+
+:global(.light) .editor-container :deep(.markit-search-match-active) {
+  background: rgba(255, 140, 0, 0.72);
 }
 </style>

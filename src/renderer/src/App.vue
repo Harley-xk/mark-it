@@ -117,6 +117,24 @@ body {
   background: transparent;
 }
 
+/* ── 预览区搜索高亮（CSS Custom Highlight API） ──
+   只通过 CSS.highlights 注册 Range，不改写预览 DOM，避免与 v-html 重渲染冲突 */
+::highlight(markit-search) {
+  background-color: rgba(255, 193, 7, 0.3);
+}
+
+::highlight(markit-search-active) {
+  background-color: rgba(255, 152, 0, 0.62);
+}
+
+.light ::highlight(markit-search) {
+  background-color: rgba(255, 193, 7, 0.42);
+}
+
+.light ::highlight(markit-search-active) {
+  background-color: rgba(255, 140, 0, 0.72);
+}
+
 /* 滚动条：固定 10px 始终占位。显隐只改滑块颜色、不改宽度，
    所以隐藏状态下容器尺寸与内容排版不变，不会因显隐反复重排。
    默认完全透明（隐藏），鼠标进入滚动容器或滚动时点亮，拖动时高亮（VS Code 风格）。

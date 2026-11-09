@@ -10,6 +10,7 @@ import EditorPane from '../editor/EditorPane.vue'
 import MarkdownPreview from '../preview/MarkdownPreview.vue'
 import PdfExportDialog from '../export/PdfExportDialog.vue'
 import SettingsDialog from '../settings/SettingsDialog.vue'
+import SearchHud from '../common/SearchHud.vue'
 import type { PdfExportOptions } from '../../types'
 
 const app = useAppStore()
@@ -47,6 +48,7 @@ async function onExport(options: PdfExportOptions): Promise<void> {
         </SplitPane>
         <EditorPane v-else-if="app.layoutMode === 'edit-only'" class="full-pane" />
         <MarkdownPreview v-else class="full-pane" />
+        <SearchHud />
       </div>
     </div>
     <StatusBar />

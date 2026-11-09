@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import EditorToolbar from './EditorToolbar.vue'
 import MarkdownEditor from './MarkdownEditor.vue'
+import SearchPanel from '../common/SearchPanel.vue'
+import { useSearchStore } from '../../stores/search'
+
+const search = useSearchStore()
 </script>
 
 <template>
@@ -9,11 +13,13 @@ import MarkdownEditor from './MarkdownEditor.vue'
     <div class="editor-body">
       <MarkdownEditor />
     </div>
+    <SearchPanel v-if="search.isOpen && search.surface === 'editor'" />
   </div>
 </template>
 
 <style scoped>
 .editor-pane {
+  position: relative;
   display: flex;
   flex-direction: column;
   width: 100%;

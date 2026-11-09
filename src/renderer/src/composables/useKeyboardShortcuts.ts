@@ -2,6 +2,7 @@ import { onMounted, onUnmounted } from 'vue'
 import { useAppStore } from '../stores/app'
 import { useDocumentsStore } from '../stores/documents'
 import { useEditorStore } from '../stores/editor'
+import { useSearchStore } from '../stores/search'
 import { useFile } from './useFile'
 import { applyFormatAction, formatActions } from './useFormatActions'
 
@@ -9,13 +10,58 @@ export function useKeyboardShortcuts(): void {
   const app = useAppStore()
   const docs = useDocumentsStore()
   const editor = useEditorStore()
+  const search = useSearchStore()
   const file = useFile()
 
   function isCtrl(e: KeyboardEvent): boolean {
     return e.ctrlKey || e.metaKey
   }
 
+  /** 打开搜索：若当前有单行选中文本（≤200 字符）则带入查询框 */
+  function openSearch(withReplace: boolean): void {
+    const view = editor.editorView
+    let selected = ''
+    if (view) {
+      const { from, to } = view.state.selection.main
+      if (to > from) selected = view.state.sliceDoc(from, to)
+    } else {
+      selected = window.getSelection()?.toString() ?? ''
+    }
+    if (selected && !selected.includes('\n') && selected.length <= 200) {
+      search.query = selected
+    }
+    search.open(withReplace)
+  }
+
   function handleKeydown(e: KeyboardEvent): void {
+    // 搜索面板打开时：F3 / Shift+F3 导航，Esc 关闭
+    if (search.isOpen) {
+      if (e.key === 'F3') {
+        e.preventDefault()
+        if (e.shiftKey) search.previous()
+        else search.next()
+        return
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        search.close()
+        return
+      }
+    }
+
+    // Ctrl+F: 搜索；Ctrl+H: 搜索并展开替换
+    if (isCtrl(e) && !e.shiftKey && e.key === 'f') {
+      e.preventDefault()
+      openSearch(false)
+      return
+    }
+
+    if (isCtrl(e) && !e.shiftKey && e.key === 'h') {
+      e.preventDefault()
+      openSearch(true)
+      return
+    }
+
     // Ctrl+N: 新建
     if (isCtrl(e) && !e.shiftKey && e.key === 'n') {
       e.preventDefault()
