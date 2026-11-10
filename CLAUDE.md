@@ -10,6 +10,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 @rules/branding.md
 @rules/release.md
 
+## 多 AI 协作入口
+
+本仓库同时支持 Claude Code 与 Codex，工程规则的唯一正文来源是 `rules/`：
+
+- Claude Code 自动读取本文件，并通过上面的 `@rules/*.md` 导入规则。
+- Codex 自动读取根目录的 `AGENTS.md`；Codex 不会展开 `@` 导入语法，因此 `AGENTS.md` 要求直接读取上述规则文件。
+- 新增、删除或重命名 `rules/` 中的文件时，必须同步更新本文件的导入列表和 `AGENTS.md` 的强制读取列表。
+- 不要在 `CLAUDE.md` 或 `AGENTS.md` 中复制规则正文；规则正文只维护在 `rules/`。
+
 ## 项目概览
 
 Mark It（界面写作文案为 **MarkIt**）是基于 **Electron 39 + Vue 3 + TypeScript** 的本地 Markdown 编辑器，单包 npm 工程，构建工具为 `electron-vite`。核心能力：CodeMirror 6 编辑、markdown-it 实时预览、Mermaid 图表、多标签页、多主题、PDF 导出、自动更新。
