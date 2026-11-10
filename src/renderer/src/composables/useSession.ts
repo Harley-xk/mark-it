@@ -200,6 +200,13 @@ export function useSession(): { flush: () => Promise<void> } {
       queueSave
     )
     watch(() => docs.activeId, queueSave)
+    watch(
+      () => docs.docs.flatMap((doc) => (doc.path ? [doc.path] : [])),
+      (paths) => {
+        void window.api.syncOpenFiles(paths)
+      },
+      { immediate: true }
+    )
   })
 
   session = { flush }

@@ -7,7 +7,7 @@ import { diffLines } from '../utils/text-diff'
 import { samePath } from '../utils/path'
 import { decodeText, encodeText } from '../utils/text-encoding'
 import { serializeEditorState } from '../utils/editor-state-transfer'
-import type { TabTransferPayload } from '../../../shared/window-types'
+import type { TabDropOptions, TabTransferPayload } from '../../../shared/window-types'
 import WELCOME_CONTENT from '../assets/welcome.md?raw'
 
 /** 内置使用手册的标签名 */
@@ -41,7 +41,7 @@ interface FileActions {
   /** 将标签迁移到新编辑窗口；目标窗口确认恢复后源标签才删除 */
   moveTabToNewWindow: (id?: string) => Promise<boolean>
   /** 按当前指针命中的编辑窗口迁移；未命中时新建窗口 */
-  moveTabToTargetWindow: (id?: string) => Promise<boolean>
+  moveTabToTargetWindow: (id?: string, options?: TabDropOptions) => Promise<boolean>
   /** 显式迁移到指定编辑窗口 */
   moveTabToWindow: (targetWindowId: string, id?: string) => Promise<boolean>
   /** 将当前窗口全部标签依次迁移到指定编辑窗口 */
@@ -235,10 +235,10 @@ export function useFile(): FileActions {
     return requestTabTransfer(doc, (payload) => window.api.moveTabToNewWindow(payload))
   }
 
-  async function moveTabToTargetWindow(id?: string): Promise<boolean> {
+  async function moveTabToTargetWindow(id?: string, options?: TabDropOptions): Promise<boolean> {
     const doc = id ? docs.getDoc(id) : docs.activeDoc
     if (!doc) return false
-    return requestTabTransfer(doc, (payload) => window.api.moveTabToTargetWindow(payload))
+    return requestTabTransfer(doc, (payload) => window.api.moveTabToTargetWindow(payload, options))
   }
 
   async function moveTabToWindow(targetWindowId: string, id?: string): Promise<boolean> {

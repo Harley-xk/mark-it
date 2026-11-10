@@ -227,3 +227,130 @@ test('全部标签可以合并到已有编辑窗口并关闭源窗口', async ()
     rmSync(userDataDir, { recursive: true, force: true })
   }
 })
+
+test('拖拽经过其他窗口时可显示目标高亮并正确清除', async () => {
+  test.skip(!existsSync(appEntry), '请先执行 npm run build 生成 out/main/index.js')
+
+  const userDataDir = mkdtempSync(join(tmpdir(), 'markit-e2e-drag-highlight-'))
+  const app = await electron.launch({
+    args: ['.', `--user-data-dir=${userDataDir}`],
+    cwd: projectRoot,
+    env: getLaunchEnv()
+  })
+
+  try {
+    const source = await app.firstWindow()
+    await source.locator('.cm-content').click()
+    const targetPromise = app.waitForEvent('window')
+    await source.keyboard.press('Control+Shift+n')
+    const target = await targetPromise
+    await expect(target.locator('.app-layout')).toBeVisible()
+
+    await app.evaluate(({ BrowserWindow }) => {
+      const targetWindow = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
+      targetWindow.webContents.send('window:tab-drag-target', {
+        active: true,
+        tabName: 'drag-highlight.md',
+        sourceWindowId: 'test-source'
+      })
+    })
+
+    await expect(target.locator('.tab-drop-overlay')).toBeVisible()
+    await expect(target.locator('.tab-drop-message')).toContainText('drag-highlight.md')
+    await expect(source.locator('.tab-drop-overlay')).toHaveCount(0)
+
+    await app.evaluate(({ BrowserWindow }) => {
+      const targetWindow = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
+      targetWindow.webContents.send('window:tab-drag-target', {
+        active: false,
+        tabName: '',
+        sourceWindowId: 'test-source'
+      })
+    })
+    await expect(target.locator('.tab-drop-overlay')).toHaveCount(0)
+  } finally {
+    await app.close()
+    rmSync(userDataDir, { recursive: true, force: true })
+  }
+})
+
+test('常规打开已存在于其他窗口的文件时激活原标签而不是新增副本', async () => {
+  test.skip(!existsSync(appEntry), '请先执行 npm run build 生成 out/main/index.js')
+
+  const workDir = mkdtempSync(join(tmpdir(), 'markit-e2e-open-dedupe-'))
+  const userDataDir = mkdtempSync(join(tmpdir(), 'markit-e2e-open-dedupe-user-'))
+  const filePath = join(workDir, 'dedupe.md')
+  writeFileSync(filePath, '# 跨窗口去重\n', 'utf-8')
+
+  const app = await electron.launch({
+    args: ['.', `--user-data-dir=${userDataDir}`, filePath],
+    cwd: projectRoot,
+    env: getLaunchEnv()
+  })
+
+  try {
+    const source = await app.firstWindow()
+    await expect(source.locator('.tab-name', { hasText: 'dedupe.md' })).toBeVisible()
+    await source.locator('.cm-content').click()
+
+    const targetPromise = app.waitForEvent('window')
+    await source.keyboard.press('Control+Shift+n')
+    const target = await targetPromise
+    await expect(target.locator('.app-layout')).toBeVisible()
+    await expect.poll(() => app.windows().length).toBe(2)
+
+    // 模拟系统再次投递同一路径；普通打开应先查找所有窗口的打开文件索引。
+    await app.evaluate(({ app: electronApp }, path) => {
+      electronApp.emit('second-instance', {}, ['electron', path], process.cwd(), {})
+    }, filePath)
+
+    await expect
+      .poll(async () => source.locator('.tab-name', { hasText: 'dedupe.md' }).count())
+      .toBe(1)
+    await expect(target.locator('.tab-name', { hasText: 'dedupe.md' })).toHaveCount(0)
+  } finally {
+    await app.close()
+    rmSync(workDir, { recursive: true, force: true })
+    rmSync(userDataDir, { recursive: true, force: true })
+  }
+})
+
+test('标签离开标题栏后释放即可创建新窗口', async () => {
+  test.skip(!existsSync(appEntry), '请先执行 npm run build 生成 out/main/index.js')
+
+  const workDir = mkdtempSync(join(tmpdir(), 'markit-e2e-titlebar-drop-'))
+  const userDataDir = mkdtempSync(join(tmpdir(), 'markit-e2e-titlebar-drop-user-'))
+  const firstPath = join(workDir, 'drag-out-first.md')
+  const secondPath = join(workDir, 'drag-out-second.md')
+  writeFileSync(firstPath, '# 第一个\n', 'utf-8')
+  writeFileSync(secondPath, '# 第二个\n', 'utf-8')
+
+  const app = await electron.launch({
+    args: ['.', `--user-data-dir=${userDataDir}`, firstPath, secondPath],
+    cwd: projectRoot,
+    env: getLaunchEnv()
+  })
+
+  try {
+    const source = await app.firstWindow()
+    const tab = source.locator('.tab', { hasText: 'drag-out-first.md' })
+    const box = await tab.boundingBox()
+    if (!box) throw new Error('标签未完成布局')
+
+    const targetPromise = app.waitForEvent('window')
+    await source.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+    await source.mouse.down()
+    await source.mouse.move(box.x + box.width / 2, 130, { steps: 8 })
+    await expect(source.locator('.tab-drag-ghost')).toBeVisible()
+    await source.mouse.up()
+
+    const target = await targetPromise
+    await expect(target.locator('.tab-name', { hasText: 'drag-out-first.md' })).toBeVisible()
+    await expect(source.locator('.tab-name', { hasText: 'drag-out-first.md' })).toHaveCount(0)
+    await expect(source.locator('.tab-drag-ghost')).toHaveCount(0)
+  } finally {
+    await app.close()
+    rmSync(workDir, { recursive: true, force: true })
+    rmSync(userDataDir, { recursive: true, force: true })
+  }
+})

@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { parseWindowStateFile } from './window-state-store'
+import { parseWindowStateFile, placeWindowOnWorkArea } from './window-state-store'
 
 describe('多窗口几何状态', () => {
+  it('应按释放点所在显示器放置新窗口并夹取到可用区域', () => {
+    const placed = placeWindowOnWorkArea({ x: 1920, y: 0, width: 1920, height: 1080 }, 1280, 800, {
+      x: 2500,
+      y: 500
+    })
+    expect(placed).toEqual({ width: 1280, height: 800, x: 1920, y: 100 })
+  })
+
   it('应将旧版单窗口状态迁移给首个窗口', () => {
     const data = parseWindowStateFile(
       { width: 1200, height: 760, x: 40, y: 60, isMaximized: true, zoomFactor: 1.25 },

@@ -8,6 +8,8 @@ import type {
   EditorWindowContext,
   EditorWindowSummary,
   ExitPreparationRequest,
+  TabDragTargetState,
+  TabDropOptions,
   TabTransferPayload,
   TabTransferResult
 } from '../shared/window-types'
@@ -50,8 +52,11 @@ const api = {
   moveTabToNewWindow: (payload: TabTransferPayload): Promise<TabTransferResult | null> =>
     ipcRenderer.invoke('window:move-tab-to-new', payload),
   /** 按当前指针命中的编辑窗口迁移；未命中则新建窗口 */
-  moveTabToTargetWindow: (payload: TabTransferPayload): Promise<TabTransferResult | null> =>
-    ipcRenderer.invoke('window:move-tab-to-target', payload),
+  moveTabToTargetWindow: (
+    payload: TabTransferPayload,
+    options?: TabDropOptions
+  ): Promise<TabTransferResult | null> =>
+    ipcRenderer.invoke('window:move-tab-to-target', payload, options),
   /** 显式迁移到指定编辑窗口 */
   moveTabToWindow: (
     payload: TabTransferPayload,
@@ -74,9 +79,19 @@ const api = {
   /** 已有编辑窗口接收实时标签迁移 */
   onReceiveTabTransfer: (callback: (payload: TabTransferPayload) => void): (() => void) =>
     subscribe('window:receive-tab-transfer', callback),
-  /** 拖出标签时判断释放点是否在源窗口外 */
-  getCursorScreenPoint: (): Promise<{ x: number; y: number } | null> =>
-    ipcRenderer.invoke('window:get-cursor-screen'),
+  /** 开始跨窗口拖拽目标命中与高亮 */
+  startTabDrag: (tabName: string): void => {
+    ipcRenderer.send('window:tab-drag-start', tabName)
+  },
+  /** 结束拖拽并清除目标高亮 */
+  endTabDrag: (): void => {
+    ipcRenderer.send('window:tab-drag-end')
+  },
+  onTabDragTarget: (callback: (state: TabDragTargetState) => void): (() => void) =>
+    subscribe('window:tab-drag-target', callback),
+  /** 同步当前编辑窗口打开的磁盘文件，供跨窗口常规打开去重 */
+  syncOpenFiles: (paths: string[]): Promise<boolean> =>
+    ipcRenderer.invoke('file:sync-open-paths', paths),
   /** 主进程要求所有编辑窗口在退出 / 安装前保存 */
   onPrepareExit: (callback: (request: ExitPreparationRequest) => void): (() => void) =>
     subscribe('app:prepare-exit', callback),

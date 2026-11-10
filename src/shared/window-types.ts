@@ -24,9 +24,20 @@ export interface TabTransferResult {
   mode: 'new' | 'existing'
 }
 
+export interface TabDropOptions {
+  /** 指针仍在源窗口内容区时强制新建窗口，避免命中源窗口背后的其他窗口 */
+  forceNew?: boolean
+}
+
 export interface EditorWindowSummary {
   id: string
   title: string
+}
+
+export interface TabDragTargetState {
+  active: boolean
+  tabName: string
+  sourceWindowId: string
 }
 
 export type ExitPreparationKind = 'quit' | 'install'

@@ -20,6 +20,13 @@ export interface WindowStateFile {
   lastFocusedWindowId?: string
 }
 
+export interface WorkArea {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
 const MIN_ZOOM_FACTOR = 0.5
 const MAX_ZOOM_FACTOR = 3
 
@@ -46,6 +53,29 @@ export function normalizeWindowState(value: unknown): WindowState | null {
   if (finiteNumber(state.x)) result.x = state.x
   if (finiteNumber(state.y)) result.y = state.y
   return result
+}
+
+/** 将新窗口按光标锚点居中放在指定显示器可用区域内 */
+export function placeWindowOnWorkArea(
+  workArea: WorkArea,
+  preferredWidth: number,
+  preferredHeight: number,
+  anchor: { x: number; y: number }
+): { width: number; height: number; x: number; y: number } {
+  const width = Math.min(preferredWidth, workArea.width)
+  const height = Math.min(preferredHeight, workArea.height)
+  return {
+    width,
+    height,
+    x: Math.min(
+      Math.max(Math.round(anchor.x - width / 2), workArea.x),
+      workArea.x + workArea.width - width
+    ),
+    y: Math.min(
+      Math.max(Math.round(anchor.y - height / 2), workArea.y),
+      workArea.y + workArea.height - height
+    )
+  }
 }
 
 /**

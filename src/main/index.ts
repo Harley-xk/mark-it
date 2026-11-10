@@ -13,7 +13,11 @@ import { isAppUrl, registerHandle, registerOn } from './ipc-guard'
 import { normalizeSessionTab, parseSessionData, parseSessionFile } from './session-store'
 import { capHistoryEntries, parseEditorHistoryFile } from './editor-history-store'
 import { closeSettingsWindow, isSettingsWindowSender, openSettingsWindow } from './settings-window'
-import { normalizeZoomFactor, parseWindowStateFile } from './window-state-store'
+import {
+  normalizeZoomFactor,
+  parseWindowStateFile,
+  placeWindowOnWorkArea
+} from './window-state-store'
 import type { WindowState, WindowStateFile } from './window-state-store'
 import type { SessionData, SessionFile, SessionTab } from '../shared/session-types'
 import type { EditorHistoryFile } from '../shared/history-types'
@@ -21,6 +25,7 @@ import type {
   EditorWindowContext as RendererWindowContext,
   EditorWindowSummary,
   ExitPreparationResult,
+  TabDragTargetState,
   TabTransferPayload,
   TabTransferResult
 } from '../shared/window-types'
@@ -81,6 +86,7 @@ interface EditorWindowContext {
   saveStateTimer: ReturnType<typeof setTimeout> | null
   pendingTransferId: string | null
   pendingIncomingTransfer: TabTransferPayload | null
+  openFilePaths: Set<string>
 }
 
 interface PendingTabTransfer {
@@ -98,6 +104,9 @@ const editorWindowIds = new Map<string, number>()
 const pendingTabTransfers = new Map<string, PendingTabTransfer>()
 let lastFocusedWindowId: string | null = null
 const preReadyFilePaths: string[] = []
+let activeTabDrag: { source: EditorWindowContext; tabName: string } | null = null
+let tabDragHighlightTimer: ReturnType<typeof setInterval> | null = null
+let highlightedTabDragWindowId: string | null = null
 
 const sessionWindows = new Map<string, SessionData>()
 let sessionFileData: SessionFile = { version: 2, windows: [] }
@@ -326,25 +335,44 @@ function queueFileForWindow(context: EditorWindowContext, filePath: string): voi
   if (!context.pendingFilePaths.includes(filePath)) context.pendingFilePaths.push(filePath)
 }
 
+function findEditorWindowForOpenPath(filePath: string): EditorWindowContext | null {
+  for (const context of editorWindows.values()) {
+    if (context.win.isDestroyed()) continue
+    if (Array.from(context.openFilePaths).some((openPath) => sameFilePath(openPath, filePath))) {
+      return context
+    }
+  }
+  return null
+}
+
+function deliverOpenFile(context: EditorWindowContext, filePath: string, content: string): void {
+  focusEditorWindow(context)
+  if (!context.rendererReady || context.win.isDestroyed()) {
+    queueFileForWindow(context, filePath)
+    return
+  }
+  context.win.webContents.send('open-file-from-argv', { path: filePath, content })
+}
+
 /**
  * 打开指定文件：读取内容并发送到指定编辑窗口。
  * 窗口注册好监听前先缓存在该窗口自己的队列，避免多窗口互相抢文件。
  */
 async function openFileAtPath(filePath: string, target?: EditorWindowContext): Promise<void> {
-  const context = target ?? getFocusedEditorWindow() ?? createEditorWindow()
-  if (!context) return
-  if (context.rendererReady === false || context.win.isDestroyed()) {
-    queueFileForWindow(context, filePath)
-    return
-  }
   try {
     const content = await readFile(filePath, 'utf-8')
+    const context =
+      findEditorWindowForOpenPath(filePath) ??
+      target ??
+      getFocusedEditorWindow() ??
+      createEditorWindow()
+    if (!context) return
     // 读取期间页面可能开始重载，此时发送会丢，重新排队等下一次 ready
     if (!editorWindows.get(context.webContentsId)?.rendererReady || context.win.isDestroyed()) {
       queueFileForWindow(context, filePath)
       return
     }
-    context.win.webContents.send('open-file-from-argv', { path: filePath, content })
+    deliverOpenFile(context, filePath, content)
   } catch (err) {
     console.error('Failed to open file from argv:', err)
   }
@@ -469,14 +497,36 @@ function isValidWindowBounds(state: WindowState): boolean {
   )
 }
 
-function resolveWindowState(windowId: string, source?: EditorWindowContext | null): WindowState {
+interface ScreenPoint {
+  x: number
+  y: number
+}
+
+function resolveWindowState(
+  windowId: string,
+  source?: EditorWindowContext | null,
+  anchorPoint?: ScreenPoint | null
+): WindowState {
   const saved = windowStateFileData.windows[windowId]
   if (saved && isValidWindowBounds(saved)) return { ...saved }
 
-  const display = source
-    ? screen.getDisplayMatching(source.win.getBounds())
-    : screen.getPrimaryDisplay()
+  const display = anchorPoint
+    ? screen.getDisplayNearestPoint(anchorPoint)
+    : source
+      ? screen.getDisplayMatching(source.win.getBounds())
+      : screen.getPrimaryDisplay()
   const workArea = display.workArea
+  if (anchorPoint) {
+    return {
+      ...DEFAULT_WINDOW_STATE,
+      ...placeWindowOnWorkArea(
+        workArea,
+        DEFAULT_WINDOW_STATE.width,
+        DEFAULT_WINDOW_STATE.height,
+        anchorPoint
+      )
+    }
+  }
   const width = Math.min(DEFAULT_WINDOW_STATE.width, workArea.width)
   const height = Math.min(DEFAULT_WINDOW_STATE.height, workArea.height)
   const offset = source ? 32 : 0
@@ -527,6 +577,7 @@ interface CreateEditorWindowOptions {
   source?: EditorWindowContext | null
   initialSession?: SessionData
   pendingTransfer?: TabTransferPayload | null
+  anchorPoint?: ScreenPoint | null
 }
 
 function createEditorWindow(options: CreateEditorWindowOptions = {}): EditorWindowContext | null {
@@ -534,7 +585,7 @@ function createEditorWindow(options: CreateEditorWindowOptions = {}): EditorWind
   let windowId = options.id ?? randomUUID()
   while (editorWindowIds.has(windowId)) windowId = randomUUID()
 
-  const windowState = resolveWindowState(windowId, options.source)
+  const windowState = resolveWindowState(windowId, options.source, options.anchorPoint)
   const win = new BrowserWindow({
     width: windowState.width,
     height: windowState.height,
@@ -582,7 +633,8 @@ function createEditorWindow(options: CreateEditorWindowOptions = {}): EditorWind
     allowClose: false,
     saveStateTimer: null,
     pendingTransferId: options.pendingTransfer?.transferId ?? null,
-    pendingIncomingTransfer: options.pendingTransfer ?? null
+    pendingIncomingTransfer: options.pendingTransfer ?? null,
+    openFilePaths: new Set()
   }
   editorWindows.set(context.webContentsId, context)
   editorWindowIds.set(windowId, context.webContentsId)
@@ -651,6 +703,9 @@ function createEditorWindow(options: CreateEditorWindowOptions = {}): EditorWind
     setWatchedFile(context, null)
     editorWindows.delete(senderId)
     editorWindowIds.delete(context.id)
+    if (activeTabDrag?.source.id === context.id || highlightedTabDragWindowId === context.id) {
+      clearTabDragHighlight()
+    }
 
     for (const [requestId, preparation] of pendingExitPreparations) {
       if (!preparation.pendingWebContents.delete(senderId)) continue
@@ -818,8 +873,10 @@ function createBlankSession(): SessionData {
   return { tabs: [tab], activeIndex: 0 }
 }
 
-function findEditorWindowAtCursor(source: EditorWindowContext): EditorWindowContext | null {
-  const point = screen.getCursorScreenPoint()
+function findEditorWindowAtCursor(
+  source: EditorWindowContext,
+  point = screen.getCursorScreenPoint()
+): EditorWindowContext | null {
   for (const context of editorWindows.values()) {
     if (context.id === source.id || context.win.isDestroyed()) continue
     if (!context.win.isVisible() || context.win.isMinimized()) continue
@@ -837,10 +894,57 @@ function findEditorWindowAtCursor(source: EditorWindowContext): EditorWindowCont
   return null
 }
 
+function broadcastTabDragTarget(state: TabDragTargetState): void {
+  for (const context of editorWindows.values()) {
+    if (!context.win.isDestroyed()) context.win.webContents.send('window:tab-drag-target', state)
+  }
+}
+
+function clearTabDragHighlight(): void {
+  if (tabDragHighlightTimer) clearInterval(tabDragHighlightTimer)
+  tabDragHighlightTimer = null
+  const hadHighlight = highlightedTabDragWindowId !== null
+  const sourceWindowId = activeTabDrag?.source.id ?? ''
+  const tabName = activeTabDrag?.tabName ?? ''
+  activeTabDrag = null
+  highlightedTabDragWindowId = null
+  if (hadHighlight) {
+    broadcastTabDragTarget({ active: false, tabName, sourceWindowId })
+  }
+}
+
+function updateTabDragHighlight(): void {
+  if (!activeTabDrag || activeTabDrag.source.win.isDestroyed()) {
+    clearTabDragHighlight()
+    return
+  }
+  const target = findEditorWindowAtCursor(activeTabDrag.source)
+  const nextWindowId = target?.id ?? null
+  if (nextWindowId === highlightedTabDragWindowId) return
+
+  highlightedTabDragWindowId = nextWindowId
+  for (const context of editorWindows.values()) {
+    if (context.win.isDestroyed()) continue
+    context.win.webContents.send('window:tab-drag-target', {
+      active: context.id === nextWindowId,
+      tabName: activeTabDrag.tabName,
+      sourceWindowId: activeTabDrag.source.id
+    })
+  }
+}
+
+function startTabDrag(source: EditorWindowContext, tabName: string): void {
+  clearTabDragHighlight()
+  activeTabDrag = { source, tabName: tabName.slice(0, 200) }
+  updateTabDragHighlight()
+  tabDragHighlightTimer = setInterval(updateTabDragHighlight, 60)
+}
+
 function startTabTransfer(
   source: EditorWindowContext,
   payload: TabTransferPayload,
-  target: EditorWindowContext | null
+  target: EditorWindowContext | null,
+  anchorPoint?: ScreenPoint | null
 ): Promise<TabTransferResult | null> {
   const createdTarget = !target
   const transferTarget =
@@ -848,7 +952,8 @@ function startTabTransfer(
     createEditorWindow({
       source,
       initialSession: { tabs: [payload.tab], activeIndex: 0 },
-      pendingTransfer: payload
+      pendingTransfer: payload,
+      anchorPoint
     })
   if (!transferTarget) return Promise.resolve(null)
   if (transferTarget.pendingTransferId && transferTarget.pendingTransferId !== payload.transferId) {
@@ -888,11 +993,18 @@ async function moveTabToNewWindow(
 
 async function moveTabToTargetWindow(
   source: EditorWindowContext,
-  payload: unknown
+  payload: unknown,
+  options?: unknown
 ): Promise<TabTransferResult | null> {
   const transfer = normalizeTabTransferPayload(payload)
   if (!transfer) return null
-  return startTabTransfer(source, transfer, findEditorWindowAtCursor(source))
+  const forceNew =
+    !!options &&
+    typeof options === 'object' &&
+    (options as { forceNew?: unknown }).forceNew === true
+  const point = screen.getCursorScreenPoint()
+  const target = forceNew ? null : findEditorWindowAtCursor(source, point)
+  return startTabTransfer(source, transfer, target, point)
 }
 
 async function moveTabToWindow(
@@ -991,7 +1103,13 @@ registerHandle('dialog:openFiles', async (event) => {
   const files: { path: string; content: string }[] = []
   for (const filePath of result.filePaths) {
     try {
-      files.push({ path: filePath, content: await readFile(filePath, 'utf-8') })
+      const content = await readFile(filePath, 'utf-8')
+      const owner = findEditorWindowForOpenPath(filePath)
+      if (owner) {
+        deliverOpenFile(owner, filePath, content)
+        continue
+      }
+      files.push({ path: filePath, content })
     } catch (err) {
       console.error('Failed to read file:', filePath, err)
     }
@@ -1025,6 +1143,17 @@ registerHandle('file:watch', (event, filePath: string | null) => {
   const context = getEditorWindowBySender(event.sender)
   if (!context) return false
   setWatchedFile(context, typeof filePath === 'string' && filePath.length > 0 ? filePath : null)
+  return true
+})
+
+registerHandle('file:sync-open-paths', (event, paths: unknown) => {
+  const context = getEditorWindowBySender(event.sender)
+  if (!context) return false
+  context.openFilePaths = new Set(
+    Array.isArray(paths)
+      ? paths.filter((path): path is string => typeof path === 'string' && !!path)
+      : []
+  )
   return true
 })
 
@@ -1284,10 +1413,10 @@ registerHandle('window:move-tab-to-new', (event, payload: unknown) => {
   if (!source) return null
   return moveTabToNewWindow(source, payload)
 })
-registerHandle('window:move-tab-to-target', (event, payload: unknown) => {
+registerHandle('window:move-tab-to-target', (event, payload: unknown, options: unknown) => {
   const source = getEditorWindowBySender(event.sender)
   if (!source) return null
-  return moveTabToTargetWindow(source, payload)
+  return moveTabToTargetWindow(source, payload, options)
 })
 registerHandle('window:move-tab-to-window', (event, payload: unknown, windowId: unknown) => {
   const source = getEditorWindowBySender(event.sender)
@@ -1334,9 +1463,14 @@ registerOn('window:reject-tab-transfer', (event, transferId: unknown) => {
   if (!transfer || transfer.targetWindowId !== context.id) return
   notifyTabTransferFailure(transferId)
 })
-registerHandle('window:get-cursor-screen', (event) => {
-  if (!isEditorWindowSender(event.sender)) return null
-  return screen.getCursorScreenPoint()
+registerOn('window:tab-drag-start', (event, tabName: unknown) => {
+  const source = getEditorWindowBySender(event.sender)
+  if (!source || typeof tabName !== 'string') return
+  startTabDrag(source, tabName)
+})
+registerOn('window:tab-drag-end', (event) => {
+  if (!getEditorWindowBySender(event.sender)) return
+  clearTabDragHighlight()
 })
 registerOn('app:prepare-exit-result', (event, payload: unknown) => {
   if (!isEditorWindowSender(event.sender)) return

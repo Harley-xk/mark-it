@@ -3,6 +3,7 @@ import { onUnmounted, watch } from 'vue'
 import AppLayout from './components/layout/AppLayout.vue'
 import ConfirmDialog from './components/common/ConfirmDialog.vue'
 import UpdateNotice from './components/update/UpdateNotice.vue'
+import TabDropOverlay from './components/layout/TabDropOverlay.vue'
 import { useOutline } from './composables/useOutline'
 import { useKeyboardShortcuts } from './composables/useKeyboardShortcuts'
 import { useScrollbarState } from './composables/useScrollbarState'
@@ -90,6 +91,7 @@ onUnmounted(() => {
     @cancel="resolveConfirm('cancel')"
   />
   <UpdateNotice />
+  <TabDropOverlay />
 </template>
 
 <style>

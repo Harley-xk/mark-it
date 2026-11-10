@@ -45,11 +45,21 @@ function revealActiveTab(): void {
 
 const dragTabId = ref<string | null>(null)
 const dropBefore = ref<number | null>(null)
+const dragGhost = ref<{ name: string; x: number; y: number } | null>(null)
 let dragging = false
 let suppressClickUntil = 0
 let autoScrollFrame: number | null = null
 let dragClientX = 0
-let dropHandled = false
+let pointerSession: {
+  docId: string
+  pointerId: number
+  startX: number
+  startY: number
+  element: HTMLElement
+} | null = null
+
+const TITLEBAR_HEIGHT = 36
+const DRAG_START_DISTANCE = 5
 
 const draggingIndex = computed(() =>
   dragTabId.value ? docs.docs.findIndex((doc) => doc.id === dragTabId.value) : -1
@@ -124,75 +134,122 @@ function updateAutoScroll(): void {
   }
 }
 
-function onDragStart(id: string, e: DragEvent): void {
-  const target = e.target as HTMLElement | null
-  // 从关闭按钮起手时拖动整个标签会误触，直接放弃本次拖拽
-  if (target?.closest('.tab-close')) {
-    e.preventDefault()
-    return
-  }
-  if (!e.dataTransfer) return
-
+function beginPointerDrag(session: NonNullable<typeof pointerSession>, e: PointerEvent): void {
+  const doc = docs.getDoc(session.docId)
+  if (!doc) return
   dragging = true
-  dropHandled = false
-  dragTabId.value = id
+  dragTabId.value = session.docId
   dropBefore.value = null
   dragClientX = e.clientX
-  e.dataTransfer.effectAllowed = 'move'
-  e.dataTransfer.setData('text/plain', id)
-
-  const el = e.currentTarget as HTMLElement
-  e.dataTransfer.setDragImage(el, 20, el.offsetHeight / 2)
+  dragGhost.value = { name: doc.name, x: e.clientX + 12, y: e.clientY + 12 }
+  window.api.startTabDrag(doc.name)
 }
 
-function onDragOver(e: DragEvent): void {
-  if (!dragTabId.value) return
-  e.preventDefault()
-  if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
-  dragClientX = e.clientX
-  updateDropBefore(e.clientX)
-  updateAutoScroll()
-}
-
-function resetDrag(): void {
+function resetPointerDrag(): void {
   dragging = false
   dragTabId.value = null
   dropBefore.value = null
+  dragGhost.value = null
+  pointerSession = null
   stopAutoScroll()
 }
 
-function onDrop(e: DragEvent): void {
-  if (!dragTabId.value) return
-  e.preventDefault()
-
-  const id = dragTabId.value
-  const before = dropBefore.value
-  dropHandled = true
-  resetDrag()
-  // 抑制拖拽结束后紧随其后的 click，避免把拖拽误判为激活标签
-  suppressClickUntil = Date.now() + 50
-  if (before === null) return
-
-  docs.moveDocument(id, before)
-  void nextTick(revealActiveTab)
+function pointerInTabStrip(e: PointerEvent): boolean {
+  const rect = scrollRef.value?.getBoundingClientRect()
+  return (
+    !!rect &&
+    e.clientX >= rect.left &&
+    e.clientX <= rect.right &&
+    e.clientY >= rect.top &&
+    e.clientY <= rect.bottom
+  )
 }
 
-async function onDragEnd(): Promise<void> {
-  const id = dragTabId.value
-  const wasDropped = dropHandled
-  resetDrag()
-  dropHandled = false
-  suppressClickUntil = Date.now() + 50
-  if (!id || wasDropped) return
+function onPointerDown(id: string, e: PointerEvent): void {
+  if (e.button !== 0) return
+  const target = e.target as HTMLElement | null
+  if (target?.closest('.tab-close')) return
 
-  const point = await window.api.getCursorScreenPoint()
-  if (!point) return
-  const inside =
-    point.x >= window.screenX &&
-    point.x <= window.screenX + window.outerWidth &&
-    point.y >= window.screenY &&
-    point.y <= window.screenY + window.outerHeight
-  if (!inside) await file.moveTabToTargetWindow(id)
+  const element = e.currentTarget as HTMLElement
+  element.setPointerCapture(e.pointerId)
+  pointerSession = {
+    docId: id,
+    pointerId: e.pointerId,
+    startX: e.clientX,
+    startY: e.clientY,
+    element
+  }
+}
+
+function onPointerMove(e: PointerEvent): void {
+  const session = pointerSession
+  if (!session || session.pointerId !== e.pointerId) return
+
+  if (!dragging) {
+    if (Math.hypot(e.clientX - session.startX, e.clientY - session.startY) < DRAG_START_DISTANCE) {
+      return
+    }
+    beginPointerDrag(session, e)
+  }
+  if (!dragging) return
+
+  e.preventDefault()
+  dragClientX = e.clientX
+  dragGhost.value = {
+    name: docs.getDoc(session.docId)?.name ?? '',
+    x: e.clientX + 12,
+    y: e.clientY + 12
+  }
+  if (pointerInTabStrip(e)) {
+    updateDropBefore(e.clientX)
+    updateAutoScroll()
+  } else {
+    dropBefore.value = null
+    stopAutoScroll()
+  }
+}
+
+function onPointerUp(e: PointerEvent): void {
+  const session = pointerSession
+  if (!session || session.pointerId !== e.pointerId) return
+  if (session.element.hasPointerCapture(e.pointerId)) {
+    session.element.releasePointerCapture(e.pointerId)
+  }
+
+  if (!dragging) {
+    resetPointerDrag()
+    return
+  }
+
+  e.preventDefault()
+  const id = session.docId
+  const before = dropBefore.value
+  const inTabStrip = pointerInTabStrip(e)
+  const insideWindow =
+    e.clientX >= 0 &&
+    e.clientX <= window.innerWidth &&
+    e.clientY >= 0 &&
+    e.clientY <= window.innerHeight
+  const forceNew = insideWindow && e.clientY > TITLEBAR_HEIGHT
+
+  window.api.endTabDrag()
+  resetPointerDrag()
+  suppressClickUntil = Date.now() + 80
+
+  if (inTabStrip && before !== null) {
+    docs.moveDocument(id, before)
+    void nextTick(revealActiveTab)
+    return
+  }
+  if (insideWindow && e.clientY <= TITLEBAR_HEIGHT) return
+  void file.moveTabToTargetWindow(id, { forceNew })
+}
+
+function onPointerCancel(e: PointerEvent): void {
+  const session = pointerSession
+  if (!session || session.pointerId !== e.pointerId) return
+  window.api.endTabDrag()
+  resetPointerDrag()
 }
 
 function onTabClick(id: string, e: MouseEvent): void {
@@ -318,6 +375,10 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  if (pointerSession) {
+    window.api.endTabDrag()
+    resetPointerDrag()
+  }
   document.removeEventListener('mousedown', onDocumentMousedown, true)
   document.removeEventListener('keydown', onDocumentKeydown)
   window.removeEventListener('blur', closeMenu)
@@ -327,7 +388,7 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="tab-bar">
-    <div ref="scrollRef" class="tab-scroll" @wheel="onWheel" @dragover="onDragOver" @drop="onDrop">
+    <div ref="scrollRef" class="tab-scroll" @wheel="onWheel">
       <div
         v-for="(doc, index) in docs.docs"
         :key="doc.id"
@@ -341,22 +402,17 @@ onBeforeUnmount(() => {
         }"
         :title="doc.path || doc.name"
         :data-doc-id="doc.id"
-        draggable="true"
         @click="onTabClick(doc.id, $event)"
-        @dragstart="onDragStart(doc.id, $event)"
-        @dragend="onDragEnd"
+        @pointerdown="onPointerDown(doc.id, $event)"
+        @pointermove="onPointerMove"
+        @pointerup="onPointerUp"
+        @pointercancel="onPointerCancel"
         @mousedown="onMiddleClick(doc.id, $event)"
         @contextmenu="openContextMenu(doc.id, $event)"
       >
         <span class="tab-name">{{ doc.name }}</span>
         <span v-if="doc.isModified" class="tab-dot" title="未保存"></span>
-        <button
-          class="tab-close"
-          draggable="false"
-          title="关闭标签页 (Ctrl+W)"
-          @dragstart.stop.prevent
-          @click.stop="file.closeTab(doc.id)"
-        >
+        <button class="tab-close" title="关闭标签页 (Ctrl+W)" @click.stop="file.closeTab(doc.id)">
           <svg
             width="12"
             height="12"
@@ -372,13 +428,7 @@ onBeforeUnmount(() => {
         </button>
       </div>
 
-      <button
-        class="tab-new"
-        draggable="false"
-        title="新建 (Ctrl+N)"
-        @dragstart.stop.prevent
-        @click="file.newFile()"
-      >
+      <button class="tab-new" title="新建 (Ctrl+N)" @click="file.newFile()">
         <svg
           width="14"
           height="14"
@@ -397,6 +447,16 @@ onBeforeUnmount(() => {
     <!-- 标签右侧留白用于拖动窗口 -->
     <div class="drag-space"></div>
   </div>
+
+  <Teleport to="body">
+    <div
+      v-if="dragGhost"
+      class="tab-drag-ghost"
+      :style="{ left: `${dragGhost.x}px`, top: `${dragGhost.y}px` }"
+    >
+      <span>{{ dragGhost.name }}</span>
+    </div>
+  </Teleport>
 
   <!-- 右键菜单挂到 body：标题栏处于可拖动区域，菜单需要独立定位 -->
   <Teleport to="body">
@@ -514,6 +574,7 @@ onBeforeUnmount(() => {
   color: rgba(255, 255, 255, 0.5);
   font-size: 12px;
   cursor: default;
+  touch-action: none;
   -webkit-app-region: no-drag;
   transition:
     background 0.12s ease,
@@ -628,6 +689,38 @@ onBeforeUnmount(() => {
 .tab-new:hover {
   background: rgba(255, 255, 255, 0.08);
   color: rgba(255, 255, 255, 0.9);
+}
+
+.tab-drag-ghost {
+  position: fixed;
+  z-index: 3500;
+  display: flex;
+  align-items: center;
+  max-width: 220px;
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid rgba(108, 155, 255, 0.36);
+  border-radius: 8px;
+  background: rgba(30, 38, 56, 0.94);
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.32);
+  pointer-events: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tab-drag-ghost span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+:global(.light) .tab-drag-ghost {
+  border-color: rgba(59, 130, 246, 0.28);
+  background: rgba(255, 255, 255, 0.96);
+  color: #253047;
+  box-shadow: 0 8px 24px rgba(48, 60, 86, 0.16);
 }
 
 /* ── 标签右键菜单 ── */

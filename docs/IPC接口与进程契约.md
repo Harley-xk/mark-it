@@ -59,10 +59,10 @@
 
 | 方向                                  | 数量   | 说明                                                             |
 | ------------------------------------- | ------ | ---------------------------------------------------------------- |
-| renderer → main `invoke`（请求-响应） | 36     | 文件 4、对话框 3、窗口 12、系统 1、会话 2、历史 2、导出 1、更新 8、集成 3 |
-| renderer → main `send`（单向）        | 5      | 就绪、更新窗口关闭、迁移确认 / 拒绝、退出协调结果                |
-| main → renderer `send`（事件推送）    | 10     | 见 3.8                                                           |
-| **合计**                              | **51** | 全部经 `window.api` 白名单暴露                                   |
+| renderer → main `invoke`（请求-响应） | 36     | 文件 5、对话框 3、窗口 11、系统 1、会话 2、历史 2、导出 1、更新 8、集成 3 |
+| renderer → main `send`（单向）        | 7      | 就绪、窗口关闭、迁移确认 / 拒绝、拖拽开始 / 结束、退出协调       |
+| main → renderer `send`（事件推送）    | 11     | 见 3.8                                                           |
+| **合计**                              | **54** | 全部经 `window.api` 白名单暴露                                   |
 
 > 计数口径：按 `registerHandle` / `registerOn` / `webContents.send` 中实际出现的通道名去重统计。`window:zoom-changed` 在两个位置发送但只算一个通道。
 
@@ -78,6 +78,7 @@
 | `file:read`   | R→M invoke | `readFile(path)`          | `path: string`                    | `Promise<{ path: string; content: string } \| null>`             | [`src/main/index.ts:530`](../src/main/index.ts) | 读取失败只记录 `console.error` 并返回 `null`，不抛给渲染进程                             |
 | `file:watch`  | R→M invoke | `watchFile(path)`         | `path: string \| null`            | `Promise<boolean>`（恒为 `true`）                                | [`src/main/index.ts:541`](../src/main/index.ts) | **只监视当前活跃标签的文件**；传 `null` 或空串取消监视；内部用 `fs.watchFile` 400ms 轮询 |
 | `file:reveal` | R→M invoke | `showItemInFolder(path)`  | `path: string`                    | `Promise<boolean>`                                               | [`src/main/index.ts:547`](../src/main/index.ts) | 文件存在则 `shell.showItemInFolder`；文件已删除则打开父目录；父目录也不存在返回 `false`  |
+| `file:sync-open-paths` | R→M invoke | `syncOpenFiles(paths)` | `paths: string[]` | `Promise<boolean>` | [`src/main/index.ts`](../src/main/index.ts) | 按编辑窗口同步当前打开文件索引；仅用于常规打开去重与窗口路由，不缓存内容 |
 
 ### 3.2 对话框
 
@@ -94,13 +95,14 @@
 | `window:get-context`      | R→M invoke | `getWindowContext()`    | 无                                     | `Promise<EditorWindowContext \| null>` | [`src/main/index.ts`](../src/main/index.ts) | 返回当前编辑窗口稳定 ID 与待确认 `pendingTransferId`；只接受编辑窗口                                      |
 | `window:create`           | R→M invoke | `createWindow()`        | 无                                     | `Promise<boolean>` | [`src/main/index.ts`](../src/main/index.ts) | 从调用窗口附近创建新的空白编辑窗口；只接受编辑窗口                                                        |
 | `window:move-tab-to-new`  | R→M invoke | `moveTabToNewWindow(payload)` | `TabTransferPayload`              | `Promise<TabTransferResult \| null>` | [`src/main/index.ts`](../src/main/index.ts) | 校验 `SessionTab` 后写入目标窗口切片并创建窗口；源窗口等待确认                                          |
-| `window:move-tab-to-target` | R→M invoke | `moveTabToTargetWindow(payload)` | `TabTransferPayload` | `Promise<TabTransferResult \| null>` | [`src/main/index.ts`](../src/main/index.ts) | 按当前屏幕指针命中其他编辑窗口；未命中时新建窗口                                                      |
+| `window:move-tab-to-target` | R→M invoke | `moveTabToTargetWindow(payload, options?)` | `TabTransferPayload`, `TabDropOptions?` | `Promise<TabTransferResult \| null>` | [`src/main/index.ts`](../src/main/index.ts) | 按屏幕指针命中其他窗口；`forceNew` 跳过命中，并在光标所在显示器新建窗口                                |
 | `window:move-tab-to-window` | R→M invoke | `moveTabToWindow(payload, id)` | `TabTransferPayload`, `windowId: string` | `Promise<TabTransferResult \| null>` | [`src/main/index.ts`](../src/main/index.ts) | 显式迁入指定编辑窗口                                                                                  |
 | `window:list`             | R→M invoke | `listEditorWindows()`   | 无                                     | `Promise<EditorWindowSummary[]>` | [`src/main/index.ts`](../src/main/index.ts) | 返回其他编辑窗口，供右键迁移菜单使用                                                                      |
 | `window:take-pending-transfer` | R→M invoke | `takePendingTabTransfer()` | 无                             | `Promise<TabTransferPayload \| null>` | [`src/main/index.ts`](../src/main/index.ts) | 新目标窗口读取启动阶段的迁移载荷与编辑历史                                                              |
 | `window:ack-tab-transfer` | R→M send | `ackTabTransfer(id)` | `transferId: string` | 无 | [`src/main/index.ts`](../src/main/index.ts) | 目标窗口接收成功后解析源端等待中的迁移 invoke                                                          |
 | `window:reject-tab-transfer` | R→M send | `rejectTabTransfer(id)` | `transferId: string` | 无 | [`src/main/index.ts`](../src/main/index.ts) | 目标拒绝迁移（例如同一路径已打开），源标签保持                                                     |
-| `window:get-cursor-screen`| R→M invoke | `getCursorScreenPoint()`| 无                                     | `Promise<{ x: number; y: number } \| null>` | [`src/main/index.ts`](../src/main/index.ts) | 标签拖出时判断释放位置；只接受编辑窗口                                                                    |
+| `window:tab-drag-start` | R→M send | `startTabDrag(name)` | `tabName: string` | 无 | [`src/main/index.ts`](../src/main/index.ts) | 开始拖拽；主进程轮询光标并广播目标窗口高亮                                                              |
+| `window:tab-drag-end` | R→M send | `endTabDrag()` | 无 | 无 | [`src/main/index.ts`](../src/main/index.ts) | 结束拖拽并清除所有目标高亮                                                                                |
 | `window:close`            | R→M invoke | `close(quit?)`          | `quit?: boolean`（兼容保留）          | `Promise<boolean>` | [`src/main/index.ts`](../src/main/index.ts) | 只置发送方窗口 `allowClose = true` 并关闭该窗口；调用前必须已完成未保存内容确认                            |
 | `window:is-fullscreen`    | R→M invoke | `isFullscreen()`        | 无                                     | `Promise<boolean>` | [`src/main/index.ts`](../src/main/index.ts) | 返回发送方窗口的全屏状态；只接受编辑窗口                                                                  |
 | `window:get-zoom`         | R→M invoke | `getZoom()`             | 无                                     | `Promise<number>`  | [`src/main/index.ts`](../src/main/index.ts) | 返回发送方窗口上下文的缩放比例（1 = 100%）                                                              |
@@ -166,6 +168,7 @@
 | `cursor-pos`             | M→R send | `onCursorPos(cb)`             | `{ x: number; y: number }`（页面坐标） | 每 300ms 轮询一次，窗口不可见时跳过           | [`src/main/index.ts:739`](../src/main/index.ts)                                 | 用于滚动条悬停状态自愈（标题栏拖拽区不派发鼠标事件）                                                |
 | `update:state`           | M→R send | `update.onState(cb)`          | `UpdateState`                          | 更新状态任意变化                              | [`src/main/updater.ts`](../src/main/updater.ts)                                 | **广播给所有窗口**（所有编辑窗口 + 更新窗口 + 设置窗口）                                            |
 | `window:receive-tab-transfer`  | M→R send | `onReceiveTabTransfer(cb)`  | `TabTransferPayload`                   | 已有编辑窗口接收实时标签迁移                  | [`src/main/index.ts`](../src/main/index.ts)                                     | 目标插入成功后通过 `window:ack-tab-transfer` 确认                                                    |
+| `window:tab-drag-target`       | M→R send | `onTabDragTarget(cb)`       | `TabDragTargetState`                    | 跨窗口拖拽光标命中目标窗口 / 离开              | [`src/main/index.ts`](../src/main/index.ts)                                     | 只有命中窗口 `active=true`；覆盖层只做视觉提示，`pointer-events: none`                               |
 | `app:prepare-exit`             | M→R send | `onPrepareExit(cb)`         | `ExitPreparationRequest`               | 应用退出 / 安装更新前                         | [`src/main/index.ts`](../src/main/index.ts)                                     | 发送给所有已就绪编辑窗口；每个窗口保存后回报                                                        |
 | `app:prepare-exit-result`      | R→M send | `completePrepareExit(id, ok)` | `{ requestId: string; ok: boolean }` | 单个编辑窗口完成保存协调                      | [`src/main/index.ts`](../src/main/index.ts)                                     | 任一 `ok=false` 即中止退出 / 安装                                                                   |
 
@@ -197,6 +200,8 @@
 | `transferId` | `string` | 单次迁移 ID，由源窗口生成 |
 | `tab` | `SessionTab` | 文档内容、路径、光标、布局与滚动位置 |
 | `editorStateJson?` | `unknown` | CodeMirror `EditorState` JSON，含 `historyField`；源端与主进程均限制为 4 MiB，超限时省略 |
+
+`TabDropOptions.forceNew`：指针仍在源窗口内容区但已离开标题栏时设为 `true`，跳过“命中背后其他窗口”并强制在光标所在显示器创建新窗口。
 
 **UpdateState**（[`src/shared/update-types.ts`](../src/shared/update-types.ts)）：
 
