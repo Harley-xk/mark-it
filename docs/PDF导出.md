@@ -62,11 +62,11 @@ interface PdfExportOptions {
 4. `showToc` 为真时用 `parseHeadings(body)` 生成目录（`renderToc`），目录项链接到 `#heading-N`；
 5. `showFrontmatter` 为真且文档含 frontmatter 时，用 `renderFrontmatterTable(entries)` 生成「文档信息」表格 HTML；
 6. `md.render(body)` 渲染正文，按「目录 → frontmatter 表格（可选）→ 正文」拼接；
-7. `renderMermaidToSvg(htmlBody)`：把 HTML 放进临时的 `div`，用 `collectMermaidBlocks` 找出 Mermaid 代码块，逐块 `mermaid.render` 后用居中的 `div` 替换 `<pre>`；
+7. `renderDiagramsToSvg(htmlBody)`：把 HTML 放进临时的 `div`，用 `collectMermaidBlocks` 找出图表代码块，逐块调用共享 `renderDiagramSvg()`。渲染器优先 Pele，失败后回退 Mermaid 12 + ELK，再用居中的 `div` 替换 `<pre>`；
 8. 套入内联的 HTML 模板（`<!DOCTYPE html>` + `<style>` + `<body>`），所有 CSS 内联，不引用外部资源；
 9. `window.api.exportPdf(html, options)` → preload `invoke('export:pdf')`。
 
-PDF 侧的 Mermaid 初始化参数固定为 `startOnLoad: false`、`theme: 'default'`、`securityLevel: 'loose'`、`htmlLabels: false`，并且**每次导出都会重新 `initialize`**（与预览按主题缓存初始化不同）。单块渲染失败时保留代码块并追加可见提示（见 6.2）。
+PDF 固定使用浅色 `DiagramThemeTokens`，并把同一组 token 映射到 Pele CSS 变量或 Mermaid `themeVariables`。共享渲染器负责等待字体、首选 Pele、失败回退 Mermaid 和串行化 Mermaid 全局状态。单块渲染失败时保留代码块并追加可见提示（见 6.2）。
 
 ### 3.2 主进程（export:pdf）
 
@@ -142,8 +142,9 @@ sequenceDiagram
 | frontmatter      | `parseFrontmatter` + `renderFrontmatterTable`，渲染为「文档信息」表格                                | 同左；默认输出，可由导出选项关闭                    | 一致（PDF 可关闭）                  |
 | 本地图片         | `installLocalImageRule` + `resolveImageSrc`，相对路径转 `markit-file://local/?p=<绝对路径>`          | 同左                                                | 一致                                |
 | Mermaid 识别     | `collectMermaidBlocks` / 白名单                                                                      | 同左，复用同一模块                                  | 一致                                |
-| Mermaid 主题     | 跟随深/浅色（`dark` / `default`）                                                                    | 固定 `default`（浅色）                              | 不一致（PDF 恒为浅色）              |
-| Mermaid 失败     | 保留代码块 + `mermaid-error` 提示                                                                    | 保留代码块 + `.mermaid-error` 提示并记录日志        | 一致（提示样式不同）                |
+| 图表渲染器       | `renderDiagramSvg()`：Pele 首选、Mermaid 回退                                                         | 同一模块                                            | 一致                                |
+| 图表主题         | 跟随深 / 浅 token                                                                                    | 固定浅色 token                                      | 颜色体系一致，PDF 恒为浅色          |
+| 图表失败         | 保留代码块 + `mermaid-error` 提示                                                                    | 保留代码块 + `.mermaid-error` 提示并记录日志        | 一致（提示样式不同）                |
 | 标题锚点         | `installHeadingAnchors` 注入 `heading-0..N`                                                          | 同左                                                | 一致                                |
 | 目录             | 无（由左侧大纲面板承担）                                                                             | `parseHeadings` 生成目录 HTML                       | PDF 独有                            |
 | 链接处理         | `handlePreviewLinkClick` 分流：外链走 `shell:openExternal`，本地文件在资源管理器中定位，其余协议忽略 | 无任何点击拦截，`href` 原样输出                     | 不一致                              |
@@ -199,9 +200,9 @@ PDF 中链接的具体行为：markdown-it 输出的 `<a href>` 原样保留，�
 - 产品决定：保持独立打印样式，避免深色背景在纸张上不可读；界面已在导出对话框中固定提示，README / 文档同步说明。
 - 若将来改为「所见即所得」，需要为每套深色预览样式准备浅色打印映射，不能直接注入深色 CSS。
 
-### 6.2 Mermaid 单块失败可见降级
+### 6.2 图表单块失败可见降级
 
-- 事实：`renderMermaidToSvg` 内单块 `mermaid.render` 失败时，`console.error` 记录错误，保留原始代码块并追加 `.mermaid-error` 提示（内容为 `formatMermaidError` 的一行原因）；动态导入或初始化失败也会记录日志。
+- 事实：`renderDiagramsToSvg` 内单块图表渲染失败时，`console.error` 记录错误，保留原始代码块并追加 `.mermaid-error` 提示（内容为 `formatMermaidError` 的一行原因）。Pele 失败会先记录 `warn` 并自动回退 Mermaid；两者都失败才进入可见降级。
 - 结果：语法错误的图表在 PDF 中仍可识别为代码块，并在下方显示「图表渲染失败：原因」，同时控制台有完整错误对象。
 
 ### 6.3 等待字体与布局稳定
@@ -262,7 +263,7 @@ PDF 涉及隐藏窗口、系统保存对话框与打印引擎，仍以手工验�
 | ------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
 | [src/shared/pdf-types.ts](../src/shared/pdf-types.ts)                                                               | `PdfExportOptions` 等跨进程共享类型                              |
 | [src/renderer/src/components/export/PdfExportDialog.vue](../src/renderer/src/components/export/PdfExportDialog.vue) | 导出选项对话框（纸张 / 边距 / 页码 / 目录 / 文档信息）与加载态  |
-| [src/renderer/src/composables/usePdfExport.ts](../src/renderer/src/composables/usePdfExport.ts)                     | PDF 渲染管线、目录生成、Mermaid 转 SVG、内联打印 CSS 模板        |
+| [src/renderer/src/composables/usePdfExport.ts](../src/renderer/src/composables/usePdfExport.ts)                     | PDF 渲染管线、目录生成、共享图表渲染、内联打印 CSS 模板          |
 | [src/renderer/src/utils/headings.ts](../src/renderer/src/utils/headings.ts)                                         | 标题解析与 `heading-N` 锚点（预览 / 大纲 / PDF 共用）            |
 | [src/renderer/src/components/layout/AppLayout.vue](../src/renderer/src/components/layout/AppLayout.vue)             | 对话框挂载、`exporting` 绑定与 `exportPdf` 调用、异常兜底        |
 | [src/renderer/src/components/layout/Toolbar.vue](../src/renderer/src/components/layout/Toolbar.vue)                 | 工具栏导出入口                                                   |
@@ -275,4 +276,7 @@ PDF 涉及隐藏窗口、系统保存对话框与打印引擎，仍以手工验�
 | [src/renderer/src/utils/pdf-name.ts](../src/renderer/src/utils/pdf-name.ts)                                         | 按当前文档名派生非空 PDF 默认文件名（含单元测试）                |
 | [src/renderer/src/utils/local-image.ts](../src/renderer/src/utils/local-image.ts)                                   | 本地图片路径解析与 `markit-file://` 改写（预览、PDF 共用）       |
 | [src/renderer/src/utils/mermaid.ts](../src/renderer/src/utils/mermaid.ts)                                           | Mermaid 代码块识别（PDF 复用同一白名单）                         |
+| [src/renderer/src/utils/diagram-theme.ts](../src/renderer/src/utils/diagram-theme.ts)                               | 图表深浅 token、Mermaid 配置与 Pele CSS 变量                     |
+| [src/renderer/src/utils/diagram-renderer.ts](../src/renderer/src/utils/diagram-renderer.ts)                         | Pele 首选、Mermaid 回退与串行化渲染                              |
 | [docs/Mermaid图表与导出.md](Mermaid图表与导出.md)                                                                   | 图表识别、交互与导出细节                                         |
+| [docs/图表渲染升级方案.md](图表渲染升级方案.md)                                                                     | Pele + Mermaid 双渲染架构、主题与后续阶段设计                    |

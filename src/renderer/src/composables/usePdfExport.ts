@@ -3,6 +3,8 @@ import { useEditorStore } from '../stores/editor'
 import { useDocumentsStore } from '../stores/documents'
 import { useAppStore } from '../stores/app'
 import { collectMermaidBlocks, formatMermaidError } from '../utils/mermaid'
+import { buildPeleThemeVariables, getDiagramTheme } from '../utils/diagram-theme'
+import { renderDiagramSvg } from '../utils/diagram-renderer'
 import { parseFrontmatter, renderFrontmatterTable } from '../utils/frontmatter'
 import { installLocalImageRule } from '../utils/local-image'
 import { installHeadingAnchors, parseHeadings, type ParsedHeading } from '../utils/headings'
@@ -83,47 +85,48 @@ export function usePdfExport(): UsePdfExport {
   // 与预览一致：相对路径图片按当前文档目录解析
   installLocalImageRule(md, () => documents.activeDoc?.path)
 
-  async function renderMermaidToSvg(html: string): Promise<string> {
+  async function renderDiagramsToSvg(html: string): Promise<string> {
     const container = document.createElement('div')
     container.innerHTML = html
     const blocks = collectMermaidBlocks(container)
     if (blocks.length === 0) return html
 
-    try {
-      const mermaid = (await import('mermaid')).default
-      mermaid.initialize({
-        startOnLoad: false,
-        theme: 'default',
-        securityLevel: 'loose',
-        // 与预览一致：标签用 SVG <text>，避免 foreignObject 在 PDF 中显示异常
-        htmlLabels: false
-      })
+    await document.fonts.ready
+    const theme = getDiagramTheme(false)
+    const fontFamily = "-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif"
+    const themeVariables = buildPeleThemeVariables(theme, fontFamily)
 
-      for (const block of blocks) {
-        const parent = block.parentElement
-        if (!parent || parent.tagName !== 'PRE') continue
+    for (const block of blocks) {
+      const parent = block.parentElement
+      if (!parent || parent.tagName !== 'PRE') continue
 
-        const id = `mermaid-pdf-${Math.random().toString(36).slice(2, 9)}`
-        const code = block.textContent || ''
-        try {
-          const { svg } = await mermaid.render(id, code)
-          const div = document.createElement('div')
-          div.className = 'mermaid-container'
-          div.innerHTML = svg
-          parent.replaceWith(div)
-        } catch (err) {
-          // 单块失败：保留原始代码块，并追加可见提示，避免用户不知道图为何丢失
-          console.error('Failed to render Mermaid in PDF:', err)
-          const notice = document.createElement('div')
-          notice.className = 'mermaid-error'
-          notice.textContent = `图表渲染失败：${formatMermaidError(err)}`
-          parent.classList.add('mermaid-error-source')
-          parent.after(notice)
+      const id = `mermaid-pdf-${Math.random().toString(36).slice(2, 9)}`
+      const code = block.textContent || ''
+      try {
+        const result = await renderDiagramSvg(code, {
+          diagramId: id,
+          theme,
+          fontFamily,
+          fontSize: 16
+        })
+        const div = document.createElement('div')
+        div.className = 'mermaid-container'
+        div.dataset.diagramEngine = result.engine
+        div.style.background = theme.background
+        for (const [name, value] of Object.entries(themeVariables)) {
+          div.style.setProperty(name, value)
         }
+        div.innerHTML = result.svg
+        parent.replaceWith(div)
+      } catch (err) {
+        // 单块失败：保留原始代码块，并追加可见提示，避免用户不知道图为何丢失
+        console.error('Failed to render diagram in PDF:', err)
+        const notice = document.createElement('div')
+        notice.className = 'mermaid-error'
+        notice.textContent = `图表渲染失败：${formatMermaidError(err)}`
+        parent.classList.add('mermaid-error-source')
+        parent.after(notice)
       }
-    } catch (err) {
-      // 动态导入或初始化失败：所有图表退化为代码块，同时保留日志便于排查
-      console.error('Failed to initialize Mermaid for PDF:', err)
     }
 
     return container.innerHTML
@@ -144,7 +147,7 @@ export function usePdfExport(): UsePdfExport {
         options.showFrontmatter && entries.length > 0 ? renderFrontmatterTable(entries) : ''
       const toc = options.showToc ? renderToc(parseHeadings(body)) : ''
       let htmlBody = toc + frontmatter + md.render(body)
-      htmlBody = await renderMermaidToSvg(htmlBody)
+      htmlBody = await renderDiagramsToSvg(htmlBody)
 
       const html = `<!DOCTYPE html>
 <html>

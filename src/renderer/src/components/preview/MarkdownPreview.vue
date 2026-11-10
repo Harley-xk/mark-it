@@ -9,6 +9,12 @@ import { useScrollSync } from '../../composables/useScrollSync'
 import { registerScrollCapture } from '../../composables/session-scroll'
 import { usePreviewTableResize } from '../../composables/usePreviewTableResize'
 import { collectMermaidBlocks, formatMermaidError, getMermaidLanguage } from '../../utils/mermaid'
+import {
+  buildPeleThemeVariables,
+  getDiagramTheme,
+  type DiagramThemeTokens
+} from '../../utils/diagram-theme'
+import { renderDiagramSvg, type DiagramEngine } from '../../utils/diagram-renderer'
 import { parseFrontmatter, renderFrontmatterTable } from '../../utils/frontmatter'
 import { saveDiagram, serializeSvg } from '../../utils/diagram-export'
 import { installLocalImageRule, resolveImageSrc, resolveLocalPath } from '../../utils/local-image'
@@ -27,11 +33,10 @@ const search = useSearchStore()
 const { suspendSync, registerPreview, unregisterPreview } = useScrollSync()
 const previewRef = ref<HTMLDivElement>()
 const { apply: applyTableWidths } = usePreviewTableResize(previewRef)
-let mermaidInitialized = false
-let currentMermaidTheme: string | null = null
 let unregisterScrollCapture: (() => void) | null = null
 
 const isDark = computed(() => appStore.resolvedTheme === 'dark')
+const diagramTheme = computed(() => getDiagramTheme(isDark.value))
 const currentCss = computed(() => styleStore.currentCss(isDark.value))
 
 const contentStyle = computed(() => ({
@@ -136,7 +141,7 @@ function openDiagramPreview(svgEl: SVGSVGElement): void {
     svgXml: xml,
     width,
     height,
-    background: isDark.value ? '#1e1e24' : '#ffffff'
+    background: diagramTheme.value.background
   }
   diagramModalVisible.value = true
 }
@@ -145,9 +150,20 @@ function openDiagramPreview(svgEl: SVGSVGElement): void {
  * 包装 mermaid 输出的 SVG：增加缩放 / 预览 / 下载控件。
  * 缩放通过 CSS zoom 实现，容器滚动即可查看超出范围的部分。
  */
-function createDiagramView(svgText: string, background: string): HTMLElement {
+function createDiagramView(
+  svgText: string,
+  source: string,
+  language: string,
+  theme: DiagramThemeTokens,
+  fontFamily: string,
+  engine: DiagramEngine
+): HTMLElement {
   const wrapper = document.createElement('div')
   wrapper.classList.add('mermaid-diagram')
+  wrapper.dataset.diagramEngine = engine
+  wrapper.dataset.diagramSource = source
+  wrapper.dataset.diagramLanguage = language
+  wrapper.style.background = theme.background
 
   const toolbar = document.createElement('div')
   toolbar.classList.add('mermaid-toolbar')
@@ -167,6 +183,10 @@ function createDiagramView(svgText: string, background: string): HTMLElement {
   let naturalHeight = 0
   const svgEl = canvas.querySelector('svg')
   if (svgEl) {
+    // Pele 通过 CSS 变量换肤；变量写到 SVG 根节点，下载 SVG / PNG 时颜色才不会丢失
+    for (const [name, value] of Object.entries(buildPeleThemeVariables(theme, fontFamily))) {
+      svgEl.style.setProperty(name, value)
+    }
     const viewBox = svgEl
       .getAttribute('viewBox')
       ?.trim()
@@ -198,20 +218,12 @@ function createDiagramView(svgText: string, background: string): HTMLElement {
     zoomLabel.textContent = `${Math.round(scale * 100)}%`
   }
 
-  /** viewport 的 max-height（px）；未设置时视为不限高 */
-  function viewportMaxHeight(): number {
-    if (!viewport.isConnected) return Infinity
-    const raw = Number.parseFloat(getComputedStyle(viewport).maxHeight)
-    return Number.isFinite(raw) ? raw : Infinity
-  }
-
-  /** 完整放入视口所需的缩放比例；只缩小不放大 */
+  /** 完整放入视口宽度所需的缩放比例；只缩小不放大 */
   function fitScale(): number {
     if (naturalWidth <= 0 || naturalHeight <= 0) return 1
     const availableWidth = viewport.clientWidth - FIT_GUTTER
     if (availableWidth <= 0) return 1
-    const availableHeight = viewportMaxHeight() - FIT_GUTTER
-    return Math.min(1, availableWidth / naturalWidth, availableHeight / naturalHeight)
+    return Math.min(1, availableWidth / naturalWidth)
   }
 
   /**
@@ -272,7 +284,7 @@ function createDiagramView(svgText: string, background: string): HTMLElement {
     const svgEl = currentSvg()
     if (!svgEl) return
     try {
-      await saveDiagram(svgEl, extension, background)
+      await saveDiagram(svgEl, extension, theme.background)
     } catch (err) {
       console.error('Failed to export diagram:', err)
     }
@@ -363,50 +375,71 @@ function resolveHtmlImages(): void {
   }
 }
 
-async function renderMermaid(): Promise<void> {
+async function renderDiagrams(): Promise<void> {
   if (!previewRef.value) return
   // 旧图表会随预览内容一起被替换，先停止观察它们
   clearViewportObservers()
+
+  const theme = diagramTheme.value
+  const content = previewContentEl()
+  const fontFamily = content
+    ? getComputedStyle(content).fontFamily
+    : '-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif'
+
+  // 主题切换时代码块已被替换成图表，需要按保存的源码重绘现有图表
+  const rendered = previewRef.value.querySelectorAll<HTMLElement>(
+    '.mermaid-diagram[data-diagram-source]'
+  )
+  for (const wrapper of rendered) {
+    const source = wrapper.dataset.diagramSource ?? ''
+    const language = wrapper.dataset.diagramLanguage ?? 'mermaid'
+    try {
+      const result = await renderDiagramSvg(source, {
+        diagramId: `mermaid-${Math.random().toString(36).slice(2, 9)}`,
+        theme,
+        fontFamily,
+        fontSize: 16
+      })
+      wrapper.replaceWith(
+        createDiagramView(result.svg, source, language, theme, fontFamily, result.engine)
+      )
+    } catch (err) {
+      const notice = document.createElement('div')
+      notice.classList.add('mermaid-error')
+      notice.textContent = `图表重新渲染失败（${language}）：${formatMermaidError(err)}`
+      notice.title = err instanceof Error ? err.message : String(err)
+      wrapper.insertAdjacentElement('afterend', notice)
+    }
+  }
+
   const blocks = collectMermaidBlocks(previewRef.value)
   if (blocks.length === 0) return
 
-  try {
-    const mermaid = (await import('mermaid')).default
-    const theme = appStore.resolvedTheme === 'dark' ? 'dark' : 'default'
-    if (!mermaidInitialized || currentMermaidTheme !== theme) {
-      mermaid.initialize({
-        startOnLoad: false,
-        theme: theme,
-        securityLevel: 'loose',
-        // 标签使用 SVG <text> 而非 foreignObject：既能下载为 PNG，导出的 SVG 也更通用
-        htmlLabels: false
+  for (const block of blocks) {
+    const parent = block.parentElement
+    if (!parent || parent.tagName !== 'PRE') continue
+
+    const id = `mermaid-${Math.random().toString(36).slice(2, 9)}`
+    const code = block.textContent || ''
+    const language = getMermaidLanguage(block) ?? 'mermaid'
+    try {
+      const result = await renderDiagramSvg(code, {
+        diagramId: id,
+        theme,
+        fontFamily,
+        fontSize: 16
       })
-      mermaidInitialized = true
-      currentMermaidTheme = theme
+      parent.replaceWith(
+        createDiagramView(result.svg, code, language, theme, fontFamily, result.engine)
+      )
+    } catch (err) {
+      // 渲染失败时保留原始代码块，仅在下方追加提示，方便直接修改语法
+      const notice = document.createElement('div')
+      notice.classList.add('mermaid-error')
+      notice.textContent = `图表渲染失败（${language}）：${formatMermaidError(err)}`
+      notice.title = err instanceof Error ? err.message : String(err)
+      parent.insertAdjacentElement('afterend', notice)
     }
-
-    for (const block of blocks) {
-      const parent = block.parentElement
-      if (!parent || parent.tagName !== 'PRE') continue
-
-      const id = `mermaid-${Math.random().toString(36).slice(2, 9)}`
-      const code = block.textContent || ''
-      try {
-        const { svg } = await mermaid.render(id, code)
-        const background = isDark.value ? '#1e1e24' : '#ffffff'
-        parent.replaceWith(createDiagramView(svg, background))
-      } catch (err) {
-        // 渲染失败时保留原始代码块，仅在下方追加提示，方便直接修改语法
-        const notice = document.createElement('div')
-        notice.classList.add('mermaid-error')
-        const language = getMermaidLanguage(block) ?? 'mermaid'
-        notice.textContent = `图表渲染失败（${language}）：${formatMermaidError(err)}`
-        notice.title = err instanceof Error ? err.message : String(err)
-        parent.insertAdjacentElement('afterend', notice)
-      }
-    }
-  } catch {
-    // mermaid not available
   }
 }
 
@@ -423,17 +456,22 @@ async function scheduleRender(): Promise<void> {
       if (token !== renderToken) return
       resolveHtmlImages()
       applyTableWidths()
-      await renderMermaid()
+      await renderDiagrams()
       // Mermaid / 图片 / 表格列宽渲染完成后 DOM 已稳定，重新收集搜索范围
       applyPreviewSearch(false)
     })
     .catch((err) => {
-      console.error('Mermaid render failed:', err)
+      console.error('Diagram render failed:', err)
     })
   await renderChain
 }
 
 watch(renderedHtml, () => {
+  void scheduleRender()
+})
+
+// 主题或预览样式变化后，图表颜色与测量尺寸都可能变化，需要按当前主题重新渲染
+watch([isDark, currentCss], () => {
   void scheduleRender()
 })
 

@@ -201,7 +201,6 @@ body {
   /* 图比容器窄时由 canvas 的 auto 外边距居中；超出时自动回落到左对齐，
      保证左侧内容可以滚动到（flex 的 justify-content: center 会裁掉左半部分） */
   justify-content: flex-start;
-  max-height: 70vh;
   overflow: auto;
 }
 
