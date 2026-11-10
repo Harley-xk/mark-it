@@ -48,17 +48,18 @@
 - [`src/shared/update-types.ts`](../src/shared/update-types.ts)：`UpdateStatus`、`UpdateProgress`、`UpdateState`
 - [`src/shared/file-types.ts`](../src/shared/file-types.ts)：`FileReadResult`
 - [`src/shared/pdf-types.ts`](../src/shared/pdf-types.ts)：`PdfExportOptions`、`PdfPageSize`、`PdfMargin`
+- [`src/shared/integration-types.ts`](../src/shared/integration-types.ts)：`VSCodeVariant`、`VSCodeInstallation`、`IntegrationResult`、`VSCodeIntegrationConfig`
 
 不得在 `src/shared` 中引入 `electron`、`node:*`、Vue、Pinia 等运行时依赖。
 
 ## 2. 通道总览
 
-| 方向                                  | 数量   | 说明                                                                             |
-| ------------------------------------- | ------ | -------------------------------------------------------------------------------- |
-| renderer → main `invoke`（请求-响应） | 21     | 文件 4、对话框 3、窗口 4、系统 1（`shell:openExternal`）、会话 2、导出 1、更新 6 |
-| renderer → main `send`（单向）        | 2      | `renderer:ready`、`update:close-window`                                          |
-| main → renderer `send`（事件推送）    | 9      | 见 3.7                                                                           |
-| **合计**                              | **32** | 全部经 `window.api` 白名单暴露                                                   |
+| 方向                                  | 数量   | 说明                                                             |
+| ------------------------------------- | ------ | ---------------------------------------------------------------- |
+| renderer → main `invoke`（请求-响应） | 24     | 文件 4、对话框 3、窗口 4、系统 1、会话 2、导出 1、更新 6、集成 3 |
+| renderer → main `send`（单向）        | 2      | `renderer:ready`、`update:close-window`                          |
+| main → renderer `send`（事件推送）    | 9      | 见 3.7                                                           |
+| **合计**                              | **35** | 全部经 `window.api` 白名单暴露                                   |
 
 > 计数口径：按 `registerHandle` / `registerOn` / `webContents.send` 中实际出现的通道名去重统计。`window:zoom-changed` 在两个位置发送但只算一个通道。
 
@@ -119,11 +120,19 @@
 | `update:close-window`     | R→M send   | `update.closeWindow()`     | 无        | 无返回值               | [`src/main/updater.ts:473`](../src/main/updater.ts) | 只关闭 `event.sender` 所在窗口，**主窗口调用会被忽略**（防止绕过关闭守卫）；用 `send` 避免 `invoke` 的回复随窗口销毁丢失                                  |
 | `update:request-install`  | R→M invoke | `update.requestInstall()`  | 无        | `Promise<boolean>`     | [`src/main/updater.ts:479`](../src/main/updater.ts) | **只接受更新窗口调用**；仅 `downloaded` 状态生效，向主窗口推送 `update:install-request`                                                                   |
 
-### 3.7 事件推送（main → renderer）
+### 3.7 VSCode 编辑器集成
+
+| 通道名                         | 方向       | preload 方法                     | 参数               | 返回值                          | 主进程处理位置                                               | 备注                                                                   |
+| ------------------------------ | ---------- | -------------------------------- | ------------------ | ------------------------------- | ------------------------------------------------------------ | ---------------------------------------------------------------------- |
+| `integration:detect-vscode`    | R→M invoke | `integration.detectVSCode()`     | 无                 | `Promise<VSCodeInstallation[]>` | [`vscode-integration.ts`](../src/main/vscode-integration.ts) | 每次调用重新扫描；不持久化布尔状态；**仅接受主窗口调用**               |
+| `integration:install-vscode`   | R→M invoke | `integration.installVSCode(v)`   | `v: VSCodeVariant` | `Promise<IntegrationResult>`    | [`vscode-integration.ts`](../src/main/vscode-integration.ts) | 只接受 `stable` / `insiders`；扩展目录由主进程推断，渲染进程不能传路径 |
+| `integration:uninstall-vscode` | R→M invoke | `integration.uninstallVSCode(v)` | `v: VSCodeVariant` | `Promise<IntegrationResult>`    | [`vscode-integration.ts`](../src/main/vscode-integration.ts) | 只删除固定 `harley-xk.markit-open-*` 目录；**仅接受主窗口调用**        |
+
+### 3.8 事件推送（main → renderer）
 
 | 通道名                   | 方向     | preload 方法                  | 载荷                                   | 触发时机                                      | 发送位置                                                                        | 备注                                                                                                |
 | ------------------------ | -------- | ----------------------------- | -------------------------------------- | --------------------------------------------- | ------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| `open-file-from-argv`    | M→R send | `onOpenFile(cb)`              | `{ path: string; content: string }`    | 启动命令行参数 / 二次启动转发                 | [`src/main/index.ts:211`](../src/main/index.ts)                                 | 渲染进程未就绪时先排队                                                                              |
+| `open-file-from-argv`    | M→R send | `onOpenFile(cb)`              | `{ path: string; content: string }`    | 启动命令行参数 / 二次启动 / macOS `open-file` | [`src/main/index.ts:211`](../src/main/index.ts)                                 | 渲染进程未就绪时先排队；VSCode 扩展与 Finder 共用同一队列                                           |
 | `renderer:ready`         | R→M send | `onOpenFile` 内部自动发送     | 无                                     | 渲染进程首次注册 `open-file-from-argv` 监听后 | [`src/main/index.ts`](../src/main/index.ts)                                     | 每个页面只发送一次（preload 模块级标志），主进程置 `rendererReady = true` 并放行 `pendingFilePaths` |
 | `file:external-change`   | M→R send | `onExternalFileChange(cb)`    | `{ path: string; content: string }`    | 监视文件内容真实变化                          | [`src/main/index.ts:255`](../src/main/index.ts)                                 | 只在内容与 `watchedContent` 不同时发送；**返回取消监听函数**                                        |
 | `window:zoom-changed`    | M→R send | `onZoomChange(cb)`            | `number`（缩放比例）                   | 应用缩放、页面加载完成恢复缩放                | [`src/main/index.ts:160`](../src/main/index.ts)、[`:437`](../src/main/index.ts) | 页面重载会重置缩放，`did-finish-load` 后重发                                                        |
@@ -244,6 +253,7 @@
 - 主进程用 `rendererReady` 标记渲染进程是否已注册 `open-file-from-argv` 监听；不能用 `webContents.isLoading()` 判断（`did-finish-load` 触发时它仍可能为 `true`）。
 - `did-start-loading` 时重置 `rendererReady = false`，页面重载后重新等待 `renderer:ready`。
 - 渲染进程还有一个独立队列：会话恢复完成前收到的命令行文件先缓存，恢复完成后再打开，避免被 `restoreSession` 整体替换掉。
+- macOS 必须在 `app.whenReady()` 之前注册 `open-file`，将 Finder / LaunchServices 投递的路径放入同一队列；首个路径或首窗未就绪时也不得丢弃。
 
 ### 5.8 IPC 调用来源校验
 
@@ -416,6 +426,8 @@ sequenceDiagram
 | 文件                                                                                                  | 职责                                                                                        |
 | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
 | [`src/main/index.ts`](../src/main/index.ts)                                                           | 窗口生命周期、文件读写与监视、`markit-file` 协议、PDF 导出、窗口 / 文件 / 会话 / 对话框 IPC |
+| [`src/main/vscode-integration.ts`](../src/main/vscode-integration.ts)                                 | VSCode 检测、扩展安装 / 卸载、启动配置同步与安全路径校验                                    |
+| [`src/shared/integration-types.ts`](../src/shared/integration-types.ts)                               | VSCode 集成共享纯类型                                                                       |
 | [`src/main/updater.ts`](../src/main/updater.ts)                                                       | `electron-updater` 初始化、`update:*` 通道、状态广播、更新详情窗口                          |
 | [`src/preload/index.ts`](../src/preload/index.ts)                                                     | `window.api` 白名单与所有 `ipcRenderer` 调用                                                |
 | [`src/preload/index.d.ts`](../src/preload/index.d.ts)                                                 | `Window.api: ExposedAPI` 类型声明                                                           |

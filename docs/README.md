@@ -34,6 +34,7 @@ flowchart TD
     TABORDER["标签拖拽排序.md"]
     UPDATE["自动更新.md"]
     CHANNEL["发版通道.md"]
+    VSCODE["VSCode资源管理器集成.md"]
   end
 
   subgraph 工程与交付
@@ -48,7 +49,6 @@ flowchart TD
   subgraph PLANNED["计划功能（未实施）"]
     MULTI["计划功能/多窗口改造评估与待定事项.md"]
     ROLLBACK["计划功能/Beta版本回退方案.md"]
-    VSCODE["计划功能/VSCode资源管理器集成.md"]
   end
 
   IDX --> ARCH
@@ -68,6 +68,7 @@ flowchart TD
   MERMAID --> PDF
   SESSION --> UPDATE
   UPDATE --> CHANNEL
+  VSCODE --> FILE
   DEV --> QA
   DEV --> BUILD
   BUILD --> INSTALLER
@@ -132,9 +133,9 @@ flowchart TD
 
 1. [Beta 版本回退到正式版方案](./计划功能/Beta版本回退方案.md) —— Beta 用户主动回退的可行性、状态机、IPC 契约、规则边界与测试计划
 
-### 2.9 规划 VSCode 集成
+### 2.9 修改 VSCode 资源管理器集成
 
-1. [VSCode 资源管理器集成](./计划功能/VSCode资源管理器集成.md) —— 右键用 MarkIt 打开方案、VSCode 检测、扩展安装与卸载、IPC 契约与安全边界
+1. [VSCode 资源管理器集成](./VSCode资源管理器集成.md) —— 右键用 MarkIt 打开、VSCode 检测、扩展安装与卸载、IPC 契约与安全边界
 
 ### 2.10 修改搜索与替换
 
@@ -159,7 +160,7 @@ flowchart TD
 | [标签拖拽排序](./标签拖拽排序.md)                                  | 标签排序交互、插入位置计算、store 变更、顺序持久化与测试                    | 前端开发者                       |
 | [多窗口改造评估与待定事项](./计划功能/多窗口改造评估与待定事项.md) | 多窗口目标架构、会话 v2、拖出协议、同步适配、未决事项与建议（计划功能）     | 维护者、评审者                   |
 | [Beta 版本回退到正式版方案](./计划功能/Beta版本回退方案.md)        | Beta 用户主动回退的可行性、状态机、IPC 契约、规则边界与测试计划（计划功能） | 维护者、更新相关开发者           |
-| [VSCode 资源管理器集成](./计划功能/VSCode资源管理器集成.md)        | VSCode 检测、右键打开方案、扩展安装与卸载、IPC 契约与安全边界（计划功能）   | 维护者、主进程 / 设置相关开发者  |
+| [VSCode 资源管理器集成](./VSCode资源管理器集成.md)                 | VSCode 检测、右键打开、扩展安装与卸载、IPC 契约与安全边界                   | 维护者、主进程 / 设置相关开发者  |
 | [PDF 导出](./PDF导出.md)                                           | 导出对话框、自包含 HTML、打印流程、限制与改进建议                           | 导出开发者                       |
 | [自动更新](./自动更新.md)                                          | 更新状态机、apphub 通道、双通道检测、强制更新、双窗口安装协作               | 更新相关开发者                   |
 | [发版通道与 Beta 更新](./发版通道.md)                              | 双通道模型、严格单序列版本规则、发版节点记录、客户端 Beta 开关              | 维护者、更新相关开发者           |

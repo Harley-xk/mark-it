@@ -5,6 +5,7 @@ import { MAX_CUSTOM_STYLE_CHARS, useStyleStore } from '../../stores/style'
 import { useUpdateStore } from '../../stores/update'
 import { saveAllBeforeExit } from '../../composables/useExitGuard'
 import type { ThemeMode } from '../../types'
+import VSCodeIntegration from './VSCodeIntegration.vue'
 
 const app = useAppStore()
 const styleStore = useStyleStore()
@@ -273,6 +274,9 @@ function removeStyle(id: string): void {
               <span class="width-value">{{ app.previewWidth }} px</span>
             </div>
           </div>
+
+          <!-- Editor Integration -->
+          <VSCodeIntegration :is-dark="isDark()" />
 
           <!-- Update Channel -->
           <div class="setting-section">

@@ -3,6 +3,11 @@ import type { UpdateState } from '../shared/update-types'
 import type { SessionData } from '../shared/session-types'
 import type { FileReadResult } from '../shared/file-types'
 import type { PdfExportOptions } from '../shared/pdf-types'
+import type {
+  IntegrationResult,
+  VSCodeInstallation,
+  VSCodeVariant
+} from '../shared/integration-types'
 
 /** 订阅主进程事件并返回注销函数，避免 HMR / 重复挂载时监听累积 */
 function subscribe<T>(channel: string, callback: (payload: T) => void): () => void {
@@ -95,6 +100,15 @@ const api = {
   session: {
     load: (): Promise<SessionData | null> => ipcRenderer.invoke('session:load'),
     save: (data: SessionData): Promise<boolean> => ipcRenderer.invoke('session:save', data)
+  },
+  /** VSCode 编辑器集成：检测、安装与卸载；路径始终由主进程推断 */
+  integration: {
+    detectVSCode: (): Promise<VSCodeInstallation[]> =>
+      ipcRenderer.invoke('integration:detect-vscode'),
+    installVSCode: (variant: VSCodeVariant): Promise<IntegrationResult> =>
+      ipcRenderer.invoke('integration:install-vscode', variant),
+    uninstallVSCode: (variant: VSCodeVariant): Promise<IntegrationResult> =>
+      ipcRenderer.invoke('integration:uninstall-vscode', variant)
   },
   /** 自动更新：读取状态 / 检测 / 下载 / 安装 / 更新窗口 / 订阅状态变化 */
   update: {

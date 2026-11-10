@@ -1,7 +1,7 @@
 # VSCode 资源管理器集成
 
-> 文档定位：记录「在 VSCode 资源管理器右键用 MarkIt 打开 Markdown 文件」的方案设计、三平台差异、接口契约、边界与实施计划。
-> **当前状态：仅完成方案设计，代码尚未实施。** 本文按计划功能体例编写，落地前需按 [rules/base.md](../../rules/base.md) 第 4 节确认未决事项，实施时改写为正式功能文档并移回 `docs/`。
+> 文档定位：记录「在 VSCode 资源管理器右键用 MarkIt 打开 Markdown 文件」的功能设计、三平台差异、接口契约、安全边界与验证方式。
+> **当前状态：首期功能已实现，Windows 未打包产物完成安装、卸载、重装与设置页验证；macOS / Linux 待对应平台产物验证。** 本文为正式功能文档；实现与本文不一致时，先更新本文再调整代码。
 > 相关能力：系统文件关联与命令行传参见 [文件与冲突处理](../文件与冲突处理.md)。
 
 ## 1. 结论
@@ -146,6 +146,7 @@ interface VSCodeInstallation {
 resources/vscode-extension/
 ├── package.json      # 扩展清单：贡献命令、菜单、when 条件
 ├── extension.js      # 激活逻辑：启动 MarkIt 并传入文件路径
+├── icon.png          # 与应用统一的 MarkIt 图标
 └── markit-path.json  # 安装时写入的 exe 路径兜底快照（构建产物中不存在）
 ```
 
@@ -157,7 +158,8 @@ resources/vscode-extension/
   "displayName": "打开 MarkIt",
   "description": "在资源管理器右键使用 MarkIt 打开 Markdown 文件",
   "publisher": "harley-xk",
-  "version": "1.0.0",
+  "version": "1.5.0",
+  "icon": "icon.png",
   "engines": { "vscode": "^1.85.0" },
   "main": "./extension.js",
   "activationEvents": ["onCommand:markit.openFile"],
@@ -377,19 +379,19 @@ interface IntegrationResult {
 7. Linux 启动只指向 MarkIt 自身可执行文件（`APPIMAGE` 需校验存在且可执行，否则回退安装目录），不经过 Snap / Flatpak 的间接执行；
 8. 渲染进程仍然不能 `import 'electron'`，全部能力经 preload 白名单暴露。
 
-## 10. 未决事项
+## 10. 首期决策
 
-| 事项                         | 选项                                       | 建议                                     |
-| ---------------------------- | ------------------------------------------ | ---------------------------------------- |
-| 安装方式                     | 目录复制 / vsix + CLI                      | 首期目录复制；CLI 作为后续增强           |
-| 扩展版本策略                 | 跟随应用版本 / 独立版本                    | 跟随应用版本，写入 `install.json`        |
-| 卸载 MarkIt 时清理           | 不处理 / Windows NSIS + macOS / Linux 脚本 | 后续补齐，首期不做                       |
-| 协议解耦                     | 配置路径 / 注册 `markit://` 协议           | 首期配置路径；协议方案列入长期可选项     |
-| 便携版 VSCode                | 不支持 / 扫描便携数据目录                  | 首期不支持，按需求再评估                 |
-| Flatpak 版 VSCode            | 禁用 / `flatpak-spawn --host`              | 首期禁用，后续按需求评估沙箱放行方式     |
-| macOS 启动策略               | `open -a` + `open-file` / 直接 exec        | 已定 `open -a`，实施时实测聚焦与多选时序 |
-| Linux 多发行方式并存         | 只装优先级最高的目录 / 全部安装            | 首期单目录（按 4.1 优先级），后续可扩展  |
-| 菜单是否也加到编辑器标签右键 | 仅资源管理器 / 资源管理器 + 编辑器标签     | 首期仅资源管理器，避免菜单冗余           |
+| 事项                         | 选项                                       | 首期决策                             |
+| ---------------------------- | ------------------------------------------ | ------------------------------------ |
+| 安装方式                     | 目录复制 / vsix + CLI                      | 目录复制；CLI 作为后续增强           |
+| 扩展版本策略                 | 跟随应用版本 / 独立版本                    | 跟随应用版本，写入 `install.json`    |
+| 卸载 MarkIt 时清理           | 不处理 / Windows NSIS + macOS / Linux 脚本 | 后续补齐，首期不自动清理             |
+| 协议解耦                     | 配置路径 / 注册 `markit://` 协议           | 配置路径；协议方案列入长期可选项     |
+| 便携版 VSCode                | 不支持 / 扫描便携数据目录                  | 不支持，按需求再评估                 |
+| Flatpak 版 VSCode            | 禁用 / `flatpak-spawn --host`              | 禁用，后续按需求评估沙箱放行方式     |
+| macOS 启动策略               | `open -a` + `open-file` / 直接 exec        | `open -a`，同步接入 `open-file` 队列 |
+| Linux 多发行方式并存         | 只装优先级最高的目录 / 全部安装            | 单目录（按 4.1 优先级），后续可扩展  |
+| 菜单是否也加到编辑器标签右键 | 仅资源管理器 / 资源管理器 + 编辑器标签     | 仅资源管理器，避免菜单冗余           |
 
 ## 11. 测试计划
 
@@ -435,14 +437,14 @@ interface IntegrationResult {
 
 e2e 不适合覆盖（依赖本机 VSCode 安装），不加入 Playwright 用例。
 
-## 12. 实施步骤
+## 12. 实施记录
 
-1. 确认第 10 节未决事项，将本文改写为正式功能文档并移回 `docs/`；
-2. 新增 `src/shared/integration-types.ts`，同步 IPC 契约文档；
-3. 新增 `src/main/vscode-integration.ts`：平台路径推断纯函数（PATH 扫描、扩展目录优先级、Flatpak 识别）、`APPIMAGE` / `exePath` 解析、复制安装、卸载、配置写入；
-4. 主进程新增 `open-file` 监听（`app.whenReady()` 之前注册），接入现有待打开队列；
-5. 主进程 IPC 注册 + preload 暴露 + `index.d.ts` 类型声明（三处同步）；
-6. 新增 `resources/vscode-extension/` 扩展源码，按 `launchStrategy` 分支启动；
-7. 新增设置页组件与状态展示，更新 [welcome.md](../../src/renderer/src/assets/welcome.md)；
-8. 补 `vscode-integration.spec.ts`（含三平台路径推断），执行 `npm run lint`、`npm run typecheck`、`npm test`；
-9. Windows 用 `npm run build:unpack` 的 `dist/win-unpacked/Mark It.exe` 走完第 11.2 节；macOS / Linux 分别在对应产物上验证同一矩阵，Flatpak 版 VSCode 仅验证禁用状态。
+1. 已确认第 10 节首期决策，并将本文转为正式功能文档；
+2. 已新增 `src/shared/integration-types.ts` 并同步 IPC 契约；
+3. 已新增 `src/main/vscode-integration.ts`，覆盖三平台候选路径、扩展目录优先级、Flatpak / translocation 边界、受管目录替换与启动配置同步；
+4. 已在 `app.whenReady()` 之前注册 macOS `open-file`，与命令行、二次启动共用待打开队列；
+5. 已完成主进程 IPC、preload 白名单与自动派生类型三处同步；
+6. 已新增 `resources/vscode-extension/`，命令按 `launchStrategy` 分支启动，扩展图标复用应用 `resources/icon.png`；
+7. 已新增设置页「编辑器集成」区块并更新内置用户手册；
+8. 已补三平台检测、版本选择、安全目录名与启动配置单元测试；
+9. Windows 未打包产物已实际完成 VSCode 检测、安装、卸载、重装及浅色 / 深色设置页检查；macOS / Linux 仍需在对应平台走完第 11.2 节。

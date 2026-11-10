@@ -11,6 +11,14 @@ import type { PdfExportOptions } from '../shared/pdf-types'
 import { initAutoUpdater } from './updater'
 import { isAppUrl, registerHandle, registerOn } from './ipc-guard'
 import { parseSessionData } from './session-store'
+import {
+  createIntegrationRuntime,
+  detectVSCodeInstallations,
+  installVSCodeExtension,
+  uninstallVSCodeExtension,
+  writeVSCodeIntegrationConfig
+} from './vscode-integration'
+import type { IntegrationRuntime } from './vscode-integration'
 
 /**
  * 开发模式使用独立的 userData 目录，避免与已安装的正式版共用单实例锁、
@@ -88,6 +96,7 @@ function normalizeZoomFactor(value: number): number {
 const windowStateFile = join(app.getPath('userData'), 'window-state.json')
 /** 上次打开的标签页（含未保存内容），更新重启后据此恢复文档 */
 const sessionFile = join(app.getPath('userData'), 'session.json')
+const vscodeIntegrationConfigFile = join(app.getPath('userData'), 'vscode-integration.json')
 const defaultWindowState: WindowState = {
   width: 1280,
   height: 800,
@@ -233,6 +242,37 @@ async function openFilesAtPaths(filePaths: string[]): Promise<void> {
   for (const filePath of filePaths) {
     await openFileAtPath(filePath)
   }
+}
+
+/**
+ * macOS Finder / VSCode LaunchServices 通过 open-file 投递路径。
+ * 监听必须在 app.whenReady() 之前注册，否则首个文件可能被系统丢弃。
+ */
+app.on('open-file', (event, filePath) => {
+  event.preventDefault()
+  if (!/\.(?:md|markdown)$/i.test(filePath)) return
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (mainWindow.isMinimized()) mainWindow.restore()
+    mainWindow.focus()
+  }
+  void openFilesAtPaths([filePath])
+})
+
+/** VSCode 集成运行时由主进程构造，渲染进程只能传 variant */
+function getVSCodeIntegrationRuntime(): IntegrationRuntime {
+  return createIntegrationRuntime({
+    platform: process.platform,
+    env: process.env,
+    userDataDir: dirname(vscodeIntegrationConfigFile),
+    appVersion: app.getVersion(),
+    isPackaged: app.isPackaged,
+    execPath: process.execPath,
+    extensionSourcePaths: [
+      join(process.resourcesPath, 'app.asar.unpacked', 'resources', 'vscode-extension'),
+      join(app.getAppPath(), 'resources', 'vscode-extension'),
+      join(process.cwd(), 'resources', 'vscode-extension')
+    ]
+  })
 }
 
 // --- 活跃文件监视 ---
@@ -614,6 +654,31 @@ registerHandle('session:save', async (_e, data: unknown) => {
   }
 })
 
+registerHandle('integration:detect-vscode', async (event) => {
+  if (!isMainWindowSender(event)) return []
+  return detectVSCodeInstallations({ runtime: getVSCodeIntegrationRuntime() })
+})
+
+registerHandle('integration:install-vscode', async (event, variant: unknown) => {
+  if (!isMainWindowSender(event)) {
+    return { ok: false, error: '不允许的调用来源', needsRestart: false }
+  }
+  if (variant !== 'stable' && variant !== 'insiders') {
+    return { ok: false, error: '不支持的 VSCode 类型', needsRestart: false }
+  }
+  return installVSCodeExtension(variant, { runtime: getVSCodeIntegrationRuntime() })
+})
+
+registerHandle('integration:uninstall-vscode', async (event, variant: unknown) => {
+  if (!isMainWindowSender(event)) {
+    return { ok: false, error: '不允许的调用来源', needsRestart: false }
+  }
+  if (variant !== 'stable' && variant !== 'insiders') {
+    return { ok: false, error: '不支持的 VSCode 类型', needsRestart: false }
+  }
+  return uninstallVSCodeExtension(variant, { runtime: getVSCodeIntegrationRuntime() })
+})
+
 /** 只选择另存为路径，不写盘；渲染进程确认目标未被其他标签占用后再调用 file:save */
 registerHandle('dialog:savePath', async (_e, defaultFileName?: string) => {
   const result = await dialog.showSaveDialog(mainWindow!, {
@@ -772,13 +837,11 @@ if (!gotTheLock) {
   // 第二次启动时，把命令行参数中的文件路径发给已有实例
   app.on('second-instance', (_e, argv) => {
     const filePaths = extractFilePaths(argv)
-    if (mainWindow) {
+    if (mainWindow && !mainWindow.isDestroyed()) {
       if (mainWindow.isMinimized()) mainWindow.restore()
       mainWindow.focus()
-      if (filePaths.length > 0) {
-        openFilesAtPaths(filePaths)
-      }
     }
+    if (filePaths.length > 0) void openFilesAtPaths(filePaths)
   })
 
   app.whenReady().then(() => {
@@ -804,6 +867,10 @@ if (!gotTheLock) {
     })
 
     createWindow()
+
+    void writeVSCodeIntegrationConfig(getVSCodeIntegrationRuntime()).catch((error) => {
+      console.warn('Failed to update VSCode integration config:', error)
+    })
 
     // 自动更新：安装前放行关闭守卫（窗口 close 事件默认会被拦截）
     initAutoUpdater({

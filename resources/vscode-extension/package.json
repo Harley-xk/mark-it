@@ -1,0 +1,36 @@
+{
+  "name": "markit-open",
+  "displayName": "打开 MarkIt",
+  "description": "在资源管理器右键使用 MarkIt 打开 Markdown 文件",
+  "publisher": "harley-xk",
+  "version": "1.5.0",
+  "icon": "icon.png",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onCommand:markit.openFile"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "markit.openFile",
+        "title": "使用 MarkIt 打开",
+        "category": "MarkIt"
+      }
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "markit.openFile",
+          "when": "resourceScheme == 'file' && resourceExtname =~ /^\\.(md|markdown)$/",
+          "group": "navigation"
+        }
+      ]
+    }
+  }
+}
