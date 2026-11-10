@@ -877,6 +877,15 @@ function findEditorWindowAtCursor(
   source: EditorWindowContext,
   point = screen.getCursorScreenPoint()
 ): EditorWindowContext | null {
+  const sourceBounds = source.win.getBounds()
+  if (
+    point.x >= sourceBounds.x &&
+    point.x < sourceBounds.x + sourceBounds.width &&
+    point.y >= sourceBounds.y &&
+    point.y < sourceBounds.y + sourceBounds.height
+  ) {
+    return null
+  }
   for (const context of editorWindows.values()) {
     if (context.id === source.id || context.win.isDestroyed()) continue
     if (!context.win.isVisible() || context.win.isMinimized()) continue

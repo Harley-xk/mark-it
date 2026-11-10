@@ -354,3 +354,45 @@ test('标签离开标题栏后释放即可创建新窗口', async () => {
     rmSync(userDataDir, { recursive: true, force: true })
   }
 })
+
+test('标题栏下缘吸附区内的轻微下移仍只执行标签排序', async () => {
+  test.skip(!existsSync(appEntry), '请先执行 npm run build 生成 out/main/index.js')
+
+  const workDir = mkdtempSync(join(tmpdir(), 'markit-e2e-titlebar-snap-'))
+  const userDataDir = mkdtempSync(join(tmpdir(), 'markit-e2e-titlebar-snap-user-'))
+  const firstPath = join(workDir, 'snap-first.md')
+  const secondPath = join(workDir, 'snap-second.md')
+  writeFileSync(firstPath, '# 吸附第一个\n', 'utf-8')
+  writeFileSync(secondPath, '# 吸附第二个\n', 'utf-8')
+
+  const app = await electron.launch({
+    args: ['.', `--user-data-dir=${userDataDir}`, firstPath, secondPath],
+    cwd: projectRoot,
+    env: getLaunchEnv()
+  })
+
+  try {
+    const window = await app.firstWindow()
+    const firstTab = window.locator('.tab', { hasText: 'snap-first.md' })
+    const secondTab = window.locator('.tab', { hasText: 'snap-second.md' })
+    const firstBox = await firstTab.boundingBox()
+    const secondBox = await secondTab.boundingBox()
+    if (!firstBox || !secondBox) throw new Error('标签未完成布局')
+
+    await window.mouse.move(firstBox.x + firstBox.width / 2, firstBox.y + firstBox.height / 2)
+    await window.mouse.down()
+    await window.mouse.move(secondBox.x + secondBox.width / 2 + 20, 50, { steps: 8 })
+    await window.mouse.up()
+
+    await expect
+      .poll(async () =>
+        (await window.locator('.tab-name').allTextContents()).map((name) => name.trim())
+      )
+      .toEqual(['snap-second.md', 'snap-first.md'])
+    await expect.poll(() => app.windows().length).toBe(1)
+  } finally {
+    await app.close()
+    rmSync(workDir, { recursive: true, force: true })
+    rmSync(userDataDir, { recursive: true, force: true })
+  }
+})

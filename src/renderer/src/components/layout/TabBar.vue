@@ -59,6 +59,7 @@ let pointerSession: {
 } | null = null
 
 const TITLEBAR_HEIGHT = 36
+const TITLEBAR_SNAP_DISTANCE = 28
 const DRAG_START_DISTANCE = 5
 
 const draggingIndex = computed(() =>
@@ -161,7 +162,7 @@ function pointerInTabStrip(e: PointerEvent): boolean {
     e.clientX >= rect.left &&
     e.clientX <= rect.right &&
     e.clientY >= rect.top &&
-    e.clientY <= rect.bottom
+    e.clientY <= rect.bottom + TITLEBAR_SNAP_DISTANCE
   )
 }
 
@@ -195,12 +196,14 @@ function onPointerMove(e: PointerEvent): void {
 
   e.preventDefault()
   dragClientX = e.clientX
+  const inTitlebarZone = pointerInTabStrip(e)
+  const titlebarTop = scrollRef.value?.getBoundingClientRect().top ?? 0
   dragGhost.value = {
     name: docs.getDoc(session.docId)?.name ?? '',
     x: e.clientX + 12,
-    y: e.clientY + 12
+    y: inTitlebarZone ? titlebarTop + 3 : e.clientY + 12
   }
-  if (pointerInTabStrip(e)) {
+  if (inTitlebarZone) {
     updateDropBefore(e.clientX)
     updateAutoScroll()
   } else {
@@ -230,7 +233,8 @@ function onPointerUp(e: PointerEvent): void {
     e.clientX <= window.innerWidth &&
     e.clientY >= 0 &&
     e.clientY <= window.innerHeight
-  const forceNew = insideWindow && e.clientY > TITLEBAR_HEIGHT
+  const inSnapZone = insideWindow && e.clientY <= TITLEBAR_HEIGHT + TITLEBAR_SNAP_DISTANCE
+  const forceNew = insideWindow && !inSnapZone
 
   window.api.endTabDrag()
   resetPointerDrag()
@@ -241,7 +245,7 @@ function onPointerUp(e: PointerEvent): void {
     void nextTick(revealActiveTab)
     return
   }
-  if (insideWindow && e.clientY <= TITLEBAR_HEIGHT) return
+  if (insideWindow && inSnapZone) return
   void file.moveTabToTargetWindow(id, { forceNew })
 }
 
