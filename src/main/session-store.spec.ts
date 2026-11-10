@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseSessionData } from './session-store'
+import { parseSessionData, parseSessionFile } from './session-store'
 
 function sessionWith(tab: Record<string, unknown>): unknown {
   return { tabs: [{ content: '# 文档', ...tab }], activeIndex: 0 }
@@ -80,5 +80,57 @@ describe('会话布局字段校验', () => {
   it('缺失 layoutMode 时应保持 undefined，交由渲染进程兜底', () => {
     const data = parseSessionData(sessionWith({}))
     expect(data?.tabs[0].layoutMode).toBeUndefined()
+  })
+})
+
+describe('多窗口会话迁移', () => {
+  it('应保留标签的稳定编辑历史 ID', () => {
+    const data = parseSessionData(sessionWith({ historyId: 'history-a' }))
+    expect(data?.tabs[0].historyId).toBe('history-a')
+  })
+
+  it('应将旧版单窗口会话迁移为一个窗口切片', () => {
+    const data = parseSessionFile({
+      tabs: [{ content: '# 旧会话', path: 'D:/docs/old.md' }],
+      activeIndex: 0
+    })
+    expect(data?.version).toBe(2)
+    expect(data?.windows).toHaveLength(1)
+    expect(data?.windows[0].id).toBe('legacy')
+    expect(data?.windows[0].tabs[0].path).toBe('D:/docs/old.md')
+  })
+
+  it('应保留 v2 中合法的多个窗口切片和最后聚焦窗口', () => {
+    const data = parseSessionFile({
+      version: 2,
+      windows: [
+        { id: 'window-a', tabs: [{ content: '# A' }], activeIndex: 0 },
+        { id: 'window-b', tabs: [{ content: '# B' }], activeIndex: 0 }
+      ],
+      lastFocusedWindowId: 'window-b'
+    })
+    expect(data?.windows.map((window) => window.id)).toEqual(['window-a', 'window-b'])
+    expect(data?.lastFocusedWindowId).toBe('window-b')
+  })
+
+  it('应丢弃损坏的窗口切片并保留合法窗口', () => {
+    const data = parseSessionFile({
+      version: 2,
+      windows: [
+        { id: 'valid', tabs: [{ content: '# 可用' }], activeIndex: 0 },
+        { id: 'broken', tabs: 'not-an-array', activeIndex: 0 },
+        { tabs: [{ content: '# 缺少 ID' }], activeIndex: 0 }
+      ]
+    })
+    expect(data?.windows.map((window) => window.id)).toEqual(['valid'])
+  })
+
+  it('所有窗口都损坏时应返回 null，避免启动时创建空窗口切片', () => {
+    expect(
+      parseSessionFile({
+        version: 2,
+        windows: [{ id: 'broken', tabs: [], activeIndex: 0 }]
+      })
+    ).toBeNull()
   })
 })

@@ -4,6 +4,7 @@ import { useDocumentsStore } from '../../stores/documents'
 import { useFile } from '../../composables/useFile'
 import { useAppStore } from '../../stores/app'
 import { findInsertBefore } from '../../utils/tab-order'
+import type { EditorWindowSummary } from '../../../../shared/window-types'
 
 const docs = useDocumentsStore()
 const app = useAppStore()
@@ -48,6 +49,7 @@ let dragging = false
 let suppressClickUntil = 0
 let autoScrollFrame: number | null = null
 let dragClientX = 0
+let dropHandled = false
 
 const draggingIndex = computed(() =>
   dragTabId.value ? docs.docs.findIndex((doc) => doc.id === dragTabId.value) : -1
@@ -132,6 +134,7 @@ function onDragStart(id: string, e: DragEvent): void {
   if (!e.dataTransfer) return
 
   dragging = true
+  dropHandled = false
   dragTabId.value = id
   dropBefore.value = null
   dragClientX = e.clientX
@@ -164,6 +167,7 @@ function onDrop(e: DragEvent): void {
 
   const id = dragTabId.value
   const before = dropBefore.value
+  dropHandled = true
   resetDrag()
   // 抑制拖拽结束后紧随其后的 click，避免把拖拽误判为激活标签
   suppressClickUntil = Date.now() + 50
@@ -173,9 +177,22 @@ function onDrop(e: DragEvent): void {
   void nextTick(revealActiveTab)
 }
 
-function onDragEnd(): void {
+async function onDragEnd(): Promise<void> {
+  const id = dragTabId.value
+  const wasDropped = dropHandled
   resetDrag()
+  dropHandled = false
   suppressClickUntil = Date.now() + 50
+  if (!id || wasDropped) return
+
+  const point = await window.api.getCursorScreenPoint()
+  if (!point) return
+  const inside =
+    point.x >= window.screenX &&
+    point.x <= window.screenX + window.outerWidth &&
+    point.y >= window.screenY &&
+    point.y <= window.screenY + window.outerHeight
+  if (!inside) await file.moveTabToTargetWindow(id)
 }
 
 function onTabClick(id: string, e: MouseEvent): void {
@@ -208,6 +225,7 @@ const menuTabId = ref('')
 const menuX = ref(0)
 const menuY = ref(0)
 const menuRef = ref<HTMLDivElement>()
+const otherWindows = ref<EditorWindowSummary[]>([])
 
 const menuIndex = computed(() => docs.docs.findIndex((doc) => doc.id === menuTabId.value))
 const canCloseOthers = computed(() => docs.docs.length > 1)
@@ -219,8 +237,14 @@ function openContextMenu(id: string, e: MouseEvent): void {
   menuTabId.value = id
   menuX.value = e.clientX
   menuY.value = e.clientY
+  otherWindows.value = []
   menuVisible.value = true
   void nextTick(clampMenuIntoViewport)
+  void window.api.listEditorWindows().then((windows) => {
+    if (!menuVisible.value || menuTabId.value !== id) return
+    otherWindows.value = windows
+    void nextTick(clampMenuIntoViewport)
+  })
 }
 
 /** 菜单贴近窗口边缘时向内收，避免被裁掉 */
@@ -233,13 +257,30 @@ function clampMenuIntoViewport(): void {
   menuY.value = Math.max(margin, Math.min(menuY.value, window.innerHeight - rect.height - margin))
 }
 
-type CloseMenuAction = 'self' | 'others' | 'left' | 'right'
+type CloseMenuAction = 'window' | 'self' | 'others' | 'left' | 'right'
+
+function moveToWindow(targetWindowId: string): void {
+  const id = menuTabId.value
+  closeMenu()
+  if (!id) return
+  void file.moveTabToWindow(targetWindowId, id)
+}
+
+function moveAllToWindow(targetWindowId: string): void {
+  closeMenu()
+  void file.moveAllTabsToWindow(targetWindowId)
+}
 
 function runMenuAction(action: CloseMenuAction): void {
   const id = menuTabId.value
   const index = docs.docs.findIndex((doc) => doc.id === id)
   closeMenu()
   if (index === -1) return
+
+  if (action === 'window') {
+    void file.moveTabToNewWindow(id)
+    return
+  }
 
   if (action === 'self') {
     void file.closeTab(id)
@@ -367,6 +408,34 @@ onBeforeUnmount(() => {
       :style="{ left: `${menuX}px`, top: `${menuY}px` }"
       role="menu"
     >
+      <button class="ctx-item" role="menuitem" @click="runMenuAction('window')">
+        在新窗口中打开
+      </button>
+      <template v-if="otherWindows.length > 0">
+        <div class="ctx-separator"></div>
+        <div class="ctx-label">移动到其他窗口</div>
+        <button
+          v-for="windowItem in otherWindows"
+          :key="windowItem.id"
+          class="ctx-item"
+          role="menuitem"
+          @click="moveToWindow(windowItem.id)"
+        >
+          {{ windowItem.title }}
+        </button>
+        <div class="ctx-separator"></div>
+        <div class="ctx-label">全部标签</div>
+        <button
+          v-for="windowItem in otherWindows"
+          :key="`all-${windowItem.id}`"
+          class="ctx-item"
+          role="menuitem"
+          @click="moveAllToWindow(windowItem.id)"
+        >
+          全部移动到 {{ windowItem.title }}
+        </button>
+      </template>
+      <div class="ctx-separator"></div>
       <button class="ctx-item" role="menuitem" @click="runMenuAction('self')">关闭</button>
       <button
         class="ctx-item"
@@ -595,6 +664,13 @@ onBeforeUnmount(() => {
     color 0.1s ease;
 }
 
+.ctx-label {
+  padding: 4px 10px 3px;
+  color: rgba(255, 255, 255, 0.34);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+}
+
 .ctx-item:hover:not(:disabled) {
   background: rgba(108, 155, 255, 0.18);
   color: #fff;
@@ -618,6 +694,10 @@ onBeforeUnmount(() => {
 
 .tab-context-menu.light .ctx-item {
   color: rgba(0, 0, 0, 0.75);
+}
+
+.tab-context-menu.light .ctx-label {
+  color: rgba(0, 0, 0, 0.38);
 }
 
 .tab-context-menu.light .ctx-item:hover:not(:disabled) {

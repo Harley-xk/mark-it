@@ -8,11 +8,7 @@ import { useSearchStore } from '../../stores/search'
 import { useScrollSync } from '../../composables/useScrollSync'
 import { registerScrollCapture } from '../../composables/session-scroll'
 import { usePreviewTableResize } from '../../composables/usePreviewTableResize'
-import {
-  collectMermaidBlocks,
-  formatMermaidError,
-  getMermaidLanguage
-} from '../../utils/mermaid'
+import { collectMermaidBlocks, formatMermaidError, getMermaidLanguage } from '../../utils/mermaid'
 import { parseFrontmatter, renderFrontmatterTable } from '../../utils/frontmatter'
 import { saveDiagram, serializeSvg } from '../../utils/diagram-export'
 import { installLocalImageRule, resolveImageSrc, resolveLocalPath } from '../../utils/local-image'
@@ -39,8 +35,7 @@ const isDark = computed(() => appStore.resolvedTheme === 'dark')
 const currentCss = computed(() => styleStore.currentCss(isDark.value))
 
 const contentStyle = computed(() => ({
-  maxWidth:
-    appStore.previewWidthMode === 'fixed' ? `${appStore.previewWidth}px` : 'none'
+  maxWidth: appStore.previewWidthMode === 'fixed' ? `${appStore.previewWidth}px` : 'none'
 }))
 
 const md = createMarkdownRenderer({ typographer: true })
@@ -70,7 +65,7 @@ const WINDOWS_DRIVE_PATH = /^[a-zA-Z]:[\\/]/
 /**
  * 预览区链接点击分流：页内锚点保持浏览器原生跳转；
  * 网络链接交给默认浏览器；本地文件链接在资源管理器中定位，无法定位则不处理。
- * 其余协议（ftp、tel、javascript 等）一律忽略，避免主窗口被导航走。
+ * 其余协议（ftp、tel、javascript 等）一律忽略，避免编辑窗口被导航走。
  */
 function handlePreviewLinkClick(event: MouseEvent): void {
   if (event.defaultPrevented || event.button !== 0) return
@@ -172,7 +167,11 @@ function createDiagramView(svgText: string, background: string): HTMLElement {
   let naturalHeight = 0
   const svgEl = canvas.querySelector('svg')
   if (svgEl) {
-    const viewBox = svgEl.getAttribute('viewBox')?.trim().split(/[\s,]+/).map(Number)
+    const viewBox = svgEl
+      .getAttribute('viewBox')
+      ?.trim()
+      .split(/[\s,]+/)
+      .map(Number)
     naturalWidth = viewBox?.length === 4 ? viewBox[2] : 0
     naturalHeight = viewBox?.length === 4 ? viewBox[3] : 0
     if (naturalWidth > 0 && naturalHeight > 0) {

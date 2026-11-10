@@ -11,7 +11,7 @@ import { pathToFileURL } from 'url'
 import { is } from '@electron-toolkit/utils'
 
 /**
- * 应用自身页面地址（只有这类页面可以留在主窗口内 / 调用 IPC）。
+ * 应用自身页面地址（只有这类页面可以留在应用窗口内 / 调用 IPC）。
  * 开发模式按 origin 比较（避免 `http://localhost:5173.evil.com` 之类的前缀伪造），
  * 打包后比较渲染产物目录。
  */
@@ -33,7 +33,7 @@ export function isAppUrl(url: string): boolean {
   }
 }
 
-/** 校验 IPC 调用是否来自应用自身页面（含主窗口与更新窗口） */
+/** 校验 IPC 调用是否来自应用自身页面（含编辑窗口与工具窗口） */
 export function isTrustedIpcSender(event: IpcMainEvent | IpcMainInvokeEvent): boolean {
   const url = event.senderFrame?.url
   return typeof url === 'string' && isAppUrl(url)

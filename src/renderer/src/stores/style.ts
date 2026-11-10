@@ -78,7 +78,7 @@ export const useStyleStore = defineStore('style', () => {
     currentStyleId.value = 'github'
   }
 
-  /** 设置窗口修改样式后，主窗口通过 storage 事件重新载入持久化结果 */
+  /** 设置窗口修改样式后，编辑窗口通过 storage 事件重新载入持久化结果 */
   window.addEventListener('storage', (event) => {
     if (event.storageArea && event.storageArea !== localStorage) return
     if (event.key !== null && event.key !== STYLE_KEY && event.key !== CUSTOM_STYLES_KEY) return

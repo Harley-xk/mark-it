@@ -62,7 +62,14 @@ export function useKeyboardShortcuts(): void {
       return
     }
 
-    // Ctrl+N: 新建
+    // Ctrl+Shift+N: 新建编辑窗口
+    if (isCtrl(e) && e.shiftKey && e.key.toLowerCase() === 'n') {
+      e.preventDefault()
+      void window.api.createWindow()
+      return
+    }
+
+    // Ctrl+N: 新建标签页
     if (isCtrl(e) && !e.shiftKey && e.key === 'n') {
       e.preventDefault()
       file.newFile()

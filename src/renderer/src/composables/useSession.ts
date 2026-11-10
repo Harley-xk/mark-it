@@ -1,11 +1,15 @@
 import { onMounted, onUnmounted, watch } from 'vue'
 import { useDocumentsStore } from '../stores/documents'
 import { useAppStore } from '../stores/app'
+import { useEditorStore } from '../stores/editor'
 import { useFile } from './useFile'
 import { markSessionReady } from './session-ready'
 import { captureScrollPositions } from './session-scroll'
 import { decodeText } from '../utils/text-encoding'
+import { serializeEditorState } from '../utils/editor-state-transfer'
 import type { SessionData } from '../../../shared/session-types'
+import type { EditorHistoryEntries } from '../../../shared/history-types'
+import type { TabTransferPayload } from '../../../shared/window-types'
 
 const SAVE_DEBOUNCE_MS = 800
 
@@ -21,6 +25,7 @@ export function useSession(): { flush: () => Promise<void> } {
 
   const docs = useDocumentsStore()
   const app = useAppStore()
+  const editor = useEditorStore()
   const file = useFile()
 
   /** 会话恢复完成前收到的命令行文件先缓存，避免与恢复结果互相覆盖 */
@@ -37,6 +42,7 @@ export function useSession(): { flush: () => Promise<void> } {
         const scroll = docs.getScrollPosition(doc.id)
         const previewScroll = docs.getPreviewScrollPosition(doc.id)
         return {
+          historyId: doc.historyId,
           path: doc.path,
           name: doc.name,
           content: doc.content,
@@ -60,15 +66,38 @@ export function useSession(): { flush: () => Promise<void> } {
     }
   }
 
-  async function save(): Promise<void> {
+  async function save(): Promise<boolean> {
     try {
       const saved = await window.api.session.save(snapshot())
       // 写失败（只读目录 / 磁盘已满）必须可见：状态栏会显示「会话保存失败」
       app.setSessionSaveFailed(!saved)
       if (!saved) console.warn('Failed to save session: main process returned false')
+      return saved
     } catch (err) {
       app.setSessionSaveFailed(true)
       console.error('Failed to save session:', err)
+      return false
+    }
+  }
+
+  async function saveHistory(): Promise<boolean> {
+    const entries: EditorHistoryEntries = {}
+    for (const doc of docs.docs) {
+      const state =
+        doc.id === docs.activeId
+          ? (editor.editorView?.state ?? docs.getEditorState(doc.id))
+          : docs.getEditorState(doc.id)
+      if (!state) continue
+      const serialized = serializeEditorState(state)
+      if (serialized !== undefined) entries[doc.historyId] = serialized
+    }
+    try {
+      const saved = await window.api.history.save(entries)
+      if (!saved) console.warn('Failed to save editor history: main process returned false')
+      return saved
+    } catch (err) {
+      console.error('Failed to save editor history:', err)
+      return false
     }
   }
 
@@ -88,11 +117,20 @@ export function useSession(): { flush: () => Promise<void> } {
       clearTimeout(saveTimer)
       saveTimer = null
     }
-    await save()
+    const sessionSaved = await save()
+    const historySaved = await saveHistory()
+    if (!sessionSaved || !historySaved) app.setSessionSaveFailed(true)
   }
 
   async function restore(): Promise<void> {
+    let pendingTransferId: string | null = null
+    let pendingTransfer: TabTransferPayload | null = null
+    let transferAccepted = false
     try {
+      const context = await window.api.getWindowContext()
+      pendingTransferId = context?.pendingTransferId ?? null
+      const persistedHistory = await window.api.history.load()
+      if (pendingTransferId) pendingTransfer = await window.api.takePendingTabTransfer()
       const saved = await window.api.session.load()
       if (saved && Array.isArray(saved.tabs) && saved.tabs.length > 0) {
         // 以磁盘内容为准（应用关闭期间文件可能被修改），读不到时回退到会话内容
@@ -106,13 +144,32 @@ export function useSession(): { flush: () => Promise<void> } {
             return { ...tab, content: decoded.text, eol: decoded.eol, bom: decoded.bom }
           })
         )
-        docs.restoreSession(tabs, saved.activeIndex)
+        const serializedStates = new Map<number, unknown>()
+        tabs.forEach((tab, index) => {
+          if (tab.historyId && persistedHistory[tab.historyId] !== undefined) {
+            serializedStates.set(index, persistedHistory[tab.historyId])
+          }
+        })
+        if (pendingTransfer?.editorStateJson) {
+          const transferredIndex = tabs.findIndex(
+            (tab) =>
+              tab.path === pendingTransfer?.tab.path && tab.name === pendingTransfer?.tab.name
+          )
+          if (transferredIndex >= 0) {
+            serializedStates.set(transferredIndex, pendingTransfer.editorStateJson)
+          }
+        }
+        transferAccepted = docs.restoreSession(tabs, saved.activeIndex, serializedStates)
       }
     } catch (err) {
       console.error('Failed to restore session:', err)
     } finally {
       restoreDone = true
       markSessionReady()
+      if (pendingTransferId) {
+        if (transferAccepted) window.api.ackTabTransfer(pendingTransferId)
+        else window.api.rejectTabTransfer(pendingTransferId)
+      }
       for (const pending of pendingOpenFiles.splice(0)) {
         file.openFileFromPath(pending)
       }

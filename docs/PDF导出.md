@@ -72,7 +72,7 @@ PDF 侧的 Mermaid 初始化参数固定为 `startOnLoad: false`、`theme: 'defa
 
 [src/main/index.ts](../src/main/index.ts) 中的 `export:pdf` 流程：
 
-1. `dialog.showSaveDialog(mainWindow!, { defaultPath, filters })`：`defaultPath` 由 `options.fileName` 清洗非法字符并补齐 `.pdf`；当前文档有磁盘路径（`options.sourcePath`）时，组合为文档所在目录下的绝对路径，保证文件名输入框预填当前文档名；取消返回 `null`。
+1. `dialog.showSaveDialog(发起导出的编辑窗口, { defaultPath, filters })`：父窗口按 IPC 发送方定位；`defaultPath` 由 `options.fileName` 清洗非法字符并补齐 `.pdf`；当前文档有磁盘路径（`options.sourcePath`）时，组合为文档所在目录下的绝对路径，保证文件名输入框预填当前文档名；取消返回 `null`。
 2. 校验 HTML 体积：超过 64MB 时用 `dialog.showErrorBox` 明确提示并抛错，避免隐藏窗口因内存压力崩溃。
 3. 创建 `BrowserWindow({ width: 800, height: 1100, show: false, webPreferences: { sandbox: false } })`。
 4. 把 HTML 写入系统临时目录的 `markit-pdf-<uuid>.html`，用 `loadFile` 加载——不再把内容塞进 `data:` URL，规避 URL 长度与内存问题。

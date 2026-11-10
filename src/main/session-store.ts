@@ -4,7 +4,13 @@
  *
  * 描述: 会话文件的运行时结构校验，避免损坏的 session.json 导致恢复异常
  */
-import type { LayoutMode, SessionData, SessionTab } from '../shared/session-types'
+import type {
+  LayoutMode,
+  SessionData,
+  SessionFile,
+  SessionTab,
+  SessionWindow
+} from '../shared/session-types'
 
 /** 与渲染进程 utils/layout-mode 保持一致；主进程不能引用渲染进程模块 */
 const LAYOUT_MODES: LayoutMode[] = ['edit-left', 'edit-right', 'edit-only', 'preview-only']
@@ -37,12 +43,14 @@ function signedAmount(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined
 }
 
-function normalizeTab(value: unknown): SessionTab | null {
+export function normalizeSessionTab(value: unknown): SessionTab | null {
   if (!value || typeof value !== 'object') return null
   const tab = value as Record<string, unknown>
   if (typeof tab.content !== 'string') return null
 
   return {
+    historyId:
+      typeof tab.historyId === 'string' && tab.historyId.length > 0 ? tab.historyId : undefined,
     path: typeof tab.path === 'string' && tab.path.length > 0 ? tab.path : null,
     name: typeof tab.name === 'string' && tab.name.length > 0 ? tab.name : 'untitled.md',
     content: tab.content,
@@ -71,7 +79,7 @@ export function parseSessionData(value: unknown): SessionData | null {
   if (!Array.isArray(data.tabs)) return null
 
   const tabs = data.tabs
-    .map((tab) => normalizeTab(tab))
+    .map((tab) => normalizeSessionTab(tab))
     .filter((tab): tab is SessionTab => tab !== null)
   if (tabs.length === 0) return null
 
@@ -81,4 +89,42 @@ export function parseSessionData(value: unknown): SessionData | null {
       : 0
 
   return { tabs, activeIndex }
+}
+
+function normalizeSessionWindow(value: unknown): SessionWindow | null {
+  if (!value || typeof value !== 'object') return null
+  const window = value as Record<string, unknown>
+  if (typeof window.id !== 'string' || window.id.length === 0) return null
+  const data = parseSessionData(window)
+  return data ? { id: window.id, ...data } : null
+}
+
+/**
+ * 解析会话文件 v2。
+ * 旧版单窗口结构会迁移为 `legacy` 切片，由主进程在实际创建窗口时替换为稳定 ID。
+ */
+export function parseSessionFile(value: unknown): SessionFile | null {
+  if (!value || typeof value !== 'object') return null
+  const data = value as Record<string, unknown>
+
+  if (data.version === 2 && Array.isArray(data.windows)) {
+    const windows = data.windows
+      .map((window) => normalizeSessionWindow(window))
+      .filter((window): window is SessionWindow => window !== null)
+    if (windows.length === 0) return null
+    const lastFocusedWindowId =
+      typeof data.lastFocusedWindowId === 'string' &&
+      windows.some((window) => window.id === data.lastFocusedWindowId)
+        ? data.lastFocusedWindowId
+        : undefined
+    return { version: 2, windows, lastFocusedWindowId }
+  }
+
+  const legacy = parseSessionData(data)
+  if (!legacy) return null
+  return {
+    version: 2,
+    windows: [{ id: 'legacy', ...legacy }],
+    lastFocusedWindowId: 'legacy'
+  }
 }

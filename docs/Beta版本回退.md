@@ -96,7 +96,7 @@ flowchart TD
 | 强制更新 `[force]` | 回退不受 `[force]` 影响：`forceUpdate` 置 `false`，允许用户稍后处理            |
 | 周期检测           | 回退流程进行中跳过周期检测；已下载后按现有规则不打断                           |
 | 更新提示卡片       | 文案改为「可回退到正式版」，允许跳过                                           |
-| 更新详情窗口       | 文案改为「回退」，安装请求仍转交主窗口                                         |
+| 更新详情窗口       | 文案改为「回退」，安装请求由主进程统一协调所有编辑窗口                         |
 | 发版工具链         | 不需要新增通道或版本；stable 通道已保存上一个正式版                            |
 
 ## 5. 详细设计
@@ -180,11 +180,11 @@ let rollbacking = false
 
 | 通道                        | 方向   | 参数 | 返回          | 说明                                           |
 | --------------------------- | ------ | ---- | ------------- | ---------------------------------------------- |
-| `update:rollback-to-stable` | invoke | 无   | `UpdateState` | 校验并启动一次性回退；允许主窗口与设置窗口调用 |
+| `update:rollback-to-stable` | invoke | 无   | `UpdateState` | 校验并启动一次性回退；允许编辑窗口与设置窗口调用 |
 
 三处同步：
 
-1. 主进程 [`updater.ts`](../src/main/updater.ts) 使用 `registerHandle` 注册，校验 `event.sender` 是主窗口；
+1. 主进程 [`updater.ts`](../src/main/updater.ts) 使用 `registerHandle` 注册，校验 `event.sender` 来自编辑窗口注册表或设置窗口；
 2. preload [`src/preload/index.ts`](../src/preload/index.ts) 暴露 `rollbackToStable()`；
 3. [`src/preload/index.d.ts`](../src/preload/index.d.ts) 的 `ExposedAPI` 补类型。
 
@@ -238,7 +238,7 @@ Beta 开关下方的说明文案需要同步修改，明确「关闭开关不会
 沿用现有未保存内容确认与会话落盘流程，只把操作标签从「安装更新」改为「回退到正式版」：
 
 1. 设置页直接安装：`saveAllBeforeExit('回退到正式版')` → `flushSession()` → `update.install()`；
-2. 更新详情窗口请求安装：主进程转交主窗口，主窗口执行同一流程；
+2. 更新详情窗口请求安装：主进程协调所有编辑窗口执行同一保存流程；
 3. 主进程 `beforeInstall` 放行关闭守卫，`quitAndInstall(false, true)` 不变。
 
 ### 5.5 持久化与数据兼容
@@ -270,7 +270,7 @@ Beta 开关下方的说明文案需要同步修改，明确「关闭开关不会
 ### 5.7 安全约束
 
 1. `update:rollback-to-stable` **不接收目标版本或 URL**，feed 只使用固定的 `FEED_URLS.stable`。
-2. IPC 只接受主窗口的 `event.sender`；更新窗口如需入口，走现有的 `update:request-install` 转交模式，不直接调用回退。
+2. IPC 只接受编辑窗口或设置窗口的 `event.sender`；更新窗口通过 `update:request-install` 入口请求安装，不直接调用底层安装。
 3. 不通过渲染进程拼接下载地址，不读取任意本地文件。
 4. 回退包仍由 electron-updater 现有的 `sha512` 校验与 apphub 平台提供，安全边界与普通更新一致。
 5. 不新增持久化密钥或凭据。
@@ -370,7 +370,7 @@ Beta 开关下方的说明文案需要同步修改，明确「关闭开关不会
 5. 确认 `userData/update-preference.json` 中 `betaUpdatesEnabled` 为 `false`；
 6. 重启后检查更新，应显示「已是最新版本」，不提示降级；
 7. 打开若干文档，确认会话、光标、滚动位置、未保存内容确认流程正常；
-8. 回退过程中修改文档，确认安装前的未保存确认仍会出现在主窗口；
+8. 回退过程中在多个编辑窗口修改文档，确认安装前所有窗口都会收到未保存确认；
 9. 断网后点击回退，确认进入 `error` 且可重试，`allowDowngrade` 已复位（可通过再次普通检查验证）；
 10. 在已有下载完成更新的情况下点击回退，确认被拒绝并给出明确提示。
 
@@ -378,7 +378,7 @@ Beta 开关下方的说明文案需要同步修改，明确「关闭开关不会
 
 - `npm run lint`、`npm run typecheck`、`npm test` 全部通过；
 - 普通 stable 更新、Beta 更新、强制更新、关闭 Beta 不降级、周期检测行为不变；
-- 更新窗口与主窗口的安装协作不受影响；
+- 更新窗口与所有编辑窗口的安装协调不受影响；
 - `src/preload/**`、`src/shared/**`、`src/renderer/src/utils/**` 如被改动，执行全量检查（见 [testing.md](../rules/testing.md) 第 5 节）。
 
 ## 11. 已确定决策
@@ -405,7 +405,7 @@ Beta 开关下方的说明文案需要同步修改，明确「关闭开关不会
 | [`src/preload/index.ts`](../src/preload/index.ts) / [`src/preload/index.d.ts`](../src/preload/index.d.ts)       | `window.api.update.rollbackToStable()`             |
 | [`src/renderer/src/stores/update.ts`](../src/renderer/src/stores/update.ts)                                     | 回退操作与按钮状态                                 |
 | [`src/renderer/src/settings/SettingsWindow.vue`](../src/renderer/src/settings/SettingsWindow.vue)               | 设置窗口回退入口与确认                             |
-| [`src/renderer/src/components/update/UpdateNotice.vue`](../src/renderer/src/components/update/UpdateNotice.vue) | 主窗口提示卡片文案                                 |
+| [`src/renderer/src/components/update/UpdateNotice.vue`](../src/renderer/src/components/update/UpdateNotice.vue) | 编辑窗口提示卡片文案                               |
 | [`src/renderer/src/update/UpdateWindow.vue`](../src/renderer/src/update/UpdateWindow.vue)                       | 更新详情窗口回退文案                               |
 | [`docs/自动更新.md`](./自动更新.md)                                                                             | 实施后承接状态机与运行机制                         |
 | [`docs/发版通道.md`](./发版通道.md)                                                                             | 实施后承接 Beta 开关与回退边界                     |

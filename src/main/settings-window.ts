@@ -85,7 +85,7 @@ export function openSettingsWindow(): void {
   }
 }
 
-/** 主编辑器关闭或应用退出时，关闭设置工具窗口 */
+/** 所有编辑窗口关闭或应用退出时，关闭设置工具窗口 */
 export function closeSettingsWindow(): void {
   const win = getSettingsWindow()
   if (!win) return

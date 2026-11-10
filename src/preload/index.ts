@@ -1,8 +1,16 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import type { UpdateState } from '../shared/update-types'
 import type { SessionData } from '../shared/session-types'
+import type { EditorHistoryEntries } from '../shared/history-types'
 import type { FileReadResult } from '../shared/file-types'
 import type { PdfExportOptions } from '../shared/pdf-types'
+import type {
+  EditorWindowContext,
+  EditorWindowSummary,
+  ExitPreparationRequest,
+  TabTransferPayload,
+  TabTransferResult
+} from '../shared/window-types'
 import type {
   IntegrationResult,
   VSCodeInstallation,
@@ -33,6 +41,48 @@ let rendererReadyNotified = false
 const api = {
   /** 当前运行平台（渲染进程用于给系统窗口按钮留位） */
   platform: process.platform,
+  /** 当前编辑窗口的稳定 ID 与待确认标签迁移 */
+  getWindowContext: (): Promise<EditorWindowContext | null> =>
+    ipcRenderer.invoke('window:get-context'),
+  /** 新建空白编辑窗口 */
+  createWindow: (): Promise<boolean> => ipcRenderer.invoke('window:create'),
+  /** 把序列化标签迁移到新窗口；目标窗口确认前源标签不会删除 */
+  moveTabToNewWindow: (payload: TabTransferPayload): Promise<TabTransferResult | null> =>
+    ipcRenderer.invoke('window:move-tab-to-new', payload),
+  /** 按当前指针命中的编辑窗口迁移；未命中则新建窗口 */
+  moveTabToTargetWindow: (payload: TabTransferPayload): Promise<TabTransferResult | null> =>
+    ipcRenderer.invoke('window:move-tab-to-target', payload),
+  /** 显式迁移到指定编辑窗口 */
+  moveTabToWindow: (
+    payload: TabTransferPayload,
+    windowId: string
+  ): Promise<TabTransferResult | null> =>
+    ipcRenderer.invoke('window:move-tab-to-window', payload, windowId),
+  /** 返回其他可接收标签的编辑窗口 */
+  listEditorWindows: (): Promise<EditorWindowSummary[]> => ipcRenderer.invoke('window:list'),
+  /** 新窗口读取启动阶段的标签迁移载荷 */
+  takePendingTabTransfer: (): Promise<TabTransferPayload | null> =>
+    ipcRenderer.invoke('window:take-pending-transfer'),
+  /** 目标窗口完成会话恢复后确认标签迁移 */
+  ackTabTransfer: (transferId: string): void => {
+    ipcRenderer.send('window:ack-tab-transfer', transferId)
+  },
+  /** 目标窗口拒绝标签迁移（例如同一路径已打开） */
+  rejectTabTransfer: (transferId: string): void => {
+    ipcRenderer.send('window:reject-tab-transfer', transferId)
+  },
+  /** 已有编辑窗口接收实时标签迁移 */
+  onReceiveTabTransfer: (callback: (payload: TabTransferPayload) => void): (() => void) =>
+    subscribe('window:receive-tab-transfer', callback),
+  /** 拖出标签时判断释放点是否在源窗口外 */
+  getCursorScreenPoint: (): Promise<{ x: number; y: number } | null> =>
+    ipcRenderer.invoke('window:get-cursor-screen'),
+  /** 主进程要求所有编辑窗口在退出 / 安装前保存 */
+  onPrepareExit: (callback: (request: ExitPreparationRequest) => void): (() => void) =>
+    subscribe('app:prepare-exit', callback),
+  completePrepareExit: (requestId: string, ok: boolean): void => {
+    ipcRenderer.send('app:prepare-exit-result', { requestId, ok })
+  },
   /** 打开或聚焦独立设置窗口；只应由编辑器窗口调用 */
   settings: {
     open: (): Promise<boolean> => ipcRenderer.invoke('settings:open')
@@ -63,7 +113,7 @@ const api = {
   ): Promise<string | null> => ipcRenderer.invoke('dialog:saveImage', fileName, data, extension),
   exportPdf: (html: string, options: PdfExportOptions): Promise<string | null> =>
     ipcRenderer.invoke('export:pdf', html, options),
-  /** 关闭主窗口；quit 为 true 表示这是在完成 Cmd+Q / 菜单退出 */
+  /** 关闭当前编辑窗口；兼容保留 quit 参数 */
   close: (quit = false): Promise<boolean> => ipcRenderer.invoke('window:close', quit),
   isFullscreen: (): Promise<boolean> => ipcRenderer.invoke('window:is-fullscreen'),
   /** 当前整窗缩放比例（1 表示 100%） */
@@ -105,6 +155,12 @@ const api = {
     load: (): Promise<SessionData | null> => ipcRenderer.invoke('session:load'),
     save: (data: SessionData): Promise<boolean> => ipcRenderer.invoke('session:save', data)
   },
+  /** 撤销 / 重做历史側车：只持久化当前编辑窗口，不写入 session.json */
+  history: {
+    load: (): Promise<EditorHistoryEntries> => ipcRenderer.invoke('history:load'),
+    save: (entries: EditorHistoryEntries): Promise<boolean> =>
+      ipcRenderer.invoke('history:save', entries)
+  },
   /** VSCode 编辑器集成：检测、安装与卸载；路径始终由主进程推断 */
   integration: {
     detectVSCode: (): Promise<VSCodeInstallation[]> =>
@@ -131,11 +187,8 @@ const api = {
     closeWindow: (): void => {
       ipcRenderer.send('update:close-window')
     },
-    /** 请求主窗口处理未保存内容后安装（由更新详情窗口调用） */
+    /** 请求主进程协调全部编辑窗口保存后安装 */
     requestInstall: (): Promise<boolean> => ipcRenderer.invoke('update:request-install'),
-    /** 主进程转来的安装请求（主窗口监听） */
-    onInstallRequest: (callback: () => void): (() => void) =>
-      subscribeVoid('update:install-request', callback),
     onState: (callback: (state: UpdateState) => void): (() => void) =>
       subscribe('update:state', callback)
   }

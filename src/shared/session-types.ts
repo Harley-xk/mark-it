@@ -4,6 +4,8 @@
 export type LayoutMode = 'edit-left' | 'edit-right' | 'edit-only' | 'preview-only'
 
 export interface SessionTab {
+  /** 编辑历史的稳定标识；旧会话缺失时由渲染进程补发 */
+  historyId?: string
   /** 文件路径；从未保存过的新建文档为 null */
   path: string | null
   name: string
@@ -34,4 +36,16 @@ export interface SessionData {
   tabs: SessionTab[]
   /** 激活标签在 tabs 中的下标 */
   activeIndex: number
+}
+
+/** 一个编辑窗口的会话切片 */
+export interface SessionWindow extends SessionData {
+  id: string
+}
+
+/** 会话文件 v2：按编辑窗口保存标签快照 */
+export interface SessionFile {
+  version: 2
+  windows: SessionWindow[]
+  lastFocusedWindowId?: string
 }

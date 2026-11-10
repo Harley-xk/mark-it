@@ -60,18 +60,17 @@ const offCloseRequest = window.api.onCloseRequest(async ({ quit }) => {
   await window.api.close(quit)
 })
 
-// 更新详情窗口请求安装：先处理未保存内容，再由主进程退出安装
-const offInstallRequest = window.api.update.onInstallRequest(async () => {
-  const actionLabel = update.state.isRollback ? '回退到正式版' : '安装更新'
-  if (!(await saveAllBeforeExit(actionLabel))) return
-  await update.install()
+// 主进程统一协调所有编辑窗口：退出应用或安装更新前逐个确认并保存
+const offPrepareExit = window.api.onPrepareExit(async ({ requestId, actionLabel }) => {
+  const ok = await saveAllBeforeExit(actionLabel)
+  window.api.completePrepareExit(requestId, ok)
 })
 
 // HMR / 重复挂载时注销监听，避免同一事件被处理多次
 onUnmounted(() => {
   offCloseTabShortcut()
   offCloseRequest()
-  offInstallRequest()
+  offPrepareExit()
   update.dispose()
 })
 </script>

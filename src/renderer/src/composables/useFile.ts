@@ -1,9 +1,13 @@
 import { useDocumentsStore, type DocumentTab } from '../stores/documents'
+import { useEditorStore } from '../stores/editor'
 import { confirmUnsaved } from './useConfirmUnsaved'
 import { whenSessionReady } from './session-ready'
+import { captureScrollPositions } from './session-scroll'
 import { diffLines } from '../utils/text-diff'
 import { samePath } from '../utils/path'
 import { decodeText, encodeText } from '../utils/text-encoding'
+import { serializeEditorState } from '../utils/editor-state-transfer'
+import type { TabTransferPayload } from '../../../shared/window-types'
 import WELCOME_CONTENT from '../assets/welcome.md?raw'
 
 /** 内置使用手册的标签名 */
@@ -34,10 +38,28 @@ interface FileActions {
   refreshFile: () => Promise<void>
   applyExternalContent: (change: { path: string; content: string }) => Promise<void>
   showInFolder: () => Promise<void>
+  /** 将标签迁移到新编辑窗口；目标窗口确认恢复后源标签才删除 */
+  moveTabToNewWindow: (id?: string) => Promise<boolean>
+  /** 按当前指针命中的编辑窗口迁移；未命中时新建窗口 */
+  moveTabToTargetWindow: (id?: string) => Promise<boolean>
+  /** 显式迁移到指定编辑窗口 */
+  moveTabToWindow: (targetWindowId: string, id?: string) => Promise<boolean>
+  /** 将当前窗口全部标签依次迁移到指定编辑窗口 */
+  moveAllTabsToWindow: (targetWindowId: string) => Promise<boolean>
 }
+
+let transferListenersInstalled = false
 
 export function useFile(): FileActions {
   const docs = useDocumentsStore()
+  const editor = useEditorStore()
+
+  if (!transferListenersInstalled) {
+    transferListenersInstalled = true
+    window.api.onReceiveTabTransfer((payload) => {
+      void receiveTransferredTab(payload)
+    })
+  }
 
   /**
    * 保存指定标签页。
@@ -164,6 +186,98 @@ export function useFile(): FileActions {
     await window.api.showItemInFolder(doc.path)
   }
 
+  function buildTransferPayload(doc: DocumentTab, transferId: string): TabTransferPayload {
+    captureScrollPositions(doc.id)
+    const scroll = docs.getScrollPosition(doc.id)
+    const previewScroll = docs.getPreviewScrollPosition(doc.id)
+    const editorState =
+      docs.activeId === doc.id
+        ? (editor.editorView?.state ?? docs.getEditorState(doc.id))
+        : docs.getEditorState(doc.id)
+    return {
+      transferId,
+      editorStateJson: editorState ? serializeEditorState(editorState) : undefined,
+      tab: {
+        path: doc.path,
+        name: doc.name,
+        content: doc.content,
+        isModified: doc.isModified,
+        cursorLine: doc.cursorLine,
+        cursorCol: doc.cursorCol,
+        eol: doc.eol,
+        bom: doc.bom,
+        layoutMode: doc.layoutMode,
+        scrollAnchor: scroll.anchor,
+        scrollTop: scroll.top,
+        previewScrollTop: previewScroll.top,
+        previewScrollAnchor: previewScroll.anchor,
+        previewScrollOffset: previewScroll.offset
+      }
+    }
+  }
+
+  async function requestTabTransfer(
+    doc: DocumentTab,
+    request: (payload: TabTransferPayload) => Promise<unknown>
+  ): Promise<boolean> {
+    await whenSessionReady()
+    const transferId = crypto.randomUUID()
+    const result = await request(buildTransferPayload(doc, transferId))
+    if (!result) return false
+    docs.closeDocument(doc.id)
+    if (docs.docs.length === 0) void window.api.close()
+    return true
+  }
+
+  async function moveTabToNewWindow(id?: string): Promise<boolean> {
+    const doc = id ? docs.getDoc(id) : docs.activeDoc
+    if (!doc) return false
+    return requestTabTransfer(doc, (payload) => window.api.moveTabToNewWindow(payload))
+  }
+
+  async function moveTabToTargetWindow(id?: string): Promise<boolean> {
+    const doc = id ? docs.getDoc(id) : docs.activeDoc
+    if (!doc) return false
+    return requestTabTransfer(doc, (payload) => window.api.moveTabToTargetWindow(payload))
+  }
+
+  async function moveTabToWindow(targetWindowId: string, id?: string): Promise<boolean> {
+    const doc = id ? docs.getDoc(id) : docs.activeDoc
+    if (!doc || !targetWindowId) return false
+    return requestTabTransfer(doc, (payload) => window.api.moveTabToWindow(payload, targetWindowId))
+  }
+
+  async function moveAllTabsToWindow(targetWindowId: string): Promise<boolean> {
+    if (!targetWindowId) return false
+    await whenSessionReady()
+    const tabIds = docs.docs.map((doc) => doc.id)
+    if (tabIds.length === 0) return true
+
+    for (const id of tabIds) {
+      if (!docs.getDoc(id)) continue
+      if (!(await moveTabToWindow(targetWindowId, id))) return false
+    }
+    return true
+  }
+
+  async function receiveTransferredTab(payload: TabTransferPayload): Promise<void> {
+    try {
+      await whenSessionReady()
+      if (
+        payload.tab.path &&
+        docs.docs.some((doc) => doc.path !== null && samePath(doc.path, payload.tab.path))
+      ) {
+        window.api.rejectTabTransfer(payload.transferId)
+        return
+      }
+      docs.insertSessionTab(payload.tab, payload.editorStateJson)
+      window.api.ackTabTransfer(payload.transferId)
+    } catch (err) {
+      console.error('Failed to receive tab transfer:', err)
+      window.api.rejectTabTransfer(payload.transferId)
+    }
+  }
+
   /** 新建标签页，不打扰当前文档 */
   function newFile(): void {
     const active = docs.activeDoc
@@ -223,7 +337,7 @@ export function useFile(): FileActions {
       if (!(await closeOne(doc))) return
     }
 
-    // 关闭最后一个标签页时一并关闭主窗口（所有未保存修改已在此前确认）
+    // 关闭最后一个标签页时一并关闭当前编辑窗口（所有未保存修改已在此前确认）
     if (docs.docs.length === 0) {
       window.api.close()
     }
@@ -235,7 +349,7 @@ export function useFile(): FileActions {
     if (!doc) return
     if (!(await closeOne(doc))) return
 
-    // 关闭最后一个标签页时一并关闭主窗口（所有未保存修改已在此前确认）
+    // 关闭最后一个标签页时一并关闭当前编辑窗口（所有未保存修改已在此前确认）
     if (docs.docs.length === 0) {
       window.api.close()
     }
@@ -330,6 +444,10 @@ export function useFile(): FileActions {
     closeTabs,
     refreshFile,
     applyExternalContent,
-    showInFolder
+    showInFolder,
+    moveTabToNewWindow,
+    moveTabToTargetWindow,
+    moveTabToWindow,
+    moveAllTabsToWindow
   }
 }

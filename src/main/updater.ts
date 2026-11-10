@@ -1,4 +1,5 @@
 import { app, BrowserWindow, net } from 'electron'
+import type { WebContents } from 'electron'
 import { autoUpdater, type UpdateInfo, type ProgressInfo } from 'electron-updater'
 import { is } from '@electron-toolkit/utils'
 import { existsSync, readFileSync } from 'fs'
@@ -79,10 +80,12 @@ let state: UpdateState = {
 let initialized = false
 let beforeInstall: (() => void) | null = null
 let onInstallFailed: (() => void) | null = null
-let getMainWindow: (() => BrowserWindow | null) | null = null
+let isEditorWindowSender: ((contents: WebContents) => boolean) | null = null
+let requestInstall: (() => Promise<boolean>) | null = null
 /** 更新详情窗口（唯一实例，重复打开时聚焦已有窗口） */
 let updateWindow: BrowserWindow | null = null
 let periodicCheckTimer: ReturnType<typeof setInterval> | null = null
+let installRequestInProgress = false
 /** 当前 feed 指向的通道，用于给 update-available 的结果标注来源 */
 let activeCheckChannel: UpdateChannel = 'stable'
 /** 检测过程中用户切换了 Beta 偏好：本次检测结束后按新偏好再检测一次 */
@@ -417,6 +420,10 @@ function installUpdate(): boolean {
   }
 }
 
+function isUpdateWindowSender(contents: WebContents): boolean {
+  return !!updateWindow && !updateWindow.isDestroyed() && updateWindow.webContents === contents
+}
+
 /** 打开（或聚焦）独立的更新详情窗口 */
 function openUpdateWindow(): void {
   if (updateWindow && !updateWindow.isDestroyed()) {
@@ -455,19 +462,21 @@ function openUpdateWindow(): void {
   }
 }
 
-/**
- * 更新窗口或设置窗口请求安装：由主窗口负责处理未保存内容并保存会话，
- * 完成后主窗口再调用 update:install 真正退出安装。
- */
-function requestInstallFromToolWindow(): boolean {
-  if (state.status !== 'downloaded') return false
-  const win = getMainWindow?.()
-  if (!win || win.isDestroyed()) return false
-  if (win.isMinimized()) win.restore()
-  win.show()
-  win.focus()
-  win.webContents.send('update:install-request')
-  return true
+/** 所有编辑窗口关闭后，关闭全局更新详情工具窗口 */
+export function closeUpdateWindow(): void {
+  if (updateWindow && !updateWindow.isDestroyed()) updateWindow.close()
+}
+
+async function requestInstallFromWindow(): Promise<boolean> {
+  if (state.status !== 'downloaded' || installRequestInProgress) return false
+  installRequestInProgress = true
+  try {
+    const prepared = (await requestInstall?.()) ?? false
+    if (!prepared) return false
+    return installUpdate()
+  } finally {
+    installRequestInProgress = false
+  }
 }
 
 function bindEvents(): void {
@@ -568,16 +577,18 @@ function bindEvents(): void {
  */
 export function initAutoUpdater(
   options: {
+    isEditorWindowSender?: (contents: WebContents) => boolean
+    requestInstall?: () => Promise<boolean>
     beforeInstall?: () => void
     onInstallFailed?: () => void
-    getMainWindow?: () => BrowserWindow | null
   } = {}
 ): void {
   if (initialized) return
   initialized = true
   beforeInstall = options.beforeInstall ?? null
   onInstallFailed = options.onInstallFailed ?? null
-  getMainWindow = options.getMainWindow ?? null
+  isEditorWindowSender = options.isEditorWindowSender ?? null
+  requestInstall = options.requestInstall ?? null
 
   const currentVersion = app.getVersion()
   state = {
@@ -602,31 +613,32 @@ export function initAutoUpdater(
     return setBetaEnabled(enabled)
   })
   registerHandle('update:rollback-to-stable', (event) => {
-    const win = getMainWindow?.()
-    const isMainSender = !!win && !win.isDestroyed() && event.sender === win.webContents
-    if (!isMainSender && !isSettingsWindowSender(event.sender)) return state
+    if (!isEditorWindowSender?.(event.sender) && !isSettingsWindowSender(event.sender)) {
+      return state
+    }
     return rollbackToStable()
   })
-  // 只有主窗口能真正安装：它必须先完成未保存内容确认，
-  // 更新窗口必须走 update:request-install 转交主窗口
+  // 所有安装入口都由主进程统一协调所有编辑窗口，避免绕过未保存确认。
   registerHandle('update:install', (event) => {
-    const win = getMainWindow?.()
-    if (!win || win.isDestroyed() || event.sender !== win.webContents) return false
-    return installUpdate()
+    const allowed =
+      isEditorWindowSender?.(event.sender) ||
+      isSettingsWindowSender(event.sender) ||
+      isUpdateWindowSender(event.sender)
+    return allowed ? requestInstallFromWindow() : false
   })
   registerHandle('update:open-window', () => openUpdateWindow())
-  // 更新窗口自己的关闭按钮：只关闭发送请求的窗口；
-  // 主窗口不能借这个通道绕过关闭守卫，直接忽略
+  // 更新窗口自己的关闭按钮：只接受更新详情窗口，其他窗口调用直接忽略。
   registerOn('update:close-window', (event) => {
     const win = BrowserWindow.fromWebContents(event.sender)
-    if (!win || win === getMainWindow?.()) return
+    if (!win || !isUpdateWindowSender(event.sender)) return
     win.close()
   })
-  // 只接受更新窗口的转交请求；主窗口已有直接安装入口，不需要转交给自己
   registerHandle('update:request-install', (event) => {
-    const win = getMainWindow?.()
-    if (!win || win.isDestroyed() || event.sender === win.webContents) return false
-    return requestInstallFromToolWindow()
+    const allowed =
+      isEditorWindowSender?.(event.sender) ||
+      isSettingsWindowSender(event.sender) ||
+      isUpdateWindowSender(event.sender)
+    return allowed ? requestInstallFromWindow() : false
   })
 
   if (!is.dev) {

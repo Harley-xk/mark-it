@@ -14,7 +14,7 @@ import type { ThemeMode } from '../types'
 import ConfirmDialog from '../components/common/ConfirmDialog.vue'
 import VSCodeIntegration from '../components/settings/VSCodeIntegration.vue'
 
-type SettingsTab = 'appearance' | 'editor' | 'integration' | 'updates' | 'about'
+type SettingsTab = 'appearance' | 'editor' | 'integration' | 'updates' | 'about' | 'workspace'
 
 interface SearchEntry {
   tab: SettingsTab
@@ -32,13 +32,15 @@ const searchQuery = ref('')
 const searchInput = ref<HTMLInputElement | null>(null)
 const showRollbackConfirm = ref(false)
 const searchShortcutLabel = platform === 'darwin' ? '⌘ K' : 'Ctrl K'
+const newWindowShortcutLabel = platform === 'darwin' ? '⌘ ⇧ N' : 'Ctrl Shift N'
 
 const tabs: { id: SettingsTab; label: string; icon: string }[] = [
   { id: 'appearance', label: '外观', icon: 'palette' },
   { id: 'editor', label: '编辑与预览', icon: 'layout' },
   { id: 'integration', label: '编辑器集成', icon: 'plug' },
   { id: 'updates', label: '更新', icon: 'refresh' },
-  { id: 'about', label: '关于', icon: 'info' }
+  { id: 'about', label: '关于', icon: 'info' },
+  { id: 'workspace', label: '窗口与标签', icon: 'window' }
 ]
 
 const pageCopy: Record<SettingsTab, { title: string; description: string }> = {
@@ -61,6 +63,10 @@ const pageCopy: Record<SettingsTab, { title: string; description: string }> = {
   about: {
     title: '关于',
     description: '当前版本、运行通道和 MarkIt 的基本信息。'
+  },
+  workspace: {
+    title: '窗口与标签',
+    description: '每个编辑窗口拥有独立的标签与滚动状态；主题和预览样式等偏好全局同步。'
   }
 }
 
@@ -112,6 +118,12 @@ const searchEntries: SearchEntry[] = [
     label: '版本与项目信息',
     hint: '版本、许可证和项目主页',
     keywords: 'about version license github 关于 版本'
+  },
+  {
+    tab: 'workspace',
+    label: '新建编辑窗口',
+    hint: '在独立窗口打开另一组标签',
+    keywords: 'window tab new 窗口 标签 多窗口'
   }
 ]
 
@@ -286,6 +298,10 @@ function openExternal(url: string): void {
   void window.api.openExternal(url)
 }
 
+function createEditorWindow(): void {
+  void window.api.createWindow()
+}
+
 watch(
   () => app.themeMode,
   (mode) => {
@@ -350,7 +366,7 @@ onUnmounted(() => {
         <div class="nav-group">
           <div class="nav-group-label">应用</div>
           <button
-            v-for="tab in tabs.slice(0, 3)"
+            v-for="tab in tabs.slice(0, 2)"
             :key="tab.id"
             class="nav-item"
             :class="{ active: activeTab === tab.id }"
@@ -398,7 +414,7 @@ onUnmounted(() => {
         <div class="nav-group">
           <div class="nav-group-label">系统</div>
           <button
-            v-for="tab in tabs.slice(3)"
+            v-for="tab in tabs.slice(2, 5)"
             :key="tab.id"
             class="nav-item"
             :class="{ active: activeTab === tab.id }"
@@ -432,18 +448,17 @@ onUnmounted(() => {
         </div>
 
         <div class="nav-group">
-          <div class="nav-group-label">
-            <span>工作区</span>
-            <span class="future-label">多窗口</span>
-          </div>
-          <button class="nav-item" disabled>
+          <div class="nav-group-label">工作区</div>
+          <button
+            class="nav-item"
+            :class="{ active: activeTab === 'workspace' }"
+            @click="openSettingsTab('workspace')"
+          >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7">
               <rect x="3" y="4" width="18" height="16" rx="2"></rect>
-              <path d="M3 9h18"></path>
+              <path d="M3 9h18M12 9v11"></path>
             </svg>
             <span>窗口与标签</span>
-            <span class="nav-spacer"></span>
-            <span class="soon-badge">规划</span>
           </button>
         </div>
       </nav>
@@ -762,6 +777,52 @@ onUnmounted(() => {
             <div v-if="update.state.notes && update.hasUpdate" class="update-notes">
               <div class="update-notes-title">更新内容</div>
               <div class="update-notes-content">{{ update.state.notes }}</div>
+            </div>
+          </div>
+        </section>
+
+        <section v-else-if="activeTab === 'workspace'" class="panel">
+          <div class="section">
+            <div class="section-heading">
+              <div>
+                <h2>编辑窗口</h2>
+                <p>每个窗口拥有自己的标签页、布局、滚动位置和缩放比例。</p>
+              </div>
+              <button class="primary-button" @click="createEditorWindow">新建窗口</button>
+            </div>
+
+            <div class="setting-card about-rows">
+              <div class="setting-row">
+                <div class="setting-copy">
+                  <h3>迁移标签</h3>
+                  <p>
+                    右键标签可打开新窗口或移动到已有窗口；拖到其他窗口会直接迁入，拖到窗口外空白区域会创建新窗口。目标确认前源标签不会被删除。
+                  </p>
+                </div>
+                <span class="status-badge">{{ newWindowShortcutLabel }}</span>
+              </div>
+              <div class="setting-row">
+                <div class="setting-copy">
+                  <h3>窗口恢复</h3>
+                  <p>关闭应用后会恢复仍保留的编辑窗口及其标签、激活项、布局和窗口位置。</p>
+                </div>
+              </div>
+              <div class="setting-row">
+                <div class="setting-copy">
+                  <h3>全局与窗口状态</h3>
+                  <p>主题、预览样式和预览宽度全局同步；标签内容、布局与窗口几何按窗口独立保存。</p>
+                </div>
+              </div>
+            </div>
+
+            <div class="info-strip">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                <circle cx="12" cy="12" r="9"></circle>
+                <path d="M12 11v5M12 8h.01"></path>
+              </svg>
+              <span>
+                设置窗口和更新详情窗口始终是全局单实例；关闭其中一个编辑窗口不会关闭其他编辑窗口。
+              </span>
             </div>
           </div>
         </section>

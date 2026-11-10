@@ -77,7 +77,7 @@ export const useAppStore = defineStore('app', () => {
   }
   mediaQuery.addEventListener('change', onSystemThemeChange)
 
-  /** 设置窗口与主窗口各自持有 store；通过 storage 事件同步全局偏好 */
+  /** 每个应用窗口各自持有 store；通过 storage 事件同步全局偏好 */
   window.addEventListener('storage', (event) => {
     if (event.storageArea && event.storageArea !== localStorage) return
     if (event.key !== null && !APP_STORAGE_KEYS.has(event.key)) return

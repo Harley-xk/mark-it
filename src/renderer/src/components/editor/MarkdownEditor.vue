@@ -32,6 +32,7 @@ import { useScrollSync } from '../../composables/useScrollSync'
 import { registerScrollCapture } from '../../composables/session-scroll'
 import { findTextMatches, type TextMatch } from '../../utils/search'
 import { applySearchDecorations, searchMatchExtension } from '../../utils/editor-search'
+import { restoreEditorState } from '../../utils/editor-state-transfer'
 
 const editorStore = useEditorStore()
 const appStore = useAppStore()
@@ -192,6 +193,14 @@ function createState(
   })
 }
 
+/** 迁移标签首次挂载时恢复序列化状态；内容不一致或 JSON 损坏则安全回退 */
+function restoreTransferredState(id: string, content: string, isDark: boolean): EditorState | null {
+  const serialized = docs.takeSerializedEditorState(id)
+  if (!serialized) return null
+  const restored = restoreEditorState(serialized, buildExtensions(isDark))
+  return restored?.doc.toString() === content ? restored : null
+}
+
 function saveScroll(id: string): void {
   if (!view) return
   const top = view.scrollDOM.scrollTop
@@ -338,7 +347,10 @@ onMounted(() => {
 
   const isDark = appStore.resolvedTheme === 'dark'
   const cached = docs.getEditorState(doc.id)
-  const state = cached ?? createState(doc.content, isDark, doc)
+  const state =
+    cached ??
+    restoreTransferredState(doc.id, doc.content, isDark) ??
+    createState(doc.content, isDark, doc)
 
   view = new EditorView({ state, parent: editorRef.value })
 
@@ -421,7 +433,8 @@ watch(
         effects: themeCompartment.reconfigure(getThemeExtensions(isDark))
       })
     } else {
-      view.setState(createState(doc.content, isDark, doc))
+      const transferred = restoreTransferredState(newId, doc.content, isDark)
+      view.setState(transferred ?? createState(doc.content, isDark, doc))
     }
     isExternalUpdate = false
 

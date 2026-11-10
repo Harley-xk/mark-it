@@ -47,7 +47,7 @@ async function handleDownload(): Promise<void> {
 }
 
 async function handleInstall(): Promise<void> {
-  // 由主窗口处理未保存内容并保存会话，随后退出安装
+  // 由主进程协调所有编辑窗口保存会话，随后退出安装
   await update.requestInstall()
 }
 
@@ -55,7 +55,7 @@ function handleClose(): void {
   window.api.update.closeWindow()
 }
 
-// 与主窗口保持相同的主题；独立窗口无法共享 Pinia，从 localStorage / 系统主题读取
+// 与编辑窗口保持相同的主题；独立窗口无法共享 Pinia，从 localStorage / 系统主题读取
 const theme = ref<'light' | 'dark'>('dark')
 const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
 
@@ -69,7 +69,7 @@ resolveTheme()
 
 onMounted(() => {
   mediaQuery.addEventListener('change', resolveTheme)
-  // 主窗口切换主题时 localStorage 变化会同步到本窗口
+  // 编辑窗口切换主题时 localStorage 变化会同步到本窗口
   window.addEventListener('storage', resolveTheme)
 })
 

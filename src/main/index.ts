@@ -1,17 +1,29 @@
 import { app, shell, BrowserWindow, dialog, screen, protocol, net, nativeTheme } from 'electron'
-import type { IpcMainInvokeEvent } from 'electron'
+import type { IpcMainInvokeEvent, WebContents } from 'electron'
 import { dirname, join } from 'path'
 import { fileURLToPath, pathToFileURL } from 'url'
-import { readFile, rm, writeFile } from 'fs/promises'
+import { readFile, rename, rm, writeFile } from 'fs/promises'
 import { randomUUID } from 'crypto'
 import { existsSync, readFileSync, watchFile, unwatchFile } from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import type { PdfExportOptions } from '../shared/pdf-types'
-import { initAutoUpdater } from './updater'
+import { closeUpdateWindow, initAutoUpdater } from './updater'
 import { isAppUrl, registerHandle, registerOn } from './ipc-guard'
-import { parseSessionData } from './session-store'
+import { normalizeSessionTab, parseSessionData, parseSessionFile } from './session-store'
+import { capHistoryEntries, parseEditorHistoryFile } from './editor-history-store'
 import { closeSettingsWindow, isSettingsWindowSender, openSettingsWindow } from './settings-window'
+import { normalizeZoomFactor, parseWindowStateFile } from './window-state-store'
+import type { WindowState, WindowStateFile } from './window-state-store'
+import type { SessionData, SessionFile, SessionTab } from '../shared/session-types'
+import type { EditorHistoryFile } from '../shared/history-types'
+import type {
+  EditorWindowContext as RendererWindowContext,
+  EditorWindowSummary,
+  ExitPreparationResult,
+  TabTransferPayload,
+  TabTransferResult
+} from '../shared/window-types'
 import {
   createIntegrationRuntime,
   detectVSCodeInstallations,
@@ -54,140 +66,235 @@ protocol.registerSchemesAsPrivileged([
   }
 ])
 
-let mainWindow: BrowserWindow | null = null
-const pendingFilePaths: string[] = []
-/**
- * 渲染进程是否已注册文件打开监听（收到 renderer:ready 前一律排队）。
- * 不能用 webContents.isLoading() 判断：Electron 的 did-finish-load 触发时
- * isLoading() 仍可能为 true，此时发送会丢失/再次排队，表现为「首次双击
- * 打开文件时只恢复上次会话标签，文件未打开」
- */
-let rendererReady = false
-/** 关闭守卫放行标志：为真时 close 事件直接放行 */
-let allowClose = false
-/** 当前这次关闭是否由退出应用（macOS Cmd+Q / 菜单退出）触发，保存完成后需要真正退出 */
-let pendingQuit = false
-
-// --- 窗口大小/位置记忆 ---
-
-interface WindowState {
-  width: number
-  height: number
-  x?: number
-  y?: number
-  isMaximized: boolean
-  /** 页面缩放比例（1 表示 100%） */
+interface EditorWindowContext {
+  id: string
+  win: BrowserWindow
+  webContentsId: number
+  rendererReady: boolean
+  pendingFilePaths: string[]
+  watchedFilePath: string | null
+  watchedContent: string | null
+  watchSeq: number
+  externalChangeTimer: ReturnType<typeof setTimeout> | null
   zoomFactor: number
+  allowClose: boolean
+  saveStateTimer: ReturnType<typeof setTimeout> | null
+  pendingTransferId: string | null
+  pendingIncomingTransfer: TabTransferPayload | null
 }
+
+interface PendingTabTransfer {
+  transferId: string
+  sourceWebContentsId: number
+  sourceWindowId: string
+  targetWindowId: string
+  targetCreated: boolean
+  timeout: ReturnType<typeof setTimeout>
+  resolve: (result: TabTransferResult | null) => void
+}
+
+const editorWindows = new Map<number, EditorWindowContext>()
+const editorWindowIds = new Map<string, number>()
+const pendingTabTransfers = new Map<string, PendingTabTransfer>()
+let lastFocusedWindowId: string | null = null
+const preReadyFilePaths: string[] = []
+
+const sessionWindows = new Map<string, SessionData>()
+let sessionFileData: SessionFile = { version: 2, windows: [] }
+const editorHistoryFileData: EditorHistoryFile = { version: 1, windows: {} }
+let windowStateFileData: WindowStateFile = { version: 2, windows: {} }
 
 // --- 整窗缩放 ---
 
 const ZOOM_STEP = 0.1
-const MIN_ZOOM_FACTOR = 0.5
-const MAX_ZOOM_FACTOR = 3
-/** 当前缩放比例，主进程为准（页面重载会重置 webContents 的缩放，需要据此恢复） */
-let currentZoomFactor = 1
-
-/** 归一到 10% 步长并限制在允许范围内 */
-function normalizeZoomFactor(value: number): number {
-  if (!Number.isFinite(value)) return 1
-  return Math.min(MAX_ZOOM_FACTOR, Math.max(MIN_ZOOM_FACTOR, Math.round(value * 10) / 10))
-}
-
 const windowStateFile = join(app.getPath('userData'), 'window-state.json')
 /** 上次打开的标签页（含未保存内容），更新重启后据此恢复文档 */
 const sessionFile = join(app.getPath('userData'), 'session.json')
+const editorHistoryFile = join(app.getPath('userData'), 'editor-history.json')
 const vscodeIntegrationConfigFile = join(app.getPath('userData'), 'vscode-integration.json')
-const defaultWindowState: WindowState = {
+const DEFAULT_WINDOW_STATE: WindowState = {
   width: 1280,
   height: 800,
   isMaximized: false,
   zoomFactor: 1
 }
-let saveStateTimer: ReturnType<typeof setTimeout> | null = null
+const MAX_RESTORED_WINDOWS = 8
+let sessionWriteTimer: ReturnType<typeof setTimeout> | null = null
+let windowStateWriteTimer: ReturnType<typeof setTimeout> | null = null
+let historyWriteChain: Promise<void> = Promise.resolve()
+let appQuitAllowed = false
+let quitPreparationInProgress = false
+let installPreparationInProgress = false
 
-function loadWindowState(): WindowState {
+async function writeFileAtomic(targetPath: string, content: string): Promise<void> {
+  const tempPath = `${targetPath}.${randomUUID()}.tmp`
   try {
-    if (!existsSync(windowStateFile)) return { ...defaultWindowState }
-    const state = JSON.parse(readFileSync(windowStateFile, 'utf-8')) as Partial<WindowState>
-    if (
-      typeof state.width !== 'number' ||
-      !Number.isFinite(state.width) ||
-      typeof state.height !== 'number' ||
-      !Number.isFinite(state.height)
-    ) {
-      return { ...defaultWindowState }
-    }
-
-    const result: WindowState = {
-      // 不小于窗口最小尺寸限制
-      width: Math.max(800, state.width),
-      height: Math.max(600, state.height),
-      zoomFactor: normalizeZoomFactor(typeof state.zoomFactor === 'number' ? state.zoomFactor : 1),
-      isMaximized: state.isMaximized === true
-    }
-
-    const savedX = typeof state.x === 'number' ? state.x : NaN
-    const savedY = typeof state.y === 'number' ? state.y : NaN
-    if (Number.isFinite(savedX) && Number.isFinite(savedY)) {
-      // 校验窗口仍在已连接的显示器范围内（拔掉显示器后旧坐标可能位于屏幕外）
-      const wa = screen.getDisplayMatching({
-        x: savedX,
-        y: savedY,
-        width: result.width,
-        height: result.height
-      }).workArea
-      if (
-        savedX < wa.x + wa.width &&
-        savedX + result.width > wa.x &&
-        savedY < wa.y + wa.height &&
-        savedY + result.height > wa.y
-      ) {
-        result.x = savedX
-        result.y = savedY
-      }
-    }
-    return result
+    await writeFile(tempPath, content, 'utf-8')
+    await rename(tempPath, targetPath)
   } catch (err) {
-    console.error('Failed to load window state:', err)
-    return { ...defaultWindowState }
+    await rm(tempPath, { force: true }).catch(() => undefined)
+    throw err
   }
 }
 
-function saveWindowState(): void {
-  if (!mainWindow || mainWindow.isDestroyed()) return
-  // 最大化时保存还原后的普通尺寸，下次启动再恢复最大化状态
-  const bounds = mainWindow.getNormalBounds()
-  const state: WindowState = {
-    width: bounds.width,
-    height: bounds.height,
-    x: bounds.x,
-    y: bounds.y,
-    zoomFactor: currentZoomFactor,
-    isMaximized: mainWindow.isMaximized()
-  }
-  writeFile(windowStateFile, JSON.stringify(state), 'utf-8').catch((err) => {
+function persistSessionFile(): void {
+  sessionFileData.windows = Array.from(sessionWindows, ([id, data]) => ({ id, ...data }))
+  sessionFileData.lastFocusedWindowId = lastFocusedWindowId ?? undefined
+  void writeFileAtomic(sessionFile, JSON.stringify(sessionFileData)).catch((err) => {
+    console.error('Failed to save session:', err)
+  })
+}
+
+function queuePersistSessionFile(): void {
+  if (sessionWriteTimer) clearTimeout(sessionWriteTimer)
+  sessionWriteTimer = setTimeout(() => {
+    sessionWriteTimer = null
+    persistSessionFile()
+  }, 300)
+}
+
+function persistEditorHistoryFile(): Promise<void> {
+  const content = JSON.stringify(editorHistoryFileData)
+  const write = historyWriteChain
+    .catch(() => undefined)
+    .then(() => writeFileAtomic(editorHistoryFile, content))
+  historyWriteChain = write
+  return write
+}
+
+function queuePersistEditorHistoryFile(): void {
+  void persistEditorHistoryFile().catch((err) => {
+    console.error('Failed to save editor history:', err)
+  })
+}
+
+function persistWindowStateFile(): void {
+  windowStateFileData.lastFocusedWindowId = lastFocusedWindowId ?? undefined
+  void writeFileAtomic(windowStateFile, JSON.stringify(windowStateFileData)).catch((err) => {
     console.error('Failed to save window state:', err)
   })
 }
 
-function queueSaveWindowState(): void {
-  if (saveStateTimer) clearTimeout(saveStateTimer)
-  saveStateTimer = setTimeout(saveWindowState, 500)
+function queuePersistWindowStateFile(): void {
+  if (windowStateWriteTimer) clearTimeout(windowStateWriteTimer)
+  windowStateWriteTimer = setTimeout(() => {
+    windowStateWriteTimer = null
+    persistWindowStateFile()
+  }, 300)
+}
+
+function initializePersistedState(): void {
+  try {
+    if (existsSync(sessionFile)) {
+      const parsed = parseSessionFile(JSON.parse(readFileSync(sessionFile, 'utf-8')))
+      if (parsed) {
+        const usedIds = new Set<string>()
+        for (const window of parsed.windows.slice(0, MAX_RESTORED_WINDOWS)) {
+          let id = window.id
+          if (id === 'legacy' || usedIds.has(id)) id = randomUUID()
+          usedIds.add(id)
+          sessionWindows.set(id, { tabs: window.tabs, activeIndex: window.activeIndex })
+        }
+        sessionFileData = {
+          version: 2,
+          windows: [],
+          lastFocusedWindowId:
+            parsed.lastFocusedWindowId === 'legacy'
+              ? sessionWindows.keys().next().value
+              : parsed.lastFocusedWindowId
+        }
+      }
+    }
+  } catch (err) {
+    console.error('Failed to load session:', err)
+  }
+
+  try {
+    if (existsSync(editorHistoryFile)) {
+      const parsed = parseEditorHistoryFile(JSON.parse(readFileSync(editorHistoryFile, 'utf-8')))
+      if (parsed) {
+        for (const [windowId, entries] of Object.entries(parsed.windows)) {
+          if (sessionWindows.size === 0 || sessionWindows.has(windowId)) {
+            editorHistoryFileData.windows[windowId] = entries
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.error('Failed to load editor history:', err)
+  }
+
+  const firstWindowId =
+    sessionFileData.lastFocusedWindowId ?? sessionWindows.keys().next().value ?? randomUUID()
+  try {
+    if (existsSync(windowStateFile)) {
+      const parsed = parseWindowStateFile(
+        JSON.parse(readFileSync(windowStateFile, 'utf-8')),
+        firstWindowId
+      )
+      if (parsed) windowStateFileData = parsed
+    }
+  } catch (err) {
+    console.error('Failed to load window state:', err)
+  }
+
+  lastFocusedWindowId =
+    windowStateFileData.lastFocusedWindowId ??
+    sessionFileData.lastFocusedWindowId ??
+    sessionWindows.keys().next().value ??
+    firstWindowId
+  if (
+    sessionWindows.size > 0 &&
+    (!lastFocusedWindowId || !sessionWindows.has(lastFocusedWindowId))
+  ) {
+    lastFocusedWindowId = sessionWindows.keys().next().value ?? firstWindowId
+  }
+  if (!sessionWindows.has(lastFocusedWindowId) && editorWindows.size === 0) {
+    // 只有旧窗口状态、没有会话时，firstWindowId 仍是首个窗口的稳定 ID。
+    lastFocusedWindowId = firstWindowId
+  }
+}
+
+function getEditorWindowBySender(contents: WebContents): EditorWindowContext | null {
+  const context = editorWindows.get(contents.id)
+  return context && !context.win.isDestroyed() ? context : null
+}
+
+function getFocusedEditorWindow(): EditorWindowContext | null {
+  if (lastFocusedWindowId) {
+    const id = editorWindowIds.get(lastFocusedWindowId)
+    const context = id ? editorWindows.get(id) : undefined
+    if (context && !context.win.isDestroyed()) return context
+  }
+  return Array.from(editorWindows.values()).find((context) => !context.win.isDestroyed()) ?? null
+}
+
+function focusEditorWindow(context: EditorWindowContext): void {
+  if (context.win.isMinimized()) context.win.restore()
+  context.win.show()
+  context.win.focus()
+}
+
+function isEditorWindowSender(contents: WebContents): boolean {
+  return !!getEditorWindowBySender(contents)
+}
+
+function windowForSender(event: IpcMainInvokeEvent): BrowserWindow | null {
+  return getEditorWindowBySender(event.sender)?.win ?? null
 }
 
 /** 应用缩放比例（整个页面一起缩放）并通知渲染进程、持久化 */
-function applyZoomFactor(factor: number): void {
-  currentZoomFactor = normalizeZoomFactor(factor)
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.setZoomFactor(currentZoomFactor)
-    mainWindow.webContents.send('window:zoom-changed', currentZoomFactor)
+function applyZoomFactor(context: EditorWindowContext, factor: number): void {
+  context.zoomFactor = normalizeZoomFactor(factor)
+  if (!context.win.isDestroyed()) {
+    context.win.webContents.setZoomFactor(context.zoomFactor)
+    context.win.webContents.send('window:zoom-changed', context.zoomFactor)
   }
-  queueSaveWindowState()
+  queueSaveWindowState(context)
 }
 
-function zoomBy(delta: number): void {
-  applyZoomFactor(currentZoomFactor + delta)
+function zoomBy(context: EditorWindowContext, delta: number): void {
+  applyZoomFactor(context, context.zoomFactor + delta)
 }
 
 /**
@@ -215,33 +322,38 @@ function extractFilePaths(argv: string[]): string[] {
   return paths
 }
 
+function queueFileForWindow(context: EditorWindowContext, filePath: string): void {
+  if (!context.pendingFilePaths.includes(filePath)) context.pendingFilePaths.push(filePath)
+}
+
 /**
- * 打开指定文件：读取内容并发送到渲染进程。
- * 渲染进程注册好监听（renderer:ready）前先缓存到 pendingFilePaths，
- * 否则「用 MarkIt 打开」在启动瞬间/二次启动时会丢失（表现为新文档没有打开）
+ * 打开指定文件：读取内容并发送到指定编辑窗口。
+ * 窗口注册好监听前先缓存在该窗口自己的队列，避免多窗口互相抢文件。
  */
-async function openFileAtPath(filePath: string): Promise<void> {
-  if (!rendererReady || !mainWindow || mainWindow.isDestroyed()) {
-    if (!pendingFilePaths.includes(filePath)) pendingFilePaths.push(filePath)
+async function openFileAtPath(filePath: string, target?: EditorWindowContext): Promise<void> {
+  const context = target ?? getFocusedEditorWindow() ?? createEditorWindow()
+  if (!context) return
+  if (context.rendererReady === false || context.win.isDestroyed()) {
+    queueFileForWindow(context, filePath)
     return
   }
   try {
     const content = await readFile(filePath, 'utf-8')
     // 读取期间页面可能开始重载，此时发送会丢，重新排队等下一次 ready
-    if (!rendererReady || !mainWindow || mainWindow.isDestroyed()) {
-      if (!pendingFilePaths.includes(filePath)) pendingFilePaths.push(filePath)
+    if (!editorWindows.get(context.webContentsId)?.rendererReady || context.win.isDestroyed()) {
+      queueFileForWindow(context, filePath)
       return
     }
-    mainWindow.webContents.send('open-file-from-argv', { path: filePath, content })
+    context.win.webContents.send('open-file-from-argv', { path: filePath, content })
   } catch (err) {
     console.error('Failed to open file from argv:', err)
   }
 }
 
 /** 按传入顺序依次打开（多个文件时最后一个是激活标签） */
-async function openFilesAtPaths(filePaths: string[]): Promise<void> {
+async function openFilesAtPaths(filePaths: string[], target?: EditorWindowContext): Promise<void> {
   for (const filePath of filePaths) {
-    await openFileAtPath(filePath)
+    await openFileAtPath(filePath, target)
   }
 }
 
@@ -252,10 +364,12 @@ async function openFilesAtPaths(filePaths: string[]): Promise<void> {
 app.on('open-file', (event, filePath) => {
   event.preventDefault()
   if (!/\.(?:md|markdown)$/i.test(filePath)) return
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    if (mainWindow.isMinimized()) mainWindow.restore()
-    mainWindow.focus()
+  if (!app.isReady()) {
+    if (!preReadyFilePaths.includes(filePath)) preReadyFilePaths.push(filePath)
+    return
   }
+  const target = getFocusedEditorWindow() ?? createEditorWindow()
+  if (target) focusEditorWindow(target)
   void openFilesAtPaths([filePath])
 })
 
@@ -278,15 +392,6 @@ function getVSCodeIntegrationRuntime(): IntegrationRuntime {
 
 // --- 活跃文件监视 ---
 
-/** 当前监视的文件：只监视渲染进程活跃标签对应的那一个 */
-let watchedFilePath: string | null = null
-/** 最近一次已知的磁盘内容，用于过滤应用自身保存与无内容变化的 stat 抖动 */
-let watchedContent: string | null = null
-/** 监视切换序号：切换后丢弃旧的异步读取结果 */
-let watchSeq = 0
-/** 外部变更的短防抖：避免读到其他程序尚未写完的中间内容 */
-let externalChangeTimer: ReturnType<typeof setTimeout> | null = null
-
 /** Windows 下路径大小写、分隔符不敏感 */
 function sameFilePath(a: string, b: string): boolean {
   const normalize = (p: string): string =>
@@ -294,7 +399,11 @@ function sameFilePath(a: string, b: string): boolean {
   return normalize(a) === normalize(b)
 }
 
-async function pushExternalChange(filePath: string, seq: number): Promise<void> {
+async function pushExternalChange(
+  context: EditorWindowContext,
+  filePath: string,
+  seq: number
+): Promise<void> {
   let content: string
   try {
     content = await readFile(filePath, 'utf-8')
@@ -303,11 +412,17 @@ async function pushExternalChange(filePath: string, seq: number): Promise<void> 
     return
   }
   // 读取期间可能已经切换了监视目标，丢弃过期结果
-  if (seq !== watchSeq || !watchedFilePath || !sameFilePath(filePath, watchedFilePath)) return
-  if (content === watchedContent) return
-  watchedContent = content
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send('file:external-change', { path: filePath, content })
+  if (
+    seq !== context.watchSeq ||
+    !context.watchedFilePath ||
+    !sameFilePath(filePath, context.watchedFilePath)
+  ) {
+    return
+  }
+  if (content === context.watchedContent) return
+  context.watchedContent = content
+  if (!context.win.isDestroyed()) {
+    context.win.webContents.send('file:external-change', { path: filePath, content })
   }
 }
 
@@ -316,40 +431,111 @@ async function pushExternalChange(filePath: string, seq: number): Promise<void> 
  * 用 watchFile 轮询而不是 fs.watch：编辑器常用的「写临时文件再重命名」
  * 在 Windows 上会让 fs.watch 丢失目标，watchFile 只关心最终文件的 stat，更可靠。
  */
-function setWatchedFile(filePath: string | null): void {
-  if (filePath === watchedFilePath) return
-  if (watchedFilePath) unwatchFile(watchedFilePath)
-  if (externalChangeTimer) {
-    clearTimeout(externalChangeTimer)
-    externalChangeTimer = null
+function setWatchedFile(context: EditorWindowContext, filePath: string | null): void {
+  if (filePath === context.watchedFilePath) return
+  if (context.watchedFilePath) unwatchFile(context.watchedFilePath)
+  if (context.externalChangeTimer) {
+    clearTimeout(context.externalChangeTimer)
+    context.externalChangeTimer = null
   }
 
-  watchedFilePath = filePath
-  watchedContent = null
-  const seq = ++watchSeq
+  context.watchedFilePath = filePath
+  context.watchedContent = null
+  const seq = ++context.watchSeq
   if (!filePath) return
 
   watchFile(filePath, { interval: 400 }, () => {
-    if (externalChangeTimer) clearTimeout(externalChangeTimer)
-    externalChangeTimer = setTimeout(() => {
-      externalChangeTimer = null
-      void pushExternalChange(filePath, seq)
+    if (context.externalChangeTimer) clearTimeout(context.externalChangeTimer)
+    context.externalChangeTimer = setTimeout(() => {
+      context.externalChangeTimer = null
+      void pushExternalChange(context, filePath, seq)
     }, 150)
   })
 }
 
-function createWindow(): void {
-  const windowState = loadWindowState()
-  const isMac = process.platform === 'darwin'
-  currentZoomFactor = windowState.zoomFactor
-  // 新窗口的渲染进程尚未注册监听，恢复打开的文件需重新排队等待 ready
-  rendererReady = false
-  // macOS 关闭窗口后进程仍驻留，Dock 重新开窗时必须复位放行标志，
-  // 否则新窗口的关闭会跳过未保存确认
-  allowClose = false
-  pendingQuit = false
+function isValidWindowBounds(state: WindowState): boolean {
+  if (state.x === undefined || state.y === undefined) return true
+  const workArea = screen.getDisplayMatching({
+    x: state.x,
+    y: state.y,
+    width: state.width,
+    height: state.height
+  }).workArea
+  return (
+    state.x < workArea.x + workArea.width &&
+    state.x + state.width > workArea.x &&
+    state.y < workArea.y + workArea.height &&
+    state.y + state.height > workArea.y
+  )
+}
 
-  mainWindow = new BrowserWindow({
+function resolveWindowState(windowId: string, source?: EditorWindowContext | null): WindowState {
+  const saved = windowStateFileData.windows[windowId]
+  if (saved && isValidWindowBounds(saved)) return { ...saved }
+
+  const display = source
+    ? screen.getDisplayMatching(source.win.getBounds())
+    : screen.getPrimaryDisplay()
+  const workArea = display.workArea
+  const width = Math.min(DEFAULT_WINDOW_STATE.width, workArea.width)
+  const height = Math.min(DEFAULT_WINDOW_STATE.height, workArea.height)
+  const offset = source ? 32 : 0
+  const x = source
+    ? Math.min(
+        Math.max(source.win.getBounds().x + offset, workArea.x),
+        workArea.x + workArea.width - width
+      )
+    : undefined
+  const y = source
+    ? Math.min(
+        Math.max(source.win.getBounds().y + offset, workArea.y),
+        workArea.y + workArea.height - height
+      )
+    : undefined
+  return {
+    ...DEFAULT_WINDOW_STATE,
+    width,
+    height,
+    ...(x !== undefined && y !== undefined ? { x, y } : {})
+  }
+}
+
+function saveWindowState(context: EditorWindowContext): void {
+  if (context.win.isDestroyed()) return
+  const bounds = context.win.getNormalBounds()
+  windowStateFileData.windows[context.id] = {
+    width: bounds.width,
+    height: bounds.height,
+    x: bounds.x,
+    y: bounds.y,
+    zoomFactor: context.zoomFactor,
+    isMaximized: context.win.isMaximized()
+  }
+  queuePersistWindowStateFile()
+}
+
+function queueSaveWindowState(context: EditorWindowContext): void {
+  if (context.saveStateTimer) clearTimeout(context.saveStateTimer)
+  context.saveStateTimer = setTimeout(() => {
+    context.saveStateTimer = null
+    saveWindowState(context)
+  }, 500)
+}
+
+interface CreateEditorWindowOptions {
+  id?: string
+  source?: EditorWindowContext | null
+  initialSession?: SessionData
+  pendingTransfer?: TabTransferPayload | null
+}
+
+function createEditorWindow(options: CreateEditorWindowOptions = {}): EditorWindowContext | null {
+  const isMac = process.platform === 'darwin'
+  let windowId = options.id ?? randomUUID()
+  while (editorWindowIds.has(windowId)) windowId = randomUUID()
+
+  const windowState = resolveWindowState(windowId, options.source)
+  const win = new BrowserWindow({
     width: windowState.width,
     height: windowState.height,
     ...(windowState.x !== undefined && windowState.y !== undefined
@@ -359,17 +545,14 @@ function createWindow(): void {
     minHeight: 600,
     show: false,
     autoHideMenuBar: true,
-    // macOS 需要保留窗口边框才能显示交通灯，不能使用 frame: false；
-    // Windows/Linux 使用无边框窗口 + 系统窗口按钮 overlay
     ...(isMac
       ? {
-          titleBarStyle: 'hidden',
-          // 与 36px 标题栏垂直居中
+          titleBarStyle: 'hidden' as const,
           trafficLightPosition: { x: 16, y: 12 }
         }
       : {
           frame: false,
-          titleBarStyle: 'hidden',
+          titleBarStyle: 'hidden' as const,
           titleBarOverlay: {
             color: '#00000000',
             symbolColor: '#888',
@@ -385,15 +568,37 @@ function createWindow(): void {
     }
   })
 
-  if (windowState.isMaximized) {
-    mainWindow.maximize()
+  const context: EditorWindowContext = {
+    id: windowId,
+    win,
+    webContentsId: win.webContents.id,
+    rendererReady: false,
+    pendingFilePaths: [],
+    watchedFilePath: null,
+    watchedContent: null,
+    watchSeq: 0,
+    externalChangeTimer: null,
+    zoomFactor: windowState.zoomFactor,
+    allowClose: false,
+    saveStateTimer: null,
+    pendingTransferId: options.pendingTransfer?.transferId ?? null,
+    pendingIncomingTransfer: options.pendingTransfer ?? null
   }
+  editorWindows.set(context.webContentsId, context)
+  editorWindowIds.set(windowId, context.webContentsId)
+  if (options.initialSession) sessionWindows.set(windowId, options.initialSession)
 
-  // 键盘事件先于页面和菜单快捷键到达这里：
-  // 1) macOS 默认菜单的 Cmd+W 会关闭窗口并吞掉渲染进程的 keydown，
-  //    拦截后转交渲染进程关闭当前标签页；
-  // 2) 整窗缩放 Ctrl/Cmd + = / -，Ctrl/Cmd + 0 恢复 100%。
-  mainWindow.webContents.on('before-input-event', (event, input) => {
+  if (windowState.isMaximized) win.maximize()
+
+  win.on('focus', () => {
+    lastFocusedWindowId = context.id
+    windowStateFileData.lastFocusedWindowId = context.id
+    sessionFileData.lastFocusedWindowId = context.id
+    queuePersistWindowStateFile()
+    queuePersistSessionFile()
+  })
+
+  win.webContents.on('before-input-event', (event, input) => {
     if (input.type !== 'keyDown') return
 
     if (
@@ -405,93 +610,305 @@ function createWindow(): void {
       input.key.toLowerCase() === 'w'
     ) {
       event.preventDefault()
-      mainWindow?.webContents.send('shortcut:close-tab')
+      context.win.webContents.send('shortcut:close-tab')
       return
     }
 
-    // macOS 用 Cmd，Windows/Linux 用 Ctrl
     const zoomModifier = isMac ? input.meta : input.control
     if (!zoomModifier || input.alt) return
 
     if (input.key === '+' || input.key === '=') {
       event.preventDefault()
-      zoomBy(ZOOM_STEP)
+      zoomBy(context, ZOOM_STEP)
     } else if (input.key === '-' || input.key === '_') {
       event.preventDefault()
-      zoomBy(-ZOOM_STEP)
+      zoomBy(context, -ZOOM_STEP)
     } else if (input.key === '0' && !input.shift) {
       event.preventDefault()
-      applyZoomFactor(1)
+      applyZoomFactor(context, 1)
     }
   })
 
-  mainWindow.on('enter-full-screen', () => {
-    mainWindow?.webContents.send('window:fullscreen', true)
+  win.on('enter-full-screen', () => {
+    if (!context.win.isDestroyed()) context.win.webContents.send('window:fullscreen', true)
   })
-  mainWindow.on('leave-full-screen', () => {
-    mainWindow?.webContents.send('window:fullscreen', false)
-  })
-
-  mainWindow.on('ready-to-show', () => {
-    mainWindow!.show()
+  win.on('leave-full-screen', () => {
+    if (!context.win.isDestroyed()) context.win.webContents.send('window:fullscreen', false)
   })
 
-  // 窗口尺寸/位置变化时防抖保存；关闭时兜底保存一次
-  mainWindow.on('resize', queueSaveWindowState)
-  mainWindow.on('move', queueSaveWindowState)
-  mainWindow.on('close', saveWindowState)
-  // 窗口销毁后停止监视，避免 macOS 关闭窗口后仍占用文件句柄
-  mainWindow.on('closed', () => {
-    setWatchedFile(null)
-    closeSettingsWindow()
+  win.on('ready-to-show', () => {
+    if (!context.win.isDestroyed()) context.win.show()
   })
 
-  // 窗口关闭前询问渲染进程是否有未保存修改。
-  // 若是用户退出应用（Cmd+Q / 菜单退出）触发的关闭，把退出意图一并传下去：
-  // 渲染进程保存完成后调 window:close 时带回，主进程再真正退出。
-  mainWindow.on('close', (e) => {
-    if (allowClose) {
-      pendingQuit = false
-      return
+  win.on('resize', () => queueSaveWindowState(context))
+  win.on('move', () => queueSaveWindowState(context))
+  win.on('close', () => saveWindowState(context))
+  win.on('closed', () => {
+    const senderId = context.webContentsId
+    const remainingBeforeDelete = editorWindows.size
+    if (context.externalChangeTimer) clearTimeout(context.externalChangeTimer)
+    if (context.saveStateTimer) clearTimeout(context.saveStateTimer)
+    setWatchedFile(context, null)
+    editorWindows.delete(senderId)
+    editorWindowIds.delete(context.id)
+
+    for (const [requestId, preparation] of pendingExitPreparations) {
+      if (!preparation.pendingWebContents.delete(senderId)) continue
+      pendingExitPreparations.delete(requestId)
+      preparation.resolve(false)
     }
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      e.preventDefault()
-      const quit = pendingQuit
-      // 一次性标志：用户取消时不会残留，避免下一次普通关窗误退出应用
-      pendingQuit = false
-      mainWindow.webContents.send('window:close-request', { quit })
+
+    const failedTransfers = Array.from(pendingTabTransfers.values())
+      .filter((transfer) => transfer.targetWindowId === context.id)
+      .map((transfer) => transfer.transferId)
+    for (const transferId of failedTransfers) notifyTabTransferFailure(transferId)
+
+    if (!appQuitAllowed && remainingBeforeDelete > 1) {
+      sessionWindows.delete(context.id)
+      delete editorHistoryFileData.windows[context.id]
+      delete windowStateFileData.windows[context.id]
+      persistSessionFile()
+      queuePersistEditorHistoryFile()
+      persistWindowStateFile()
+    }
+
+    if (lastFocusedWindowId === context.id) {
+      lastFocusedWindowId = getFocusedEditorWindow()?.id ?? null
+    }
+    if (editorWindows.size === 0) {
+      closeSettingsWindow()
+      closeUpdateWindow()
     }
   })
 
-  mainWindow.webContents.setWindowOpenHandler((details) => {
+  win.on('close', (event) => {
+    if (context.allowClose) return
+    if (!context.win.isDestroyed()) {
+      event.preventDefault()
+      context.win.webContents.send('window:close-request', { quit: false })
+    }
+  })
+
+  win.webContents.setWindowOpenHandler((details) => {
     openLinkExternally(details.url)
     return { action: 'deny' }
   })
 
-  // 兜底：预览中的链接若没被渲染进程拦截，也不能把主窗口导航到外部地址
-  // （导航后应用界面丢失且无法返回，表现为窗口卡死）
-  mainWindow.webContents.on('will-navigate', (event, url) => {
+  win.webContents.on('will-navigate', (event, url) => {
     if (isAppUrl(url)) return
     event.preventDefault()
     openLinkExternally(url)
   })
 
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-    mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
+    void win.loadURL(process.env['ELECTRON_RENDERER_URL'])
   } else {
-    mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+    void win.loadFile(join(__dirname, '../renderer/index.html'))
   }
 
-  // 页面重载后渲染进程的监听会丢失，需等待它重新上报 ready 再放行排队文件
-  mainWindow.webContents.on('did-start-loading', () => {
-    rendererReady = false
+  win.webContents.on('did-start-loading', () => {
+    context.rendererReady = false
   })
 
-  mainWindow.webContents.on('did-finish-load', () => {
-    // 页面加载后恢复缩放比例（刷新/重载会把 webContents 的缩放重置为 100%）
-    mainWindow?.webContents.setZoomFactor(currentZoomFactor)
-    mainWindow?.webContents.send('window:zoom-changed', currentZoomFactor)
+  win.webContents.on('did-finish-load', () => {
+    if (context.win.isDestroyed()) return
+    context.win.webContents.setZoomFactor(context.zoomFactor)
+    context.win.webContents.send('window:zoom-changed', context.zoomFactor)
   })
+
+  return context
+}
+
+interface PendingExitPreparation {
+  pendingWebContents: Set<number>
+  resolve: (ok: boolean) => void
+}
+
+const pendingExitPreparations = new Map<string, PendingExitPreparation>()
+
+function requestEditorPreparation(kind: 'quit' | 'install'): Promise<boolean> {
+  const targets = Array.from(editorWindows.values()).filter(
+    (context) => context.rendererReady && !context.win.isDestroyed()
+  )
+  if (targets.length === 0) return Promise.resolve(true)
+
+  const requestId = randomUUID()
+  const actionLabel = kind === 'install' ? '安装更新' : '退出应用'
+  return new Promise((resolve) => {
+    pendingExitPreparations.set(requestId, {
+      pendingWebContents: new Set(targets.map((context) => context.win.webContents.id)),
+      resolve
+    })
+    for (const context of targets) {
+      context.win.webContents.send('app:prepare-exit', { requestId, kind, actionLabel })
+    }
+  })
+}
+
+function setAllEditorWindowsReadyToClose(): void {
+  for (const context of editorWindows.values()) context.allowClose = true
+}
+
+async function prepareForInstall(): Promise<boolean> {
+  if (installPreparationInProgress) return false
+  installPreparationInProgress = true
+  try {
+    const prepared = await requestEditorPreparation('install')
+    if (prepared) setAllEditorWindowsReadyToClose()
+    return prepared
+  } finally {
+    installPreparationInProgress = false
+  }
+}
+
+const MAX_EDITOR_STATE_TRANSFER_CHARS = 4 * 1024 * 1024
+
+function normalizeTabTransferPayload(payload: unknown): TabTransferPayload | null {
+  if (!payload || typeof payload !== 'object') return null
+  const request = payload as Partial<TabTransferPayload>
+  if (typeof request.transferId !== 'string' || request.transferId.length === 0) return null
+  const tab = normalizeSessionTab(request.tab)
+  if (!tab) return null
+
+  let editorStateJson = request.editorStateJson
+  if (editorStateJson !== undefined) {
+    try {
+      if (JSON.stringify(editorStateJson).length > MAX_EDITOR_STATE_TRANSFER_CHARS) {
+        editorStateJson = undefined
+      }
+    } catch {
+      editorStateJson = undefined
+    }
+  }
+  return { transferId: request.transferId, tab, editorStateJson }
+}
+
+function notifyTabTransferFailure(transferId: string): void {
+  const transfer = pendingTabTransfers.get(transferId)
+  if (!transfer) return
+  clearTimeout(transfer.timeout)
+  pendingTabTransfers.delete(transferId)
+  const targetSenderId = editorWindowIds.get(transfer.targetWindowId)
+  const target = targetSenderId ? editorWindows.get(targetSenderId) : undefined
+  if (target && !target.win.isDestroyed()) {
+    target.pendingTransferId = null
+    target.pendingIncomingTransfer = null
+    if (transfer.targetCreated) target.win.destroy()
+  }
+  if (transfer.targetCreated) {
+    sessionWindows.delete(transfer.targetWindowId)
+    delete windowStateFileData.windows[transfer.targetWindowId]
+  }
+  transfer.resolve(null)
+  queuePersistSessionFile()
+  queuePersistWindowStateFile()
+}
+
+function createBlankSession(): SessionData {
+  const tab: SessionTab = {
+    path: null,
+    name: 'untitled.md',
+    content: '',
+    isModified: false,
+    cursorLine: 1,
+    cursorCol: 1,
+    eol: '\n',
+    bom: false
+  }
+  return { tabs: [tab], activeIndex: 0 }
+}
+
+function findEditorWindowAtCursor(source: EditorWindowContext): EditorWindowContext | null {
+  const point = screen.getCursorScreenPoint()
+  for (const context of editorWindows.values()) {
+    if (context.id === source.id || context.win.isDestroyed()) continue
+    if (!context.win.isVisible() || context.win.isMinimized()) continue
+    if (!context.rendererReady || context.pendingTransferId) continue
+    const bounds = context.win.getBounds()
+    if (
+      point.x >= bounds.x &&
+      point.x < bounds.x + bounds.width &&
+      point.y >= bounds.y &&
+      point.y < bounds.y + bounds.height
+    ) {
+      return context
+    }
+  }
+  return null
+}
+
+function startTabTransfer(
+  source: EditorWindowContext,
+  payload: TabTransferPayload,
+  target: EditorWindowContext | null
+): Promise<TabTransferResult | null> {
+  const createdTarget = !target
+  const transferTarget =
+    target ??
+    createEditorWindow({
+      source,
+      initialSession: { tabs: [payload.tab], activeIndex: 0 },
+      pendingTransfer: payload
+    })
+  if (!transferTarget) return Promise.resolve(null)
+  if (transferTarget.pendingTransferId && transferTarget.pendingTransferId !== payload.transferId) {
+    if (createdTarget) transferTarget.win.destroy()
+    return Promise.resolve(null)
+  }
+
+  return new Promise((resolve) => {
+    const timeout = setTimeout(() => notifyTabTransferFailure(payload.transferId), 5000)
+    pendingTabTransfers.set(payload.transferId, {
+      transferId: payload.transferId,
+      sourceWebContentsId: source.win.webContents.id,
+      sourceWindowId: source.id,
+      targetWindowId: transferTarget.id,
+      targetCreated: createdTarget,
+      timeout,
+      resolve
+    })
+
+    if (!createdTarget) {
+      transferTarget.pendingTransferId = payload.transferId
+      transferTarget.pendingIncomingTransfer = payload
+      focusEditorWindow(transferTarget)
+      transferTarget.win.webContents.send('window:receive-tab-transfer', payload)
+    }
+    queuePersistSessionFile()
+  })
+}
+
+async function moveTabToNewWindow(
+  source: EditorWindowContext,
+  payload: unknown
+): Promise<TabTransferResult | null> {
+  const transfer = normalizeTabTransferPayload(payload)
+  return transfer ? startTabTransfer(source, transfer, null) : null
+}
+
+async function moveTabToTargetWindow(
+  source: EditorWindowContext,
+  payload: unknown
+): Promise<TabTransferResult | null> {
+  const transfer = normalizeTabTransferPayload(payload)
+  if (!transfer) return null
+  return startTabTransfer(source, transfer, findEditorWindowAtCursor(source))
+}
+
+async function moveTabToWindow(
+  source: EditorWindowContext,
+  payload: unknown,
+  targetWindowId: unknown
+): Promise<TabTransferResult | null> {
+  if (typeof targetWindowId !== 'string') return null
+  const transfer = normalizeTabTransferPayload(payload)
+  if (!transfer) return null
+  const targetSenderId = editorWindowIds.get(targetWindowId)
+  const target = targetSenderId ? editorWindows.get(targetSenderId) : undefined
+  if (!target || target.id === source.id || !target.rendererReady || target.pendingTransferId) {
+    return null
+  }
+  return startTabTransfer(source, transfer, target)
 }
 
 // --- 文档内链接处理 ---
@@ -533,7 +950,7 @@ function openLinkExternally(url: string): boolean {
       return revealPath(fileURLToPath(parsed))
     }
   } catch {
-    // 非法地址直接忽略，绝不交给主窗口导航
+    // 非法地址直接忽略，绝不交给编辑窗口导航
   }
   return false
 }
@@ -551,25 +968,21 @@ function sanitizeFileName(name: string, extension: string): string {
 }
 
 /**
- * 窗口控制类通道只接受主窗口调用。
- * 更新窗口共享同一份 preload，若不限制，它也能通过 window:close 绕过关闭守卫。
- */
-function isMainWindowSender(event: IpcMainInvokeEvent): boolean {
-  return !!mainWindow && !mainWindow.isDestroyed() && event.sender === mainWindow.webContents
-}
-
-/**
  * 渲染进程已注册文件打开监听。此前排队的文件（首次启动的命令行参数、
- * 启动期间到达的 second-instance 文件）在这里统一放行
+ * 启动期间到达的 second-instance 文件）在这里按窗口统一放行。
  */
-registerOn('renderer:ready', () => {
-  rendererReady = true
-  const queued = pendingFilePaths.splice(0)
-  if (queued.length > 0) void openFilesAtPaths(queued)
+registerOn('renderer:ready', (event) => {
+  const context = getEditorWindowBySender(event.sender)
+  if (!context) return
+  context.rendererReady = true
+  const queued = context.pendingFilePaths.splice(0)
+  if (queued.length > 0) void openFilesAtPaths(queued, context)
 })
 
-registerHandle('dialog:openFiles', async () => {
-  const result = await dialog.showOpenDialog(mainWindow!, {
+registerHandle('dialog:openFiles', async (event) => {
+  const parent = windowForSender(event)
+  if (!parent) return []
+  const result = await dialog.showOpenDialog(parent, {
     properties: ['openFile', 'multiSelections'],
     filters: [{ name: 'Markdown', extensions: ['md', 'markdown', 'txt'] }]
   })
@@ -589,7 +1002,11 @@ registerHandle('dialog:openFiles', async () => {
 registerHandle('file:save', async (_e, filePath: string, content: string) => {
   await writeFile(filePath, content, 'utf-8')
   // 应用自身的写入不是外部修改：同步已知版本，避免监视器回环通知
-  if (watchedFilePath && sameFilePath(filePath, watchedFilePath)) watchedContent = content
+  for (const context of editorWindows.values()) {
+    if (context.watchedFilePath && sameFilePath(filePath, context.watchedFilePath)) {
+      context.watchedContent = content
+    }
+  }
   return true
 })
 
@@ -604,8 +1021,10 @@ registerHandle('file:read', async (_e, filePath: string) => {
 })
 
 /** 只监视渲染进程当前活跃标签的文件；切换标签时由渲染进程重新指定 */
-registerHandle('file:watch', (_e, filePath: string | null) => {
-  setWatchedFile(typeof filePath === 'string' && filePath.length > 0 ? filePath : null)
+registerHandle('file:watch', (event, filePath: string | null) => {
+  const context = getEditorWindowBySender(event.sender)
+  if (!context) return false
+  setWatchedFile(context, typeof filePath === 'string' && filePath.length > 0 ? filePath : null)
   return true
 })
 
@@ -624,8 +1043,10 @@ registerHandle('shell:openExternal', (_e, url: string) => {
 /** 保存预览中导出的图片（Mermaid 图表下载） */
 registerHandle(
   'dialog:saveImage',
-  async (_e, fileName: string, data: Uint8Array, extension: 'svg' | 'png') => {
-    const result = await dialog.showSaveDialog(mainWindow!, {
+  async (event, fileName: string, data: Uint8Array, extension: 'svg' | 'png') => {
+    const parent = windowForSender(event)
+    if (!parent) return null
+    const result = await dialog.showSaveDialog(parent, {
       defaultPath: fileName,
       filters: [{ name: extension.toUpperCase(), extensions: [extension] }]
     })
@@ -635,34 +1056,48 @@ registerHandle(
   }
 )
 
-/** 会话（标签页）读写：用于更新重启后恢复上次打开的文档 */
-registerHandle('session:load', async () => {
-  try {
-    if (!existsSync(sessionFile)) return null
-    return parseSessionData(JSON.parse(await readFile(sessionFile, 'utf-8')))
-  } catch (err) {
-    console.error('Failed to load session:', err)
-    return null
-  }
+/** 会话（标签页）读写：每个编辑窗口只读写自己的切片 */
+registerHandle('session:load', (event) => {
+  const context = getEditorWindowBySender(event.sender)
+  if (!context) return null
+  return sessionWindows.get(context.id) ?? null
 })
 
-registerHandle('session:save', async (_e, data: unknown) => {
+registerHandle('session:save', (event, data: unknown) => {
+  const context = getEditorWindowBySender(event.sender)
+  if (!context) return false
+  const parsed = parseSessionData(data)
+  if (!parsed) return false
+  sessionWindows.set(context.id, parsed)
+  queuePersistSessionFile()
+  return true
+})
+
+registerHandle('history:load', (event) => {
+  const context = getEditorWindowBySender(event.sender)
+  return context ? (editorHistoryFileData.windows[context.id] ?? {}) : {}
+})
+
+registerHandle('history:save', async (event, entries: unknown) => {
+  const context = getEditorWindowBySender(event.sender)
+  if (!context) return false
+  editorHistoryFileData.windows[context.id] = capHistoryEntries(entries)
   try {
-    await writeFile(sessionFile, JSON.stringify(data), 'utf-8')
+    await persistEditorHistoryFile()
     return true
   } catch (err) {
-    console.error('Failed to save session:', err)
+    console.error('Failed to save editor history:', err)
     return false
   }
 })
 
 registerHandle('integration:detect-vscode', async (event) => {
-  if (!isMainWindowSender(event) && !isSettingsWindowSender(event.sender)) return []
+  if (!isEditorWindowSender(event.sender) && !isSettingsWindowSender(event.sender)) return []
   return detectVSCodeInstallations({ runtime: getVSCodeIntegrationRuntime() })
 })
 
 registerHandle('integration:install-vscode', async (event, variant: unknown) => {
-  if (!isMainWindowSender(event) && !isSettingsWindowSender(event.sender)) {
+  if (!isEditorWindowSender(event.sender) && !isSettingsWindowSender(event.sender)) {
     return { ok: false, error: '不允许的调用来源', needsRestart: false }
   }
   if (variant !== 'stable' && variant !== 'insiders') {
@@ -672,7 +1107,7 @@ registerHandle('integration:install-vscode', async (event, variant: unknown) => 
 })
 
 registerHandle('integration:uninstall-vscode', async (event, variant: unknown) => {
-  if (!isMainWindowSender(event) && !isSettingsWindowSender(event.sender)) {
+  if (!isEditorWindowSender(event.sender) && !isSettingsWindowSender(event.sender)) {
     return { ok: false, error: '不允许的调用来源', needsRestart: false }
   }
   if (variant !== 'stable' && variant !== 'insiders') {
@@ -682,8 +1117,10 @@ registerHandle('integration:uninstall-vscode', async (event, variant: unknown) =
 })
 
 /** 只选择另存为路径，不写盘；渲染进程确认目标未被其他标签占用后再调用 file:save */
-registerHandle('dialog:savePath', async (_e, defaultFileName?: string) => {
-  const result = await dialog.showSaveDialog(mainWindow!, {
+registerHandle('dialog:savePath', async (event, defaultFileName?: string) => {
+  const parent = windowForSender(event)
+  if (!parent) return null
+  const result = await dialog.showSaveDialog(parent, {
     defaultPath: sanitizeFileName(defaultFileName || 'untitled.md', 'md'),
     filters: [{ name: 'Markdown', extensions: ['md'] }]
   })
@@ -717,8 +1154,10 @@ function buildPdfDefaultPath(fileName: string, sourcePath: string | null | undef
   return dir && dir !== '.' ? join(dir, base) : base
 }
 
-registerHandle('export:pdf', async (_e, html: string, options: PdfExportOptions) => {
-  const result = await dialog.showSaveDialog(mainWindow!, {
+registerHandle('export:pdf', async (event, html: string, options: PdfExportOptions) => {
+  const parent = windowForSender(event)
+  if (!parent) return null
+  const result = await dialog.showSaveDialog(parent, {
     defaultPath: buildPdfDefaultPath(options.fileName, options.sourcePath),
     filters: [{ name: 'PDF', extensions: ['pdf'] }]
   })
@@ -802,12 +1241,12 @@ registerHandle('export:pdf', async (_e, html: string, options: PdfExportOptions)
 })
 
 registerHandle('window:is-fullscreen', (event) => {
-  if (!isMainWindowSender(event)) return false
-  return mainWindow?.isFullScreen() ?? false
+  const context = getEditorWindowBySender(event.sender)
+  return context?.win.isFullScreen() ?? false
 })
 registerHandle('window:get-zoom', (event) => {
-  if (!isMainWindowSender(event)) return 1
-  return currentZoomFactor
+  const context = getEditorWindowBySender(event.sender)
+  return context?.zoomFactor ?? 1
 })
 /**
  * 同步原生外观主题。Chromium 依据 nativeTheme 的明暗选择窗口按钮的
@@ -817,7 +1256,7 @@ registerHandle('window:get-zoom', (event) => {
  */
 registerHandle('window:set-native-theme', (event, theme: 'light' | 'dark' | 'system') => {
   if (
-    (!isMainWindowSender(event) && !isSettingsWindowSender(event.sender)) ||
+    (!isEditorWindowSender(event.sender) && !isSettingsWindowSender(event.sender)) ||
     process.platform === 'darwin'
   ) {
     return
@@ -826,21 +1265,122 @@ registerHandle('window:set-native-theme', (event, theme: 'light' | 'dark' | 'sys
   nativeTheme.themeSource = theme
 })
 registerHandle('settings:open', (event) => {
-  // 当前只有一个编辑器窗口；多窗口改造时只替换此处的编辑器窗口来源判断。
-  if (!isMainWindowSender(event)) return false
+  if (!isEditorWindowSender(event.sender)) return false
   openSettingsWindow()
   return true
 })
-registerHandle('window:close', (event, quit = false) => {
-  if (!isMainWindowSender(event)) return false
-  allowClose = true
-  mainWindow?.close()
-  // 退出应用触发的关闭：窗口已关，继续完成退出（macOS 关窗默认不退出）
-  if (quit === true) setImmediate(() => app.quit())
+registerHandle('window:get-context', (event): RendererWindowContext | null => {
+  const context = getEditorWindowBySender(event.sender)
+  if (!context) return null
+  return { id: context.id, pendingTransferId: context.pendingTransferId }
+})
+registerHandle('window:create', (event) => {
+  const source = getEditorWindowBySender(event.sender)
+  if (!source) return false
+  return !!createEditorWindow({ source, initialSession: createBlankSession() })
+})
+registerHandle('window:move-tab-to-new', (event, payload: unknown) => {
+  const source = getEditorWindowBySender(event.sender)
+  if (!source) return null
+  return moveTabToNewWindow(source, payload)
+})
+registerHandle('window:move-tab-to-target', (event, payload: unknown) => {
+  const source = getEditorWindowBySender(event.sender)
+  if (!source) return null
+  return moveTabToTargetWindow(source, payload)
+})
+registerHandle('window:move-tab-to-window', (event, payload: unknown, windowId: unknown) => {
+  const source = getEditorWindowBySender(event.sender)
+  if (!source) return null
+  return moveTabToWindow(source, payload, windowId)
+})
+registerHandle('window:list', (event): EditorWindowSummary[] => {
+  const source = getEditorWindowBySender(event.sender)
+  if (!source) return []
+  const contexts = Array.from(editorWindows.values())
+  return contexts.flatMap((context, index) =>
+    context.id === source.id || context.win.isDestroyed()
+      ? []
+      : [{ id: context.id, title: `窗口 ${index + 1}` }]
+  )
+})
+registerHandle('window:take-pending-transfer', (event) => {
+  const context = getEditorWindowBySender(event.sender)
+  if (!context || !context.pendingTransferId) return null
+  return context.pendingIncomingTransfer
+})
+registerOn('window:ack-tab-transfer', (event, transferId: unknown) => {
+  const context = getEditorWindowBySender(event.sender)
+  if (!context || typeof transferId !== 'string') return
+  if (context.pendingTransferId !== transferId) return
+  const transfer = pendingTabTransfers.get(transferId)
+  if (!transfer || transfer.targetWindowId !== context.id) return
+
+  clearTimeout(transfer.timeout)
+  pendingTabTransfers.delete(transferId)
+  context.pendingTransferId = null
+  context.pendingIncomingTransfer = null
+  transfer.resolve({
+    transferId,
+    windowId: transfer.targetWindowId,
+    mode: transfer.targetCreated ? 'new' : 'existing'
+  })
+  queuePersistSessionFile()
+})
+registerOn('window:reject-tab-transfer', (event, transferId: unknown) => {
+  const context = getEditorWindowBySender(event.sender)
+  if (!context || typeof transferId !== 'string') return
+  const transfer = pendingTabTransfers.get(transferId)
+  if (!transfer || transfer.targetWindowId !== context.id) return
+  notifyTabTransferFailure(transferId)
+})
+registerHandle('window:get-cursor-screen', (event) => {
+  if (!isEditorWindowSender(event.sender)) return null
+  return screen.getCursorScreenPoint()
+})
+registerOn('app:prepare-exit-result', (event, payload: unknown) => {
+  if (!isEditorWindowSender(event.sender)) return
+  if (!payload || typeof payload !== 'object') return
+  const result = payload as Partial<ExitPreparationResult>
+  if (typeof result.requestId !== 'string' || typeof result.ok !== 'boolean') return
+  const preparation = pendingExitPreparations.get(result.requestId)
+  if (!preparation) return
+
+  preparation.pendingWebContents.delete(event.sender.id)
+  if (!result.ok) {
+    pendingExitPreparations.delete(result.requestId)
+    preparation.resolve(false)
+    return
+  }
+  if (preparation.pendingWebContents.size === 0) {
+    pendingExitPreparations.delete(result.requestId)
+    preparation.resolve(true)
+  }
+})
+registerHandle('window:close', (event) => {
+  const context = getEditorWindowBySender(event.sender)
+  if (!context) return false
+  context.allowClose = true
+  context.win.close()
   return true
 })
 
 // --- App lifecycle ---
+
+function createInitialEditorWindows(): void {
+  const restoredIds = Array.from(sessionWindows.keys()).slice(0, MAX_RESTORED_WINDOWS)
+  if (restoredIds.length === 0) {
+    const id = lastFocusedWindowId ?? randomUUID()
+    lastFocusedWindowId = id
+    createEditorWindow({ id })
+    return
+  }
+  for (const id of restoredIds) createEditorWindow({ id })
+}
+
+function ensureEditorWindow(): EditorWindowContext | null {
+  return getFocusedEditorWindow() ?? createEditorWindow()
+}
 
 // 单实例锁：如果已有实例在运行，将文件路径转发给已有实例
 const gotTheLock = app.requestSingleInstanceLock()
@@ -850,11 +1390,9 @@ if (!gotTheLock) {
   // 第二次启动时，把命令行参数中的文件路径发给已有实例
   app.on('second-instance', (_e, argv) => {
     const filePaths = extractFilePaths(argv)
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      if (mainWindow.isMinimized()) mainWindow.restore()
-      mainWindow.focus()
-    }
-    if (filePaths.length > 0) void openFilesAtPaths(filePaths)
+    const target = ensureEditorWindow()
+    if (target) focusEditorWindow(target)
+    if (filePaths.length > 0 && target) void openFilesAtPaths(filePaths, target)
   })
 
   app.whenReady().then(() => {
@@ -879,21 +1417,25 @@ if (!gotTheLock) {
       optimizer.watchWindowShortcuts(window)
     })
 
-    createWindow()
+    initializePersistedState()
+    createInitialEditorWindows()
 
     void writeVSCodeIntegrationConfig(getVSCodeIntegrationRuntime()).catch((error) => {
       console.warn('Failed to update VSCode integration config:', error)
     })
 
-    // 自动更新：安装前放行关闭守卫（窗口 close 事件默认会被拦截）
+    // 自动更新：先由主进程协调所有编辑窗口保存，再放行退出安装。
     initAutoUpdater({
+      isEditorWindowSender,
+      requestInstall: prepareForInstall,
       beforeInstall: () => {
-        allowClose = true
+        appQuitAllowed = true
+        setAllEditorWindowsReadyToClose()
       },
       onInstallFailed: () => {
-        allowClose = false
-      },
-      getMainWindow: () => mainWindow
+        appQuitAllowed = false
+        for (const context of editorWindows.values()) context.allowClose = false
+      }
     })
 
     // 每 300ms 将真实光标位置换算为页面坐标推送给渲染进程。
@@ -901,29 +1443,42 @@ if (!gotTheLock) {
     // 渲染进程收不到任何鼠标事件，CSS :hover / mousemove 都会卡住，
     // 只有主进程能拿到可靠的地面真值（用于滚动条悬停状态自愈）。
     setInterval(() => {
-      if (!mainWindow || mainWindow.isDestroyed() || !mainWindow.isVisible()) return
       const cursor = screen.getCursorScreenPoint()
-      const bounds = mainWindow.getContentBounds()
-      const zoom = mainWindow.webContents.getZoomFactor()
-      mainWindow.webContents.send('cursor-pos', {
-        x: (cursor.x - bounds.x) / zoom,
-        y: (cursor.y - bounds.y) / zoom
-      })
+      for (const context of editorWindows.values()) {
+        if (context.win.isDestroyed() || !context.win.isVisible()) continue
+        const bounds = context.win.getContentBounds()
+        const zoom = context.win.webContents.getZoomFactor()
+        context.win.webContents.send('cursor-pos', {
+          x: (cursor.x - bounds.x) / zoom,
+          y: (cursor.y - bounds.y) / zoom
+        })
+      }
     }, 300)
 
     // 处理首次启动时的命令行文件参数（页面未加载完成时由 openFileAtPath 暂存）
-    openFilesAtPaths(extractFilePaths(process.argv))
+    const startupFiles = [...preReadyFilePaths.splice(0), ...extractFilePaths(process.argv)]
+    if (startupFiles.length > 0)
+      void openFilesAtPaths(startupFiles, ensureEditorWindow() ?? undefined)
 
     app.on('activate', function () {
-      if (BrowserWindow.getAllWindows().length === 0) createWindow()
+      if (editorWindows.size === 0) createInitialEditorWindows()
     })
   })
 }
 
-// 退出应用（macOS Cmd+Q / 菜单退出）时先记录退出意图：
-// 窗口关闭守卫拦截后，渲染进程保存完成会带着该标志回来要求继续退出
-app.on('before-quit', () => {
-  pendingQuit = true
+// 退出应用时协调所有编辑窗口，而不是假定只有一个主窗口。
+app.on('before-quit', (event) => {
+  if (appQuitAllowed || editorWindows.size === 0) return
+  event.preventDefault()
+  if (quitPreparationInProgress) return
+  quitPreparationInProgress = true
+  void requestEditorPreparation('quit').then((prepared) => {
+    quitPreparationInProgress = false
+    if (!prepared) return
+    appQuitAllowed = true
+    setAllEditorWindowsReadyToClose()
+    app.quit()
+  })
 })
 
 app.on('window-all-closed', () => {

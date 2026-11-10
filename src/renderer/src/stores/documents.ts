@@ -11,6 +11,8 @@ import WELCOME_CONTENT from '../assets/welcome.md?raw'
 
 export interface DocumentTab {
   id: string
+  /** 跨会话稳定的编辑历史标识；与运行期标签 id 分离 */
+  historyId: string
   path: string | null
   name: string
   /** 编辑器内部内容，统一使用 LF 换行 */
@@ -73,9 +75,7 @@ function scrollOffset(value: unknown): number {
 
 /** 预览锚点下标；-1 表示没有记录（旧会话），恢复时退回像素 */
 function previewAnchor(value: unknown): number {
-  return typeof value === 'number' && Number.isFinite(value) && value >= 0
-    ? Math.floor(value)
-    : -1
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? Math.floor(value) : -1
 }
 
 export const useDocumentsStore = defineStore('documents', () => {
@@ -85,6 +85,8 @@ export const useDocumentsStore = defineStore('documents', () => {
   // CodeMirror 的 EditorState 体积大且不可序列化，放在响应式系统之外，
   // 用于保留每个标签的撤销历史、选区与滚动位置
   const editorStates = new Map<string, EditorState>()
+  /** 跨窗口迁移时的序列化 EditorState；首次挂载后取出并转为运行期 EditorState */
+  const serializedEditorStates = new Map<string, unknown>()
   const scrollPositions = new Map<string, ScrollPosition>()
   // 预览区与编辑区是两套独立的滚动容器，各自记录内容锚点
   const previewScrollPositions = new Map<string, PreviewScrollPosition>()
@@ -111,13 +113,19 @@ export const useDocumentsStore = defineStore('documents', () => {
     path: string | null,
     content: string,
     name?: string,
-    meta?: { eol?: LineEnding; bom?: boolean; layoutMode?: LayoutMode }
+    meta?: {
+      historyId?: string
+      eol?: LineEnding
+      bom?: boolean
+      layoutMode?: LayoutMode
+    }
   ): DocumentTab {
     // 编辑器内部统一使用 LF；原文件的换行符与 BOM 记在标签上，保存时还原
     const decoded = decodeText(content)
     const text = decoded.text
     return {
       id: nextDocId(),
+      historyId: meta?.historyId ?? crypto.randomUUID(),
       path,
       name: name || (path ? baseName(path) : uniqueUntitledName()),
       content: text,
@@ -167,39 +175,56 @@ export const useDocumentsStore = defineStore('documents', () => {
     return addDocument(filePath, content)
   }
 
+  function createRestoredTab(tab: SessionTab): DocumentTab {
+    // 会话文件可能来自旧版本或被手工改坏：逐字段兜底，避免恢复时崩溃
+    const path = typeof tab.path === 'string' && tab.path.length > 0 ? tab.path : null
+    const content = typeof tab.content === 'string' ? tab.content : ''
+    const name = typeof tab.name === 'string' && tab.name.length > 0 ? tab.name : undefined
+    // 旧会话没有 layoutMode，按最近一次使用的布局兜底
+    const layoutMode = isLayoutMode(tab.layoutMode) ? tab.layoutMode : loadSavedLayoutMode()
+    const doc = createTab(path, content, name, {
+      historyId: tab.historyId,
+      eol: tab.eol,
+      bom: tab.bom,
+      layoutMode
+    })
+    doc.isModified = tab.isModified === true
+    doc.cursorLine = typeof tab.cursorLine === 'number' && tab.cursorLine > 0 ? tab.cursorLine : 1
+    doc.cursorCol = typeof tab.cursorCol === 'number' && tab.cursorCol > 0 ? tab.cursorCol : 1
+    // 预填滚动缓存：标签首次挂载 / 激活时 restoreScroll 会读取这里
+    scrollPositions.set(doc.id, {
+      top: scrollAmount(tab.scrollTop),
+      anchor: scrollAmount(tab.scrollAnchor)
+    })
+    previewScrollPositions.set(doc.id, {
+      top: scrollAmount(tab.previewScrollTop),
+      // 旧会话没有锚点：-1 让恢复逻辑退回像素位置
+      anchor: previewAnchor(tab.previewScrollAnchor),
+      offset: scrollOffset(tab.previewScrollOffset)
+    })
+    return doc
+  }
+
   /**
    * 用上次会话的标签页替换当前内容（更新重启后恢复）。
    * 返回 false 表示会话为空、保持现有标签页不变
    */
-  function restoreSession(tabs: SessionTab[], activeIndex: number): boolean {
+  function restoreSession(
+    tabs: SessionTab[],
+    activeIndex: number,
+    serializedStates?: ReadonlyMap<number, unknown>
+  ): boolean {
     if (tabs.length === 0) return false
 
     editorStates.clear()
+    serializedEditorStates.clear()
     scrollPositions.clear()
     previewScrollPositions.clear()
 
-    const restored = tabs.map((tab) => {
-      // 会话文件可能来自旧版本或被手工改坏：逐字段兜底，避免恢复时崩溃
-      const path = typeof tab.path === 'string' && tab.path.length > 0 ? tab.path : null
-      const content = typeof tab.content === 'string' ? tab.content : ''
-      const name = typeof tab.name === 'string' && tab.name.length > 0 ? tab.name : undefined
-      // 旧会话没有 layoutMode，按最近一次使用的布局兜底
-      const layoutMode = isLayoutMode(tab.layoutMode) ? tab.layoutMode : loadSavedLayoutMode()
-      const doc = createTab(path, content, name, { eol: tab.eol, bom: tab.bom, layoutMode })
-      doc.isModified = tab.isModified === true
-      doc.cursorLine = typeof tab.cursorLine === 'number' && tab.cursorLine > 0 ? tab.cursorLine : 1
-      doc.cursorCol = typeof tab.cursorCol === 'number' && tab.cursorCol > 0 ? tab.cursorCol : 1
-      // 预填滚动缓存：标签首次挂载 / 激活时 restoreScroll 会读取这里
-      scrollPositions.set(doc.id, {
-        top: scrollAmount(tab.scrollTop),
-        anchor: scrollAmount(tab.scrollAnchor)
-      })
-      previewScrollPositions.set(doc.id, {
-        top: scrollAmount(tab.previewScrollTop),
-        // 旧会话没有锚点：-1 让恢复逻辑退回像素位置
-        anchor: previewAnchor(tab.previewScrollAnchor),
-        offset: scrollOffset(tab.previewScrollOffset)
-      })
+    const restored = tabs.map((tab, index) => {
+      const doc = createRestoredTab(tab)
+      const serialized = serializedStates?.get(index)
+      if (serialized) serializedEditorStates.set(doc.id, serialized)
       return doc
     })
 
@@ -207,6 +232,15 @@ export const useDocumentsStore = defineStore('documents', () => {
     const index = Math.min(Math.max(Math.floor(activeIndex) || 0, 0), restored.length - 1)
     activeId.value = restored[index].id
     return true
+  }
+
+  /** 接收另一个编辑窗口迁入的标签，并保留其序列化 EditorState */
+  function insertSessionTab(tab: SessionTab, serializedState?: unknown): DocumentTab {
+    const doc = createRestoredTab(tab)
+    if (serializedState) serializedEditorStates.set(doc.id, serializedState)
+    docs.value.push(doc)
+    activeId.value = doc.id
+    return doc
   }
 
   function getDoc(id: string): DocumentTab | null {
@@ -224,6 +258,7 @@ export const useDocumentsStore = defineStore('documents', () => {
     const [removed] = docs.value.splice(index, 1)
     if (!removed) return
     editorStates.delete(removed.id)
+    serializedEditorStates.delete(removed.id)
     scrollPositions.delete(removed.id)
     previewScrollPositions.delete(removed.id)
   }
@@ -236,7 +271,7 @@ export const useDocumentsStore = defineStore('documents', () => {
     removeDocument(index)
 
     if (docs.value.length === 0) {
-      // 最后一个标签已关闭：由调用方（useFile.closeTab）关闭主窗口
+      // 最后一个标签已关闭：由调用方（useFile.closeTab）关闭当前编辑窗口
       activeId.value = ''
       return
     }
@@ -292,6 +327,7 @@ export const useDocumentsStore = defineStore('documents', () => {
     doc.wordCount = countWords(decoded.text)
     // 缓存的 EditorState 仍是旧内容；继续使用会让重新激活的标签显示过期文本
     editorStates.delete(id)
+    serializedEditorStates.delete(id)
   }
 
   function setCursor(id: string, line: number, col: number): void {
@@ -332,6 +368,14 @@ export const useDocumentsStore = defineStore('documents', () => {
     return editorStates.get(id) ?? null
   }
 
+  /** 首次挂载时取出迁移过来的序列化状态，取出后不再参与后续重建 */
+  function takeSerializedEditorState(id: string): unknown | null {
+    const state = serializedEditorStates.get(id)
+    if (state === undefined) return null
+    serializedEditorStates.delete(id)
+    return state
+  }
+
   function setScrollPosition(id: string, position: ScrollPosition): void {
     scrollPositions.set(id, position)
   }
@@ -362,6 +406,7 @@ export const useDocumentsStore = defineStore('documents', () => {
     openPathDocument,
     newDocument,
     restoreSession,
+    insertSessionTab,
     getDoc,
     activateDocument,
     closeDocument,
@@ -375,6 +420,7 @@ export const useDocumentsStore = defineStore('documents', () => {
     markSaved,
     setEditorState,
     getEditorState,
+    takeSerializedEditorState,
     setScrollPosition,
     getScrollPosition,
     setPreviewScrollPosition,

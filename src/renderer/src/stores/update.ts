@@ -103,7 +103,7 @@ export const useUpdateStore = defineStore('update', () => {
     await window.api.update.openWindow()
   }
 
-  /** 更新详情窗口请求安装：交给主窗口处理未保存内容 */
+  /** 请求主进程协调全部编辑窗口保存后安装 */
   async function requestInstall(): Promise<boolean> {
     return window.api.update.requestInstall()
   }
