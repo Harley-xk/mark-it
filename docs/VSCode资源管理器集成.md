@@ -146,6 +146,7 @@ interface VSCodeInstallation {
 resources/vscode-extension/
 ├── package.json      # 扩展清单：贡献命令、菜单、when 条件
 ├── extension.js      # 激活逻辑：启动 MarkIt 并传入文件路径
+├── launch-env.js     # 构造子进程环境，隔离 VSCode 的 Electron 运行参数
 ├── icon.png          # 与应用统一的 MarkIt 图标
 └── markit-path.json  # 安装时写入的 exe 路径兜底快照（构建产物中不存在）
 ```
@@ -184,9 +185,17 @@ resources/vscode-extension/
 
 `explorer/context` 的命令会收到 `(uri, selectedUris)`。多选时把 `selectedUris` 全部传给 MarkIt；MarkIt 的 argv 链路已支持一次打开多个文件（见 [文件与冲突处理](../文件与冲突处理.md) 第 2 节）。
 
+VSCode 扩展宿主可能带 `ELECTRON_RUN_AS_NODE=1`，子进程会继承该变量，导致 MarkIt 的 Electron 可执行文件退化为纯 Node，并把 Markdown 文件当作 JavaScript 入口执行。扩展启动前必须从环境副本中移除该变量；只处理副本，不修改扩展宿主自身的 `process.env`。
+
 ```js
 const vscode = require('vscode')
 const { execFile } = require('node:child_process')
+
+function createLaunchEnvironment(environment) {
+  const launchEnvironment = { ...environment }
+  delete launchEnvironment.ELECTRON_RUN_AS_NODE
+  return launchEnvironment
+}
 
 function showLaunchError(error) {
   if (error) {
@@ -204,14 +213,18 @@ function activate(context) {
       if (targets.length === 0) return
 
       const config = loadMarkItConfig(context.extensionPath)
+      const execOptions = {
+        windowsHide: true,
+        env: createLaunchEnvironment(process.env)
+      }
       if (config.launchStrategy === 'open-app' && config.appPath) {
         // macOS：交给 LaunchServices，已运行实例同样会收到 open-file
-        execFile('/usr/bin/open', ['-a', config.appPath, ...targets], (error) => {
+        execFile('/usr/bin/open', ['-a', config.appPath, ...targets], execOptions, (error) => {
           if (!error) return
-          execFile(config.exePath, targets, showLaunchError)
+          execFile(config.exePath, targets, execOptions, showLaunchError)
         })
       } else {
-        execFile(config.exePath, targets, showLaunchError)
+        execFile(config.exePath, targets, execOptions, showLaunchError)
       }
     })
   )
@@ -378,6 +391,7 @@ interface IntegrationResult {
 6. macOS 的 `open` 只接受主进程写入的 `.app` 路径与用户选中的文件路径，不接受扩展侧传来的可执行文件或任意参数；
 7. Linux 启动只指向 MarkIt 自身可执行文件（`APPIMAGE` 需校验存在且可执行，否则回退安装目录），不经过 Snap / Flatpak 的间接执行；
 8. 渲染进程仍然不能 `import 'electron'`，全部能力经 preload 白名单暴露。
+9. 启动子进程前从环境副本移除 `ELECTRON_RUN_AS_NODE`，避免 VSCode 扩展宿主把 MarkIt 降级为 Node 解释器。
 
 ## 10. 首期决策
 
@@ -408,6 +422,7 @@ interface IntegrationResult {
 - Flatpak 变体返回 `unsupportedReason` 且 `installed` 恒为 `false`；
 - `APPIMAGE` 环境变量存在时取 AppImage 路径，缺失时回退安装目录；
 - macOS translocation 路径（`/private/var/folders/**/AppTranslocation/**`）被判定为不可用。
+- 启动环境移除 `ELECTRON_RUN_AS_NODE`，保留其它环境变量且不修改传入对象。
 
 不 mock 被测对象内部实现；`fs` 与 `child_process` 属于边界，可以 mock。
 
@@ -434,6 +449,7 @@ interface IntegrationResult {
 | Linux（Snap）     | 安装后重启 VSCode           | 扩展写入 `~/snap/...` 目录并生效               |
 | Linux（Flatpak）  | 打开设置页                  | 显示「暂不支持」且开关禁用                     |
 | Linux（AppImage） | 移动 AppImage 后重启 MarkIt | 菜单仍能启动（`APPIMAGE` 已刷新）              |
+| Windows           | VSCode 扩展宿主继承 `ELECTRON_RUN_AS_NODE=1` 时右键打开 | MarkIt 作为桌面应用启动并打开文件，不出现 Markdown 被当作脚本的 `SyntaxError` |
 
 e2e 不适合覆盖（依赖本机 VSCode 安装），不加入 Playwright 用例。
 
@@ -448,3 +464,4 @@ e2e 不适合覆盖（依赖本机 VSCode 安装），不加入 Playwright 用�
 7. 已新增设置页「编辑器集成」区块并更新内置用户手册；
 8. 已补三平台检测、版本选择、安全目录名与启动配置单元测试；
 9. Windows 未打包产物已实际完成 VSCode 检测、安装、卸载、重装及浅色 / 深色设置页检查；macOS / Linux 仍需在对应平台走完第 11.2 节。
+10. 已修复 VSCode 扩展宿主继承 `ELECTRON_RUN_AS_NODE` 导致 MarkIt 被当作 Node 执行的问题，并补充启动环境回归测试。

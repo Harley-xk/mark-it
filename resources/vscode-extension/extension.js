@@ -10,6 +10,7 @@ const { execFile } = require('node:child_process')
 const { readFileSync } = require('node:fs')
 const { homedir } = require('node:os')
 const { join } = require('node:path')
+const { createLaunchEnvironment } = require('./launch-env')
 
 const MARKDOWN_EXTENSION = /\.(?:md|markdown)$/i
 
@@ -49,8 +50,15 @@ function showLaunchError(error) {
   if (error) vscode.window.showErrorMessage(`启动 MarkIt 失败：${error.message}`)
 }
 
+function getExecOptions() {
+  return {
+    windowsHide: true,
+    env: createLaunchEnvironment(process.env)
+  }
+}
+
 function launchWithExecutable(config, targets) {
-  execFile(config.exePath, targets, { windowsHide: true }, showLaunchError)
+  execFile(config.exePath, targets, getExecOptions(), showLaunchError)
 }
 
 function launch(config, targets) {
@@ -59,14 +67,9 @@ function launch(config, targets) {
     config.launchStrategy === 'open-app' &&
     typeof config.appPath === 'string'
   ) {
-    execFile(
-      '/usr/bin/open',
-      ['-a', config.appPath, ...targets],
-      { windowsHide: true },
-      (error) => {
-        if (error) launchWithExecutable(config, targets)
-      }
-    )
+    execFile('/usr/bin/open', ['-a', config.appPath, ...targets], getExecOptions(), (error) => {
+      if (error) launchWithExecutable(config, targets)
+    })
     return
   }
   launchWithExecutable(config, targets)
