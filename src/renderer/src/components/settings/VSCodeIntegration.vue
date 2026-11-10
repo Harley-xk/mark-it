@@ -157,7 +157,6 @@ onMounted(refresh)
 
 <style scoped>
 .section-title {
-  margin-bottom: 10px;
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.8px;
@@ -168,7 +167,6 @@ onMounted(refresh)
 .integration-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
 }
 
 .integration-item {
@@ -176,10 +174,11 @@ onMounted(refresh)
   align-items: flex-start;
   justify-content: space-between;
   gap: 14px;
-  padding: 10px 12px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 8px;
+  padding: 8px 0;
+}
+
+.integration-item + .integration-item {
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .integration-main {
@@ -237,9 +236,6 @@ onMounted(refresh)
 }
 
 .integration-empty {
-  padding: 10px 12px;
-  border: 1px dashed rgba(255, 255, 255, 0.08);
-  border-radius: 8px;
   font-size: 11px;
   line-height: 1.6;
   color: rgba(255, 255, 255, 0.35);
@@ -262,6 +258,7 @@ onMounted(refresh)
 
 .integration-update-btn {
   align-self: flex-start;
+  margin-top: 8px;
   padding: 6px 10px;
   border: 1px solid rgba(108, 155, 255, 0.25);
   border-radius: 7px;
@@ -320,9 +317,8 @@ onMounted(refresh)
   background: #8fb4ff;
 }
 
-.light .integration-item {
-  background: rgba(0, 0, 0, 0.02);
-  border-color: rgba(0, 0, 0, 0.06);
+.light .integration-item + .integration-item {
+  border-top-color: rgba(0, 0, 0, 0.06);
 }
 
 .light.section-title,
@@ -343,7 +339,6 @@ onMounted(refresh)
 }
 
 .light .integration-empty {
-  border-color: rgba(0, 0, 0, 0.1);
   color: rgba(0, 0, 0, 0.38);
 }
 

@@ -299,41 +299,41 @@ function replaceAll(): void {
   background: rgba(255, 255, 255, 0.06);
 }
 
-:global(.light) .search-panel {
+:global(.light .search-panel) {
   background: rgba(255, 255, 255, 0.98);
   border-color: rgba(0, 0, 0, 0.08);
   box-shadow: 0 10px 32px rgba(0, 0, 0, 0.16);
 }
 
-:global(.light) .search-input {
+:global(.light .search-input) {
   border-color: rgba(0, 0, 0, 0.12);
   background: rgba(0, 0, 0, 0.03);
   color: rgba(0, 0, 0, 0.85);
 }
 
-:global(.light) .search-input::placeholder {
+:global(.light .search-input::placeholder) {
   color: rgba(0, 0, 0, 0.35);
 }
 
-:global(.light) .search-count {
+:global(.light .search-count) {
   color: rgba(0, 0, 0, 0.45);
 }
 
-:global(.light) .sp-btn {
+:global(.light .sp-btn) {
   color: rgba(0, 0, 0, 0.55);
 }
 
-:global(.light) .sp-btn:hover {
+:global(.light .sp-btn:hover) {
   background: rgba(0, 0, 0, 0.06);
   color: rgba(0, 0, 0, 0.85);
 }
 
-:global(.light) .sp-btn.active {
+:global(.light .sp-btn.active) {
   background: rgba(59, 130, 246, 0.14);
   color: #2563eb;
 }
 
-:global(.light) .sp-action {
+:global(.light .sp-action) {
   background: rgba(0, 0, 0, 0.04);
 }
 </style>

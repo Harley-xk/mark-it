@@ -1,4 +1,4 @@
-// 给应用图标加透明边距：把 logo 缩小居中到透明画布，再重新生成 .ico / .icns
+// 给应用图标加透明边距：把 logo 缩小居中到透明画布，再重新生成 .ico / .icns 和运行时图标
 // 用法: node scripts/pad-icon.cjs [scale]   scale 默认 0.8（logo 占画布比例，四周留 (1-scale)/2 边距）
 //   例: node scripts/pad-icon.cjs 0.72   # 更松
 //       node scripts/pad-icon.cjs 0.88   # 更紧
@@ -9,9 +9,15 @@ const path = require('path');
 
 const SCALE = parseFloat(process.argv[2] || '0.8');
 const SIZE = 552; // 画布尺寸（正方形）
+const RUNTIME_SIZE = 512;
 const BUILD = path.join(__dirname, '..', 'build');
+const RESOURCES = path.join(__dirname, '..', 'resources');
 const SRC = path.join(BUILD, 'icon.png');        // 打包用的图标(加边后)
 const FULL = path.join(BUILD, 'icon-full.png');  // 满铺原图(留底，调比例时从它重生成)
+const RUNTIME_ICONS = [
+  path.join(RESOURCES, 'icon.png'),
+  path.join(RESOURCES, 'vscode-extension', 'icon.png'),
+];
 
 (async () => {
   // 首次运行：把当前 icon.png 当作满铺原图备份下来（之后调比例都从它生成）
@@ -39,7 +45,16 @@ const FULL = path.join(BUILD, 'icon-full.png');  // 满铺原图(留底，调比
   fs.writeFileSync(path.join(BUILD, 'icon.icns'), png2icons.createICNS(buf, png2icons.BICUBIC, 0, false));
   console.log('✓ 已重新生成 build/icon.ico + build/icon.icns');
 
-  // 3) 校验：四角应为透明 (alpha=0)
+  // 3) 同步运行时图标，保持应用窗口、更新窗口与 VSCode 扩展的铅笔品牌一致
+  for (const target of RUNTIME_ICONS) {
+    await sharp(SRC)
+      .resize(RUNTIME_SIZE, RUNTIME_SIZE, { fit: 'fill', kernel: 'lanczos3' })
+      .png()
+      .toFile(target);
+    console.log(`✓ ${path.relative(path.join(__dirname, '..'), target)}  ${RUNTIME_SIZE}x${RUNTIME_SIZE}`);
+  }
+
+  // 4) 校验：四角应为透明 (alpha=0)
   const { data, info } = await sharp(SRC).raw().toBuffer({ resolveWithObject: true });
   const a = (x, y) => data[((y * info.width + x) * 4) + 3];
   console.log(

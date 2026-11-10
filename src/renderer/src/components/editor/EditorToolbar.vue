@@ -229,16 +229,16 @@ function fmt(action: string): void {
 }
 
 /* Light theme */
-:global(.light) .editor-toolbar {
+:global(.light .editor-toolbar) {
   background: #ffffff;
   border-bottom-color: rgba(0, 0, 0, 0.06);
 }
 
-:global(.light) .tb-btn {
+:global(.light .tb-btn) {
   color: rgba(0, 0, 0, 0.45);
 }
 
-:global(.light) .tb-btn:hover {
+:global(.light .tb-btn:hover) {
   background: rgba(0, 0, 0, 0.04);
   color: rgba(0, 0, 0, 0.75);
 }

@@ -170,13 +170,13 @@ function onResizeUp(): void {
   text-align: center;
 }
 
-:global(.light) .outline-panel {
+:global(.light .outline-panel) {
   background: #ffffff;
   border-right-color: rgba(0, 0, 0, 0.06);
 }
 
-:global(.light) .outline-resizer:hover,
-:global(.light) .outline-resizer.dragging {
+:global(.light .outline-resizer:hover),
+:global(.light .outline-resizer.dragging) {
   background: rgba(59, 130, 246, 0.4);
 }
 </style>

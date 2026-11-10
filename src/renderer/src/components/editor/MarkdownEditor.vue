@@ -493,11 +493,11 @@ watch(
   border-radius: 2px;
 }
 
-:global(.light) .editor-container :deep(.markit-search-match) {
+:global(.light .editor-container .markit-search-match) {
   background: rgba(255, 193, 7, 0.42);
 }
 
-:global(.light) .editor-container :deep(.markit-search-match-active) {
+:global(.light .editor-container .markit-search-match-active) {
   background: rgba(255, 140, 0, 0.72);
 }
 </style>

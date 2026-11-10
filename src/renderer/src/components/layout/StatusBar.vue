@@ -135,25 +135,25 @@ const pdfStatusText = computed(() => {
   }
 }
 
-:global(.light) .status-bar {
+:global(.light .status-bar) {
   background: #ffffff;
   border-top-color: rgba(0, 0, 0, 0.06);
   color: rgba(0, 0, 0, 0.35);
 }
 
-:global(.light) .status-sep {
+:global(.light .status-sep) {
   color: rgba(0, 0, 0, 0.1);
 }
 
-:global(.light) .status-warning {
+:global(.light .status-warning) {
   color: #b45309;
 }
 
-:global(.light) .status-export.is-success {
+:global(.light .status-export.is-success) {
   color: #15803d;
 }
 
-:global(.light) .status-export.is-error {
+:global(.light .status-export.is-error) {
   color: #b45309;
 }
 </style>

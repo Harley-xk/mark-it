@@ -264,26 +264,26 @@ const layouts: { mode: LayoutMode; icon: string; tip: string }[] = [
 }
 
 /* Light theme */
-:global(.light) .toolbar {
+:global(.light .toolbar) {
   background: #ffffff;
   border-bottom-color: rgba(0, 0, 0, 0.06);
 }
 
-:global(.light) .tb-btn {
+:global(.light .tb-btn) {
   color: rgba(0, 0, 0, 0.45);
 }
 
-:global(.light) .tb-btn:hover {
+:global(.light .tb-btn:hover) {
   background: rgba(0, 0, 0, 0.04);
   color: rgba(0, 0, 0, 0.75);
 }
 
-:global(.light) .tb-btn.active {
+:global(.light .tb-btn.active) {
   background: rgba(59, 130, 246, 0.1);
   color: #3b82f6;
 }
 
-:global(.light) .toolbar-separator {
+:global(.light .toolbar-separator) {
   background: rgba(0, 0, 0, 0.08);
 }
 </style>

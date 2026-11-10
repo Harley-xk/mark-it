@@ -712,7 +712,7 @@ onUnmounted(() => {
   margin: 0 auto;
 }
 
-:global(.light) .preview-container {
+:global(.light .preview-container) {
   background: #ffffff;
 }
 

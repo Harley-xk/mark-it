@@ -367,7 +367,7 @@ interface IntegrationResult {
 
 ## 8. 设置界面
 
-设置弹窗新增「编辑器集成」区块，建议拆成独立组件 `components/settings/VSCodeIntegration.vue`，避免 [SettingsDialog.vue](../../src/renderer/src/components/settings/SettingsDialog.vue) 继续膨胀。
+设置弹窗新增「编辑器集成」区块，建议拆成独立组件 `components/settings/VSCodeIntegration.vue`，避免 [SettingsDialog.vue](../../src/renderer/src/components/settings/SettingsDialog.vue) 继续膨胀。该区块沿用设置页的内容流排版：标题与说明直接排列，实例之间使用弱分隔线，不额外套一层独立卡片或阴影外框。
 
 | 状态             | 展示                                                                                 |
 | ---------------- | ------------------------------------------------------------------------------------ |
@@ -460,7 +460,7 @@ e2e 不适合覆盖（依赖本机 VSCode 安装），不加入 Playwright 用�
 3. 已新增 `src/main/vscode-integration.ts`，覆盖三平台候选路径、扩展目录优先级、Flatpak / translocation 边界、受管目录替换与启动配置同步；
 4. 已在 `app.whenReady()` 之前注册 macOS `open-file`，与命令行、二次启动共用待打开队列；
 5. 已完成主进程 IPC、preload 白名单与自动派生类型三处同步；
-6. 已新增 `resources/vscode-extension/`，命令按 `launchStrategy` 分支启动，扩展图标复用应用 `resources/icon.png`；
+6. 已新增 `resources/vscode-extension/`，命令按 `launchStrategy` 分支启动；扩展图标与运行时应用图标均由 MarkIt 铅笔品牌原图生成，不使用 Electron 默认原子图标；
 7. 已新增设置页「编辑器集成」区块并更新内置用户手册；
 8. 已补三平台检测、版本选择、安全目录名与启动配置单元测试；
 9. Windows 未打包产物已实际完成 VSCode 检测、安装、卸载、重装及浅色 / 深色设置页检查；macOS / Linux 仍需在对应平台走完第 11.2 节。

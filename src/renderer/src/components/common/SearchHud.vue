@@ -37,7 +37,7 @@ const search = useSearchStore()
   pointer-events: none;
 }
 
-:global(.light) .search-hud {
+:global(.light .search-hud) {
   background: rgba(255, 255, 255, 0.98);
   border-color: rgba(0, 0, 0, 0.08);
   box-shadow: 0 6px 22px rgba(0, 0, 0, 0.14);
