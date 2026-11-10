@@ -25,6 +25,15 @@ function loadClampedNumber(key: string, fallback: number, min: number, max: numb
   return Math.min(max, Math.max(min, value))
 }
 
+const APP_STORAGE_KEYS = new Set([
+  'markit-theme',
+  'markit-show-outline',
+  'markit-outline-width',
+  'markit-split-ratio',
+  'markit-preview-width-mode',
+  'markit-preview-width'
+])
+
 export const useAppStore = defineStore('app', () => {
   const documents = useDocumentsStore()
   // 布局按标签保存；没有激活标签的瞬间（关闭最后一个标签到窗口关闭之间）用兜底值
@@ -44,7 +53,6 @@ export const useAppStore = defineStore('app', () => {
   const filePath = computed(() => documents.activeDoc?.path ?? null)
   const isModified = computed(() => documents.activeDoc?.isModified ?? false)
   const showPdfDialog = ref(false)
-  const showSettingsDialog = ref(false)
   /** PDF 导出状态，由 usePdfExport 驱动，状态栏据此展示「导出中… / 导出成功 / 导出失败」 */
   const pdfExportStatus = ref<PdfExportStatus>('idle')
   /** 会话写盘失败（只读目录 / 磁盘已满等），状态栏据此给出可见提示 */
@@ -68,6 +76,18 @@ export const useAppStore = defineStore('app', () => {
     systemIsDark.value = e.matches
   }
   mediaQuery.addEventListener('change', onSystemThemeChange)
+
+  /** 设置窗口与主窗口各自持有 store；通过 storage 事件同步全局偏好 */
+  window.addEventListener('storage', (event) => {
+    if (event.storageArea && event.storageArea !== localStorage) return
+    if (event.key !== null && !APP_STORAGE_KEYS.has(event.key)) return
+    themeMode.value = loadSavedTheme()
+    showOutline.value = localStorage.getItem('markit-show-outline') !== '0'
+    outlineWidth.value = loadClampedNumber('markit-outline-width', 220, 160, 500)
+    splitRatio.value = loadClampedNumber('markit-split-ratio', 0.5, 0.3, 0.7)
+    previewWidthMode.value = loadSavedPreviewWidthMode()
+    previewWidth.value = loadClampedNumber('markit-preview-width', 800, 400, 1600)
+  })
 
   watch(themeMode, (mode) => {
     localStorage.setItem('markit-theme', mode)
@@ -131,7 +151,6 @@ export const useAppStore = defineStore('app', () => {
     filePath,
     isModified,
     showPdfDialog,
-    showSettingsDialog,
     pdfExportStatus,
     sessionSaveFailed,
     zoomFactor,

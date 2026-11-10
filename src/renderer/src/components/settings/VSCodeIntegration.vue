@@ -2,13 +2,13 @@
   作者: Harley-xk
   创建: 2026-11-10
 
-  描述: 设置页中的 VSCode 资源管理器集成开关与状态展示
+  描述: 设置窗口中的 VS Code 资源管理器集成状态与操作
 -->
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import type { VSCodeInstallation, VSCodeVariant } from '../../../../shared/integration-types'
 
-const props = defineProps<{ isDark: boolean }>()
+defineProps<{ isDark: boolean }>()
 
 const installations = ref<VSCodeInstallation[]>([])
 const loading = ref(true)
@@ -22,6 +22,7 @@ const variantLabels: Record<VSCodeVariant, string> = {
 }
 
 const hasInstallations = computed(() => installations.value.length > 0)
+const hasUpdates = computed(() => installations.value.some((item) => item.needsUpdate))
 
 async function refresh(): Promise<void> {
   loading.value = true
@@ -49,7 +50,7 @@ async function toggle(installation: VSCodeInstallation): Promise<void> {
       error.value = result.error ?? '操作失败'
       return
     }
-    feedback.value = result.needsRestart ? '重启 VSCode 后生效' : '已完成'
+    feedback.value = result.needsRestart ? '重启 VS Code 后生效' : '已完成'
     await refresh()
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : String(reason)
@@ -69,7 +70,7 @@ async function updateExtension(installation: VSCodeInstallation): Promise<void> 
       error.value = result.error ?? '更新失败'
       return
     }
-    feedback.value = '扩展已更新，重启 VSCode 后生效'
+    feedback.value = '扩展已更新，重启 VS Code 后生效'
     await refresh()
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : String(reason)
@@ -82,281 +83,371 @@ onMounted(refresh)
 </script>
 
 <template>
-  <div class="setting-section" :class="{ light: !props.isDark }">
-    <div class="section-title">编辑器集成</div>
-
-    <div v-if="loading" class="integration-empty">正在检测 VSCode…</div>
-    <div v-else-if="!hasInstallations" class="integration-empty">
-      未检测到 VSCode。安装并启动一次 VSCode 后再打开设置。
+  <div class="section">
+    <div class="section-heading">
+      <div>
+        <h2>VS Code 资源管理器</h2>
+        <p>安装后可在 VS Code 资源管理器中右键 Markdown 文件，使用 MarkIt 打开。</p>
+      </div>
+      <button
+        v-if="hasUpdates"
+        class="text-button"
+        :disabled="busyVariant !== null"
+        @click="refresh"
+      >
+        刷新状态
+      </button>
     </div>
 
-    <div v-else class="integration-list">
+    <div v-if="loading" class="setting-card integration-empty">正在检测 VS Code…</div>
+    <div v-else-if="!hasInstallations" class="setting-card integration-empty">
+      未检测到 VS Code。安装并启动一次 VS Code 后再打开设置。
+    </div>
+    <div v-else class="setting-card">
       <div
         v-for="installation in installations"
         :key="installation.variant"
-        class="integration-item"
+        class="setting-row integration-row"
       >
-        <div class="integration-main">
-          <div class="integration-title-row">
-            <span class="integration-name">{{ variantLabels[installation.variant] }}</span>
-            <span v-if="installation.installed" class="integration-state">已安装</span>
-            <span v-if="installation.needsUpdate" class="integration-update">需更新</span>
-          </div>
-
-          <span v-if="installation.unsupportedReason" class="integration-hint">
-            {{ installation.unsupportedReason }}
+        <div class="integration-copy">
+          <span class="integration-icon">
+            <svg
+              v-if="installation.variant === 'stable'"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.7"
+              stroke-linecap="round"
+            >
+              <path d="m8 7-5 5 5 5M16 7l5 5-5 5M14 4l-4 16"></path>
+            </svg>
+            <svg
+              v-else
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.7"
+              stroke-linecap="round"
+            >
+              <path d="m12 3 1.6 5.4L19 10l-5.4 1.6L12 17l-1.6-5.4L5 10l5.4-1.6L12 3Z"></path>
+              <path d="m19 16 .7 2.3L22 19l-2.3.7L19 22l-.7-2.3L16 19l2.3-.7L19 16Z"></path>
+            </svg>
           </span>
-          <template v-else>
-            <span class="integration-hint">
-              {{
-                installation.installed
-                  ? '可在资源管理器右键 Markdown 文件，使用 MarkIt 打开'
-                  : '安装后重启 VSCode，即可在资源管理器右键打开 Markdown'
-              }}
-            </span>
-            <span v-if="installation.installedVersion" class="integration-path">
-              扩展 v{{ installation.installedVersion }}
-            </span>
-            <span class="integration-path" :title="installation.extensionsDir">
-              {{ installation.extensionsDir }}
-            </span>
-          </template>
+          <div class="setting-copy">
+            <div class="setting-title-line">
+              <h3>{{ variantLabels[installation.variant] }}</h3>
+              <span v-if="installation.installed" class="status-badge success">已安装</span>
+              <span v-else class="status-badge">未安装</span>
+              <span v-if="installation.needsUpdate" class="status-badge warning">需更新</span>
+            </div>
+            <p v-if="installation.unsupportedReason">
+              {{ installation.unsupportedReason }}
+            </p>
+            <template v-else>
+              <p>
+                {{
+                  installation.installed
+                    ? '可在资源管理器中右键 Markdown 文件，使用 MarkIt 打开。'
+                    : '安装后重启 VS Code，即可在资源管理器中右键打开 Markdown。'
+                }}
+              </p>
+              <span class="path-line" :title="installation.extensionsDir">
+                {{ installation.extensionsDir }}
+              </span>
+            </template>
+          </div>
         </div>
 
-        <button
-          v-if="!installation.unsupportedReason"
-          class="switch"
-          :class="{ active: installation.installed }"
-          role="switch"
-          :aria-checked="installation.installed"
-          :aria-label="
-            installation.installed ? '卸载 MarkIt VSCode 扩展' : '安装 MarkIt VSCode 扩展'
-          "
-          :disabled="busyVariant !== null"
-          @click="toggle(installation)"
-        >
-          <span class="switch-thumb"></span>
-        </button>
+        <div class="integration-actions">
+          <button
+            v-if="installation.needsUpdate"
+            class="secondary-button"
+            :disabled="busyVariant !== null"
+            @click="updateExtension(installation)"
+          >
+            更新扩展
+          </button>
+          <button
+            v-if="!installation.unsupportedReason"
+            class="switch"
+            :class="{ on: installation.installed }"
+            role="switch"
+            :aria-checked="installation.installed"
+            :aria-label="
+              installation.installed ? '卸载 MarkIt VS Code 扩展' : '安装 MarkIt VS Code 扩展'
+            "
+            :disabled="busyVariant !== null"
+            @click="toggle(installation)"
+          >
+            <span></span>
+          </button>
+        </div>
       </div>
-
-      <button
-        v-for="installation in installations.filter((item) => item.needsUpdate)"
-        :key="`update-${installation.variant}`"
-        class="integration-update-btn"
-        :disabled="busyVariant !== null"
-        @click="updateExtension(installation)"
-      >
-        更新 {{ variantLabels[installation.variant] }} 扩展
-      </button>
     </div>
 
     <div v-if="feedback" class="integration-feedback">{{ feedback }}</div>
     <div v-if="error" class="integration-error">{{ error }}</div>
+
+    <div class="info-strip">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+        <circle cx="12" cy="12" r="9"></circle>
+        <path d="M12 11v5M12 8h.01"></path>
+      </svg>
+      <span> 安装状态以磁盘为准。重装或更新扩展后，需要重启对应的 VS Code 窗口才会生效。 </span>
+    </div>
   </div>
 </template>
 
 <style scoped>
-.section-title {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.8px;
-  text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.3);
-}
-
-.integration-list {
+.section-heading {
   display: flex;
-  flex-direction: column;
-}
-
-.integration-item {
-  display: flex;
-  align-items: flex-start;
+  align-items: flex-end;
   justify-content: space-between;
-  gap: 14px;
-  padding: 8px 0;
+  gap: 18px;
+  margin-bottom: 13px;
 }
 
-.integration-item + .integration-item {
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
+.section-heading h2 {
+  margin: 0;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 660;
 }
 
-.integration-main {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-}
-
-.integration-title-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-
-.integration-name {
-  font-size: 13px;
-  color: rgba(255, 255, 255, 0.72);
-}
-
-.integration-state,
-.integration-update {
-  padding: 1px 6px;
-  border-radius: 999px;
-  font-size: 10px;
-  line-height: 1.5;
-}
-
-.integration-state {
-  color: #8fb4ff;
-  background: rgba(108, 155, 255, 0.1);
-  border: 1px solid rgba(108, 155, 255, 0.22);
-}
-
-.integration-update {
-  color: #f5bf65;
-  background: rgba(245, 191, 101, 0.08);
-  border: 1px solid rgba(245, 191, 101, 0.2);
-}
-
-.integration-hint {
-  font-size: 11px;
-  line-height: 1.6;
-  color: rgba(255, 255, 255, 0.42);
-}
-
-.integration-path {
-  overflow: hidden;
-  font-size: 10px;
-  line-height: 1.45;
-  color: rgba(255, 255, 255, 0.26);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.integration-empty {
-  font-size: 11px;
-  line-height: 1.6;
-  color: rgba(255, 255, 255, 0.35);
-}
-
-.integration-feedback,
-.integration-error {
+.section-heading p {
+  margin: 4px 0 0;
+  color: var(--text-muted);
   font-size: 11px;
   line-height: 1.55;
 }
 
-.integration-feedback {
-  color: #77c9a0;
-}
-
-.integration-error {
-  color: #ff7b72;
-  word-break: break-word;
-}
-
-.integration-update-btn {
-  align-self: flex-start;
-  margin-top: 8px;
-  padding: 6px 10px;
-  border: 1px solid rgba(108, 155, 255, 0.25);
-  border-radius: 7px;
-  background: rgba(108, 155, 255, 0.08);
-  color: #8fb4ff;
-  font-family: inherit;
+.text-button {
+  padding: 5px 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
   font-size: 11px;
-  line-height: 1.4;
+  font-weight: 620;
   cursor: pointer;
 }
 
-.integration-update-btn:disabled {
-  opacity: 0.5;
-  cursor: default;
+.setting-card {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: var(--card-bg);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.025);
+}
+
+.setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 22px;
+  min-height: 72px;
+  padding: 16px 18px;
+}
+
+.setting-row + .setting-row {
+  border-top: 1px solid var(--border);
+}
+
+.integration-copy {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+
+.integration-icon {
+  width: 36px;
+  height: 36px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--inset-bg);
+  color: var(--accent);
+}
+
+.integration-icon svg {
+  width: 19px;
+  height: 19px;
+}
+
+.setting-copy {
+  min-width: 0;
+}
+
+.setting-title-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.setting-copy h3 {
+  margin: 0;
+  color: var(--text);
+  font-size: 12.5px;
+  font-weight: 630;
+}
+
+.setting-copy p {
+  margin: 5px 0 0;
+  color: var(--text-muted);
+  font-size: 10.5px;
+  line-height: 1.65;
+}
+
+.path-line {
+  display: block;
+  max-width: 100%;
+  margin-top: 4px;
+  overflow: hidden;
+  color: var(--text-faint);
+  font-family: 'Cascadia Code', 'JetBrains Mono', Consolas, monospace;
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.integration-actions {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex: 0 0 auto;
+}
+
+.status-badge {
+  padding: 2px 7px;
+  border: 1px solid var(--accent-border);
+  border-radius: 999px;
+  background: var(--accent-bg);
+  color: var(--accent);
+  font-size: 9px;
+  font-weight: 650;
+}
+
+.status-badge.success {
+  border-color: var(--success-border);
+  background: var(--success-bg);
+  color: var(--success);
+}
+
+.status-badge.warning {
+  border-color: rgba(228, 183, 107, 0.2);
+  background: var(--warning-bg);
+  color: var(--warning);
 }
 
 .switch {
   position: relative;
-  flex: 0 0 auto;
-  width: 40px;
+  width: 39px;
   height: 22px;
+  flex: 0 0 auto;
   padding: 0;
-  box-sizing: border-box;
+  border: 1px solid var(--border-strong);
   border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--inset-bg);
   cursor: pointer;
-  transition: all 0.15s ease;
 }
 
-.switch:disabled {
-  opacity: 0.45;
+.switch span {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  transition:
+    transform 0.15s ease,
+    background-color 0.15s ease;
+}
+
+.switch.on {
+  border-color: var(--accent-border);
+  background: var(--accent-bg);
+}
+
+.switch.on span {
+  transform: translateX(17px);
+  background: var(--accent);
+}
+
+.switch:disabled,
+.secondary-button:disabled,
+.text-button:disabled {
+  opacity: 0.5;
   cursor: default;
 }
 
-.switch-thumb {
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.6);
-  transition:
-    transform 0.15s ease,
-    background 0.15s ease;
+.secondary-button {
+  min-height: 30px;
+  padding: 0 11px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 10px;
+  cursor: pointer;
 }
 
-.switch.active {
-  background: rgba(108, 155, 255, 0.35);
-  border-color: rgba(108, 155, 255, 0.5);
+.integration-empty {
+  padding: 18px;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.6;
 }
 
-.switch.active .switch-thumb {
-  transform: translateX(18px);
-  background: #8fb4ff;
+.integration-feedback,
+.integration-error {
+  margin-top: 10px;
+  font-size: 10.5px;
+  line-height: 1.55;
 }
 
-.light .integration-item + .integration-item {
-  border-top-color: rgba(0, 0, 0, 0.06);
+.integration-feedback {
+  color: var(--success);
 }
 
-.light.section-title,
-.light .section-title {
-  color: rgba(0, 0, 0, 0.3);
+.integration-error {
+  color: var(--danger);
+  word-break: break-word;
 }
 
-.light .integration-name {
-  color: rgba(0, 0, 0, 0.68);
+.info-strip {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--inset-bg);
+  color: var(--text-muted);
+  font-size: 10.5px;
+  line-height: 1.65;
 }
 
-.light .integration-hint {
-  color: rgba(0, 0, 0, 0.42);
+.info-strip svg {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+  margin-top: 1px;
+  color: var(--accent);
 }
 
-.light .integration-path {
-  color: rgba(0, 0, 0, 0.28);
-}
+@media (max-width: 650px) {
+  .setting-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
 
-.light .integration-empty {
-  color: rgba(0, 0, 0, 0.38);
-}
-
-.light .switch {
-  border-color: rgba(0, 0, 0, 0.12);
-  background: rgba(0, 0, 0, 0.06);
-}
-
-.light .switch-thumb {
-  background: rgba(0, 0, 0, 0.4);
-}
-
-.light .switch.active {
-  background: rgba(59, 130, 246, 0.28);
-  border-color: rgba(59, 130, 246, 0.45);
-}
-
-.light .switch.active .switch-thumb {
-  background: #3b82f6;
+  .integration-actions {
+    align-self: flex-end;
+  }
 }
 </style>

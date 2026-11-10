@@ -86,13 +86,21 @@
 
 ### 3.3 窗口与系统
 
-| 通道名                    | 方向       | preload 方法            | 参数                                   | 返回值             | 主进程处理位置                                  | 备注                                                                                                                                                                                |
-| ------------------------- | ---------- | ----------------------- | -------------------------------------- | ------------------ | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `window:close`            | R→M invoke | `close(quit?)`          | `quit?: boolean`                       | `Promise<boolean>` | [`src/main/index.ts`](../src/main/index.ts)     | 先置 `allowClose = true` 再关闭，**绕过窗口关闭守卫**；调用前必须已完成未保存内容确认。`quit = true` 表示在完成 Cmd+Q / 菜单退出，关窗后继续 `app.quit()`；**仅接受主窗口调用**     |
-| `window:is-fullscreen`    | R→M invoke | `isFullscreen()`        | 无                                     | `Promise<boolean>` | [`src/main/index.ts:653`](../src/main/index.ts) | 标题栏据此决定是否给系统按钮留位；**仅接受主窗口调用**                                                                                                                              |
-| `window:get-zoom`         | R→M invoke | `getZoom()`             | 无                                     | `Promise<number>`  | [`src/main/index.ts:657`](../src/main/index.ts) | 返回主进程维护的 `currentZoomFactor`（1 = 100%）；**仅接受主窗口调用**                                                                                                              |
-| `window:set-native-theme` | R→M invoke | `setNativeTheme(theme)` | `theme: 'light' \| 'dark' \| 'system'` | `Promise<void>`    | [`src/main/index.ts`](../src/main/index.ts)     | 写入 `nativeTheme.themeSource`：Chromium 按它的明暗选择窗口按钮的 hover 对比色，浅色 UI + 深色系统会得到不可见的白色 hover；`system` 保持跟随系统；macOS 忽略；**仅接受主窗口调用** |
-| `shell:openExternal`      | R→M invoke | `openExternal(url)`     | `url: string`                          | `Promise<boolean>` | [`src/main/index.ts:553`](../src/main/index.ts) | 仅放行 `http` / `https` / `mailto`；`file:` 转为定位文件；其余协议忽略并返回 `false`                                                                                                |
+| 通道名                    | 方向       | preload 方法            | 参数                                   | 返回值             | 主进程处理位置                                  | 备注                                                                                                                                                                                    |
+| ------------------------- | ---------- | ----------------------- | -------------------------------------- | ------------------ | ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `window:close`            | R→M invoke | `close(quit?)`          | `quit?: boolean`                       | `Promise<boolean>` | [`src/main/index.ts`](../src/main/index.ts)     | 先置 `allowClose = true` 再关闭，**绕过窗口关闭守卫**；调用前必须已完成未保存内容确认。`quit = true` 表示在完成 Cmd+Q / 菜单退出，关窗后继续 `app.quit()`；**仅接受主窗口调用**         |
+| `window:is-fullscreen`    | R→M invoke | `isFullscreen()`        | 无                                     | `Promise<boolean>` | [`src/main/index.ts:653`](../src/main/index.ts) | 标题栏据此决定是否给系统按钮留位；**仅接受主窗口调用**                                                                                                                                  |
+| `window:get-zoom`         | R→M invoke | `getZoom()`             | 无                                     | `Promise<number>`  | [`src/main/index.ts:657`](../src/main/index.ts) | 返回主进程维护的 `currentZoomFactor`（1 = 100%）；**仅接受主窗口调用**                                                                                                                  |
+| `window:set-native-theme` | R→M invoke | `setNativeTheme(theme)` | `theme: 'light' \| 'dark' \| 'system'` | `Promise<void>`    | [`src/main/index.ts`](../src/main/index.ts)     | 写入 `nativeTheme.themeSource`：Chromium 按它的明暗选择窗口按钮的 hover 对比色，浅色 UI + 深色系统会得到不可见的白色 hover；`system` 保持跟随系统；macOS 忽略；允许主窗口和设置窗口调用 |
+| `shell:openExternal`      | R→M invoke | `openExternal(url)`     | `url: string`                          | `Promise<boolean>` | [`src/main/index.ts:553`](../src/main/index.ts) | 仅放行 `http` / `https` / `mailto`；`file:` 转为定位文件；其余协议忽略并返回 `false`                                                                                                    |
+
+### 3.3.1 设置窗口
+
+| 通道            | 方向       | preload 方法      | 参数 | 返回               | 主进程处理位置                              | 备注                                               |
+| --------------- | ---------- | ----------------- | ---- | ------------------ | ------------------------------------------- | -------------------------------------------------- |
+| `settings:open` | R→M invoke | `settings.open()` | 无   | `Promise<boolean>` | [`src/main/index.ts`](../src/main/index.ts) | 只接受编辑器窗口调用；打开或聚焦全局单实例设置窗口 |
+
+设置窗口是受控应用页面，可使用主题同步、VSCode 集成和更新回退通道。安装更新仍只能通过 `update:request-install` 转交编辑器窗口，不能直接调用 `update:install`。完整边界见[独立设置窗口](./独立设置窗口.md)。
 
 ### 3.4 会话
 
@@ -109,25 +117,25 @@
 
 ### 3.6 更新
 
-| 通道名                    | 方向       | preload 方法               | 参数      | 返回值                 | 主进程处理位置                                      | 备注                                                                                                                                                      |
-| ------------------------- | ---------- | -------------------------- | --------- | ---------------------- | --------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `update:get-state`        | R→M invoke | `update.getState()`        | 无        | `Promise<UpdateState>` | [`src/main/updater.ts:456`](../src/main/updater.ts) | 读取主进程内存中的当前状态（含 `currentChannel` / `betaUpdatesEnabled` / `latestChannel`）                                                                |
-| `update:check`            | R→M invoke | `update.check()`           | 无        | `Promise<UpdateState>` | [`src/main/updater.ts:457`](../src/main/updater.ts) | `disabled` / `checking` / `downloading` 直接返回现状；开启 Beta 时同时比较两个通道；404 按「无更新」容错                                                  |
-| `update:download`         | R→M invoke | `update.download()`        | 无        | `Promise<UpdateState>` | [`src/main/updater.ts:458`](../src/main/updater.ts) | 仅在 `available` / `error` 状态执行，其余原样返回                                                                                                         |
-| `update:set-beta-enabled` | R→M invoke | `update.setBetaEnabled(v)` | `boolean` | `Promise<UpdateState>` | [`src/main/updater.ts:459`](../src/main/updater.ts) | 持久化「接收 Beta 版更新」；检测中记录待补检、下载中不打断，其余状态清除旧提示并立即重新检测                                                              |
-| `update:rollback-to-stable` | R→M invoke | `update.rollbackToStable()` | 无 | `Promise<UpdateState>` | [`src/main/updater.ts`](../src/main/updater.ts) | **只接受主窗口调用**；关闭 Beta 后直接检测 stable 当前版本，并要求其严格低于当前 Beta；不接受目标版本或 URL |
-| `update:install`          | R→M invoke | `update.install()`         | 无        | `Promise<boolean>`     | [`src/main/updater.ts:465`](../src/main/updater.ts) | **只接受主窗口调用**（必须先完成未保存确认）；仅在 `downloaded` 状态执行；`beforeInstall()` 放行关闭守卫；`setImmediate` 调 `quitAndInstall(false, true)` |
-| `update:open-window`      | R→M invoke | `update.openWindow()`      | 无        | `Promise<void>`        | [`src/main/updater.ts:470`](../src/main/updater.ts) | 打开或聚焦单例「更新详情」窗口（560×680，无边框）                                                                                                         |
-| `update:close-window`     | R→M send   | `update.closeWindow()`     | 无        | 无返回值               | [`src/main/updater.ts:473`](../src/main/updater.ts) | 只关闭 `event.sender` 所在窗口，**主窗口调用会被忽略**（防止绕过关闭守卫）；用 `send` 避免 `invoke` 的回复随窗口销毁丢失                                  |
-| `update:request-install`  | R→M invoke | `update.requestInstall()`  | 无        | `Promise<boolean>`     | [`src/main/updater.ts:479`](../src/main/updater.ts) | **只接受更新窗口调用**；仅 `downloaded` 状态生效，向主窗口推送 `update:install-request`                                                                   |
+| 通道名                      | 方向       | preload 方法                | 参数      | 返回值                 | 主进程处理位置                                      | 备注                                                                                                                                                      |
+| --------------------------- | ---------- | --------------------------- | --------- | ---------------------- | --------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `update:get-state`          | R→M invoke | `update.getState()`         | 无        | `Promise<UpdateState>` | [`src/main/updater.ts:456`](../src/main/updater.ts) | 读取主进程内存中的当前状态（含 `currentChannel` / `betaUpdatesEnabled` / `latestChannel`）                                                                |
+| `update:check`              | R→M invoke | `update.check()`            | 无        | `Promise<UpdateState>` | [`src/main/updater.ts:457`](../src/main/updater.ts) | `disabled` / `checking` / `downloading` 直接返回现状；开启 Beta 时同时比较两个通道；404 按「无更新」容错                                                  |
+| `update:download`           | R→M invoke | `update.download()`         | 无        | `Promise<UpdateState>` | [`src/main/updater.ts:458`](../src/main/updater.ts) | 仅在 `available` / `error` 状态执行，其余原样返回                                                                                                         |
+| `update:set-beta-enabled`   | R→M invoke | `update.setBetaEnabled(v)`  | `boolean` | `Promise<UpdateState>` | [`src/main/updater.ts:459`](../src/main/updater.ts) | 持久化「接收 Beta 版更新」；检测中记录待补检、下载中不打断，其余状态清除旧提示并立即重新检测                                                              |
+| `update:rollback-to-stable` | R→M invoke | `update.rollbackToStable()` | 无        | `Promise<UpdateState>` | [`src/main/updater.ts`](../src/main/updater.ts)     | 允许主窗口与设置窗口调用；关闭 Beta 后直接检测 stable 当前版本，并要求其严格低于当前 Beta；不接受目标版本或 URL                                           |
+| `update:install`            | R→M invoke | `update.install()`          | 无        | `Promise<boolean>`     | [`src/main/updater.ts:465`](../src/main/updater.ts) | **只接受主窗口调用**（必须先完成未保存确认）；仅在 `downloaded` 状态执行；`beforeInstall()` 放行关闭守卫；`setImmediate` 调 `quitAndInstall(false, true)` |
+| `update:open-window`        | R→M invoke | `update.openWindow()`       | 无        | `Promise<void>`        | [`src/main/updater.ts:470`](../src/main/updater.ts) | 打开或聚焦单例「更新详情」窗口（560×680，无边框）                                                                                                         |
+| `update:close-window`       | R→M send   | `update.closeWindow()`      | 无        | 无返回值               | [`src/main/updater.ts:473`](../src/main/updater.ts) | 只关闭 `event.sender` 所在窗口，**主窗口调用会被忽略**（防止绕过关闭守卫）；用 `send` 避免 `invoke` 的回复随窗口销毁丢失                                  |
+| `update:request-install`    | R→M invoke | `update.requestInstall()`   | 无        | `Promise<boolean>`     | [`src/main/updater.ts:479`](../src/main/updater.ts) | 接受非主窗口调用，包括更新详情窗口与设置窗口；仅 `downloaded` 状态生效，向主窗口推送 `update:install-request`                                             |
 
 ### 3.7 VSCode 编辑器集成
 
 | 通道名                         | 方向       | preload 方法                     | 参数               | 返回值                          | 主进程处理位置                                               | 备注                                                                   |
 | ------------------------------ | ---------- | -------------------------------- | ------------------ | ------------------------------- | ------------------------------------------------------------ | ---------------------------------------------------------------------- |
-| `integration:detect-vscode`    | R→M invoke | `integration.detectVSCode()`     | 无                 | `Promise<VSCodeInstallation[]>` | [`vscode-integration.ts`](../src/main/vscode-integration.ts) | 每次调用重新扫描；不持久化布尔状态；**仅接受主窗口调用**               |
+| `integration:detect-vscode`    | R→M invoke | `integration.detectVSCode()`     | 无                 | `Promise<VSCodeInstallation[]>` | [`vscode-integration.ts`](../src/main/vscode-integration.ts) | 每次调用重新扫描；不持久化布尔状态；允许主窗口与设置窗口调用           |
 | `integration:install-vscode`   | R→M invoke | `integration.installVSCode(v)`   | `v: VSCodeVariant` | `Promise<IntegrationResult>`    | [`vscode-integration.ts`](../src/main/vscode-integration.ts) | 只接受 `stable` / `insiders`；扩展目录由主进程推断，渲染进程不能传路径 |
-| `integration:uninstall-vscode` | R→M invoke | `integration.uninstallVSCode(v)` | `v: VSCodeVariant` | `Promise<IntegrationResult>`    | [`vscode-integration.ts`](../src/main/vscode-integration.ts) | 只删除固定 `harley-xk.markit-open-*` 目录；**仅接受主窗口调用**        |
+| `integration:uninstall-vscode` | R→M invoke | `integration.uninstallVSCode(v)` | `v: VSCodeVariant` | `Promise<IntegrationResult>`    | [`vscode-integration.ts`](../src/main/vscode-integration.ts) | 只删除固定 `harley-xk.markit-open-*` 目录；允许主窗口与设置窗口调用    |
 
 ### 3.8 事件推送（main → renderer）
 
@@ -141,8 +149,8 @@
 | `window:close-request`   | M→R send | `onCloseRequest(cb)`          | `{ quit: boolean }`                    | 主窗口 `close` 事件被拦截时                   | [`src/main/index.ts:406`](../src/main/index.ts)                                 | `quit` 表示本次关闭来自退出应用；渲染进程确认后带着同一标志调用 `window:close`                      |
 | `shortcut:close-tab`     | M→R send | `onCloseTabShortcut(cb)`      | 无                                     | macOS `Cmd+W` 被 `before-input-event` 拦截    | [`src/main/index.ts:353`](../src/main/index.ts)                                 | 仅 macOS；其他平台由渲染进程键盘处理                                                                |
 | `cursor-pos`             | M→R send | `onCursorPos(cb)`             | `{ x: number; y: number }`（页面坐标） | 每 300ms 轮询一次，窗口不可见时跳过           | [`src/main/index.ts:739`](../src/main/index.ts)                                 | 用于滚动条悬停状态自愈（标题栏拖拽区不派发鼠标事件）                                                |
-| `update:state`           | M→R send | `update.onState(cb)`          | `UpdateState`                          | 更新状态任意变化                              | [`src/main/updater.ts:96`](../src/main/updater.ts)                              | **广播给所有窗口**（主窗口 + 更新窗口）                                                             |
-| `update:install-request` | M→R send | `update.onInstallRequest(cb)` | 无                                     | 更新窗口请求安装                              | [`src/main/updater.ts:356`](../src/main/updater.ts)                             | 只发给主窗口；主窗口负责处理未保存内容                                                              |
+| `update:state`           | M→R send | `update.onState(cb)`          | `UpdateState`                          | 更新状态任意变化                              | [`src/main/updater.ts:96`](../src/main/updater.ts)                              | **广播给所有窗口**（主窗口 + 更新窗口 + 设置窗口）                                                  |
+| `update:install-request` | M→R send | `update.onInstallRequest(cb)` | 无                                     | 更新窗口或设置窗口请求安装                    | [`src/main/updater.ts:356`](../src/main/updater.ts)                             | 只发给主窗口；主窗口负责处理未保存内容                                                              |
 
 > 生命周期：所有 `on*` / `update.on*` 方法都返回取消函数（`() => ipcRenderer.removeListener(...)`）。调用方应在 `onUnmounted` 或模块级 dispose 中调用，避免 HMR / 重复挂载时监听累积。`onOpenFile` 额外承担发送 `renderer:ready` 的职责，但只在当前页面**首次注册**时发送；注销函数只移除监听，重复注册不会再次放行排队文件。页面重载会重新执行 preload，标志随之复位。
 
@@ -230,7 +238,7 @@
 
 1. `update:install` 只在 `status === 'downloaded'` 且调用方是**主窗口**时生效，否则返回 `false`。
 2. 安装前必须由**主窗口**处理所有未保存文档：主窗口监听 `update:install-request`，逐个确认并保存，再 `flushSession()`，最后调用 `update:install`。
-3. 更新详情窗口不能直接安装：它调用 `update:request-install`（该通道拒绝主窗口调用），由主进程把请求转交主窗口（还原 / 显示 / 聚焦后发送 `update:install-request`）。
+3. 更新详情窗口与独立设置窗口不能直接安装：它们调用 `update:request-install`（该通道拒绝主窗口调用），由主进程把请求转交主窗口（还原 / 显示 / 聚焦后发送 `update:install-request`）。
 4. 主进程安装前调用 `beforeInstall()` 置 `allowClose = true`，放行窗口关闭守卫，避免安装器等待窗口关闭而卡住。
 5. 关闭守卫（`window:close-request`）与安装请求是两条独立链路，二者都必须走「渲染进程确认 → `window:close` / `update:install`」。
 

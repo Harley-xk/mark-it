@@ -19,7 +19,9 @@ export default defineConfig({
         input: {
           index: resolve(__dirname, 'src/renderer/index.html'),
           // 独立的更新详情窗口
-          update: resolve(__dirname, 'src/renderer/update.html')
+          update: resolve(__dirname, 'src/renderer/update.html'),
+          // 独立的设置窗口
+          settings: resolve(__dirname, 'src/renderer/settings.html')
         }
       }
     }

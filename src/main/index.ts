@@ -11,6 +11,7 @@ import type { PdfExportOptions } from '../shared/pdf-types'
 import { initAutoUpdater } from './updater'
 import { isAppUrl, registerHandle, registerOn } from './ipc-guard'
 import { parseSessionData } from './session-store'
+import { closeSettingsWindow, isSettingsWindowSender, openSettingsWindow } from './settings-window'
 import {
   createIntegrationRuntime,
   detectVSCodeInstallations,
@@ -442,6 +443,7 @@ function createWindow(): void {
   // 窗口销毁后停止监视，避免 macOS 关闭窗口后仍占用文件句柄
   mainWindow.on('closed', () => {
     setWatchedFile(null)
+    closeSettingsWindow()
   })
 
   // 窗口关闭前询问渲染进程是否有未保存修改。
@@ -655,12 +657,12 @@ registerHandle('session:save', async (_e, data: unknown) => {
 })
 
 registerHandle('integration:detect-vscode', async (event) => {
-  if (!isMainWindowSender(event)) return []
+  if (!isMainWindowSender(event) && !isSettingsWindowSender(event.sender)) return []
   return detectVSCodeInstallations({ runtime: getVSCodeIntegrationRuntime() })
 })
 
 registerHandle('integration:install-vscode', async (event, variant: unknown) => {
-  if (!isMainWindowSender(event)) {
+  if (!isMainWindowSender(event) && !isSettingsWindowSender(event.sender)) {
     return { ok: false, error: '不允许的调用来源', needsRestart: false }
   }
   if (variant !== 'stable' && variant !== 'insiders') {
@@ -670,7 +672,7 @@ registerHandle('integration:install-vscode', async (event, variant: unknown) => 
 })
 
 registerHandle('integration:uninstall-vscode', async (event, variant: unknown) => {
-  if (!isMainWindowSender(event)) {
+  if (!isMainWindowSender(event) && !isSettingsWindowSender(event.sender)) {
     return { ok: false, error: '不允许的调用来源', needsRestart: false }
   }
   if (variant !== 'stable' && variant !== 'insiders') {
@@ -814,9 +816,20 @@ registerHandle('window:get-zoom', (event) => {
  * macOS 使用系统交通灯，无需处理。
  */
 registerHandle('window:set-native-theme', (event, theme: 'light' | 'dark' | 'system') => {
-  if (!isMainWindowSender(event) || process.platform === 'darwin') return
+  if (
+    (!isMainWindowSender(event) && !isSettingsWindowSender(event.sender)) ||
+    process.platform === 'darwin'
+  ) {
+    return
+  }
   if (theme !== 'light' && theme !== 'dark' && theme !== 'system') return
   nativeTheme.themeSource = theme
+})
+registerHandle('settings:open', (event) => {
+  // 当前只有一个编辑器窗口；多窗口改造时只替换此处的编辑器窗口来源判断。
+  if (!isMainWindowSender(event)) return false
+  openSettingsWindow()
+  return true
 })
 registerHandle('window:close', (event, quit = false) => {
   if (!isMainWindowSender(event)) return false

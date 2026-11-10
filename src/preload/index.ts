@@ -33,6 +33,10 @@ let rendererReadyNotified = false
 const api = {
   /** 当前运行平台（渲染进程用于给系统窗口按钮留位） */
   platform: process.platform,
+  /** 打开或聚焦独立设置窗口；只应由编辑器窗口调用 */
+  settings: {
+    open: (): Promise<boolean> => ipcRenderer.invoke('settings:open')
+  },
   /** 打开文件对话框，支持多选；返回每个文件的内容 */
   openFiles: (): Promise<FileReadResult[]> => ipcRenderer.invoke('dialog:openFiles'),
   saveFile: (path: string, content: string): Promise<boolean> =>

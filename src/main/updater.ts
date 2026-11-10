@@ -15,6 +15,7 @@ import {
   selectUpdateCandidate
 } from './update-channel'
 import { registerHandle, registerOn } from './ipc-guard'
+import { isSettingsWindowSender } from './settings-window'
 
 /**
  * apphub 应用管理平台更新通道。
@@ -455,10 +456,10 @@ function openUpdateWindow(): void {
 }
 
 /**
- * 更新窗口请求安装：由主窗口负责处理未保存内容并保存会话，
+ * 更新窗口或设置窗口请求安装：由主窗口负责处理未保存内容并保存会话，
  * 完成后主窗口再调用 update:install 真正退出安装。
  */
-function requestInstallFromUpdateWindow(): boolean {
+function requestInstallFromToolWindow(): boolean {
   if (state.status !== 'downloaded') return false
   const win = getMainWindow?.()
   if (!win || win.isDestroyed()) return false
@@ -602,7 +603,8 @@ export function initAutoUpdater(
   })
   registerHandle('update:rollback-to-stable', (event) => {
     const win = getMainWindow?.()
-    if (!win || win.isDestroyed() || event.sender !== win.webContents) return state
+    const isMainSender = !!win && !win.isDestroyed() && event.sender === win.webContents
+    if (!isMainSender && !isSettingsWindowSender(event.sender)) return state
     return rollbackToStable()
   })
   // 只有主窗口能真正安装：它必须先完成未保存内容确认，
@@ -624,7 +626,7 @@ export function initAutoUpdater(
   registerHandle('update:request-install', (event) => {
     const win = getMainWindow?.()
     if (!win || win.isDestroyed() || event.sender === win.webContents) return false
-    return requestInstallFromUpdateWindow()
+    return requestInstallFromToolWindow()
   })
 
   if (!is.dev) {

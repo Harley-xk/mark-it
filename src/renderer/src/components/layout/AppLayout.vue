@@ -9,7 +9,6 @@ import OutlinePanel from '../outline/OutlinePanel.vue'
 import EditorPane from '../editor/EditorPane.vue'
 import MarkdownPreview from '../preview/MarkdownPreview.vue'
 import PdfExportDialog from '../export/PdfExportDialog.vue'
-import SettingsDialog from '../settings/SettingsDialog.vue'
 import SearchHud from '../common/SearchHud.vue'
 import type { PdfExportOptions } from '../../types'
 
@@ -52,12 +51,7 @@ async function onExport(options: PdfExportOptions): Promise<void> {
       </div>
     </div>
     <StatusBar />
-    <PdfExportDialog
-      :exporting="exporting"
-      @close="app.showPdfDialog = false"
-      @export="onExport"
-    />
-    <SettingsDialog />
+    <PdfExportDialog :exporting="exporting" @close="app.showPdfDialog = false" @export="onExport" />
   </div>
 </template>
 

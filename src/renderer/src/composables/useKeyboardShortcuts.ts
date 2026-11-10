@@ -134,7 +134,7 @@ export function useKeyboardShortcuts(): void {
     // Ctrl+,: 设置
     if (isCtrl(e) && e.key === ',') {
       e.preventDefault()
-      app.showSettingsDialog = !app.showSettingsDialog
+      void window.api.settings.open()
       return
     }
 

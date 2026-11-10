@@ -71,10 +71,27 @@ export const useStyleStore = defineStore('style', () => {
   const currentStyleId = ref(loadCurrentStyleId())
   // 上次选择的自定义样式可能已被删除：启动时归一为内置 GitHub
   if (
-    ![...builtinStylesDark, ...customStyles.value].some((style) => style.id === currentStyleId.value)
+    ![...builtinStylesDark, ...customStyles.value].some(
+      (style) => style.id === currentStyleId.value
+    )
   ) {
     currentStyleId.value = 'github'
   }
+
+  /** 设置窗口修改样式后，主窗口通过 storage 事件重新载入持久化结果 */
+  window.addEventListener('storage', (event) => {
+    if (event.storageArea && event.storageArea !== localStorage) return
+    if (event.key !== null && event.key !== STYLE_KEY && event.key !== CUSTOM_STYLES_KEY) return
+    customStyles.value = loadCustomStyles()
+    currentStyleId.value = loadCurrentStyleId()
+    if (
+      ![...builtinStylesDark, ...customStyles.value].some(
+        (style) => style.id === currentStyleId.value
+      )
+    ) {
+      currentStyleId.value = 'github'
+    }
+  })
 
   function builtinStyles(isDark: boolean): PreviewStyle[] {
     return isDark ? builtinStylesDark : builtinStylesLight

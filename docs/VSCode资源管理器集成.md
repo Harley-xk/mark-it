@@ -367,7 +367,7 @@ interface IntegrationResult {
 
 ## 8. 设置界面
 
-设置弹窗新增「编辑器集成」区块，建议拆成独立组件 `components/settings/VSCodeIntegration.vue`，避免 [SettingsDialog.vue](../../src/renderer/src/components/settings/SettingsDialog.vue) 继续膨胀。该区块沿用设置页的内容流排版：标题与说明直接排列，实例之间使用弱分隔线，不额外套一层独立卡片或阴影外框。
+独立设置窗口的「编辑器集成」分类承载该区块，组件仍为 `components/settings/VSCodeIntegration.vue`，页面入口为 [`SettingsWindow.vue`](../../src/renderer/src/settings/SettingsWindow.vue)。设置窗口拥有独立 Pinia 后，`integration:*` IPC 允许该受控窗口调用；状态仍每次打开设置时从磁盘重新检测。
 
 | 状态             | 展示                                                                                 |
 | ---------------- | ------------------------------------------------------------------------------------ |
@@ -430,25 +430,25 @@ interface IntegrationResult {
 
 实施时在 [测试与质量保障](../测试与质量保障.md) 手工验证矩阵中分配编号，至少覆盖：
 
-| 平台              | 场景                        | 预期                                           |
-| ----------------- | --------------------------- | ---------------------------------------------- |
-| 通用              | 安装后重启 VSCode           | 资源管理器右键出现「使用 MarkIt 打开」         |
-| 通用              | 点击菜单、MarkIt 未运行     | 启动并打开文件                                 |
-| 通用              | 点击菜单、MarkIt 已运行     | 已有实例打开新标签并聚焦窗口                   |
-| 通用              | 多选多个 md 文件            | 全部打开                                       |
-| 通用              | 非 md 文件右键              | 不出现菜单项                                   |
-| 通用              | VSCode 远程 / WSL 工作区    | 不出现菜单项                                   |
-| 通用              | 在 VSCode 扩展面板手动卸载  | MarkIt 设置页恢复为「未安装」                  |
-| 通用              | 关闭开关                    | 扩展目录被删除，重启后菜单消失                 |
-| Windows           | MarkIt 移动安装目录后点击   | 仍能启动（主配置已更新）                       |
-| macOS             | 安装后重启 VSCode           | 资源管理器右键出现菜单项                       |
-| macOS             | Finder 双击 `.md`           | MarkIt 打开文件（验证新增的 `open-file` 链路） |
-| macOS             | MarkIt 已运行时点击菜单     | 已有实例接收 `open-file` 并聚焦窗口            |
-| macOS             | 从 DMG 直接运行 MarkIt      | 设置页提示移入「应用程序」，不写入配置         |
-| Linux（deb）      | 安装后重启 VSCode           | 资源管理器右键出现菜单项                       |
-| Linux（Snap）     | 安装后重启 VSCode           | 扩展写入 `~/snap/...` 目录并生效               |
-| Linux（Flatpak）  | 打开设置页                  | 显示「暂不支持」且开关禁用                     |
-| Linux（AppImage） | 移动 AppImage 后重启 MarkIt | 菜单仍能启动（`APPIMAGE` 已刷新）              |
+| 平台              | 场景                                                    | 预期                                                                          |
+| ----------------- | ------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| 通用              | 安装后重启 VSCode                                       | 资源管理器右键出现「使用 MarkIt 打开」                                        |
+| 通用              | 点击菜单、MarkIt 未运行                                 | 启动并打开文件                                                                |
+| 通用              | 点击菜单、MarkIt 已运行                                 | 已有实例打开新标签并聚焦窗口                                                  |
+| 通用              | 多选多个 md 文件                                        | 全部打开                                                                      |
+| 通用              | 非 md 文件右键                                          | 不出现菜单项                                                                  |
+| 通用              | VSCode 远程 / WSL 工作区                                | 不出现菜单项                                                                  |
+| 通用              | 在 VSCode 扩展面板手动卸载                              | MarkIt 设置页恢复为「未安装」                                                 |
+| 通用              | 关闭开关                                                | 扩展目录被删除，重启后菜单消失                                                |
+| Windows           | MarkIt 移动安装目录后点击                               | 仍能启动（主配置已更新）                                                      |
+| macOS             | 安装后重启 VSCode                                       | 资源管理器右键出现菜单项                                                      |
+| macOS             | Finder 双击 `.md`                                       | MarkIt 打开文件（验证新增的 `open-file` 链路）                                |
+| macOS             | MarkIt 已运行时点击菜单                                 | 已有实例接收 `open-file` 并聚焦窗口                                           |
+| macOS             | 从 DMG 直接运行 MarkIt                                  | 设置页提示移入「应用程序」，不写入配置                                        |
+| Linux（deb）      | 安装后重启 VSCode                                       | 资源管理器右键出现菜单项                                                      |
+| Linux（Snap）     | 安装后重启 VSCode                                       | 扩展写入 `~/snap/...` 目录并生效                                              |
+| Linux（Flatpak）  | 打开设置页                                              | 显示「暂不支持」且开关禁用                                                    |
+| Linux（AppImage） | 移动 AppImage 后重启 MarkIt                             | 菜单仍能启动（`APPIMAGE` 已刷新）                                             |
 | Windows           | VSCode 扩展宿主继承 `ELECTRON_RUN_AS_NODE=1` 时右键打开 | MarkIt 作为桌面应用启动并打开文件，不出现 Markdown 被当作脚本的 `SyntaxError` |
 
 e2e 不适合覆盖（依赖本机 VSCode 安装），不加入 Playwright 用例。
