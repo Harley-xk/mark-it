@@ -7,12 +7,15 @@ const update = useUpdateStore()
 update.init()
 
 const state = computed(() => update.state)
-const forced = computed(() => state.value.forceUpdate)
+const isRollback = computed(() => state.value.isRollback === true)
+const forced = computed(() => !isRollback.value && state.value.forceUpdate)
 const isBeta = computed(() => state.value.latestChannel === 'beta')
 const isDownloading = computed(() => state.value.status === 'downloading')
 const isDownloaded = computed(() => state.value.status === 'downloaded')
 const canDownload = computed(
-  () => state.value.status === 'available' || state.value.status === 'error'
+  () =>
+    state.value.status === 'available' ||
+    (state.value.status === 'error' && !state.value.isRollback)
 )
 const notes = computed(() => state.value.notes?.trim() ?? '')
 
@@ -34,7 +37,10 @@ const speedText = computed(() => {
     : `${Math.round(speed / 1024)} KB/s`
 })
 
-const downloadLabel = computed(() => (state.value.status === 'error' ? '重新下载' : '下载更新'))
+const downloadLabel = computed(() => {
+  if (state.value.status === 'error') return '重新下载'
+  return isRollback.value ? '下载回退版本' : '下载更新'
+})
 
 async function handleDownload(): Promise<void> {
   await update.download()
@@ -103,7 +109,8 @@ onUnmounted(() => {
         <span v-if="isBeta" class="beta-badge">Beta</span>
         <h1>
           <template v-if="state.latestVersion">
-            发现新版本 <span class="version-number">v{{ state.latestVersion }}</span>
+            {{ isRollback ? '回退到正式版' : '发现新版本' }}
+            <span class="version-number">v{{ state.latestVersion }}</span>
           </template>
           <template v-else>软件更新</template>
         </h1>
@@ -117,11 +124,16 @@ onUnmounted(() => {
         <div class="notes-title">更新内容</div>
         <div v-if="notes" class="notes-content">{{ notes }}</div>
         <div v-else class="notes-empty">该版本未提供更新说明。</div>
+        <div v-if="isRollback" class="rollback-note">
+          回退后当前 Beta 版本的新功能将不可用，并且不会自动回到 Beta。
+        </div>
       </section>
 
       <section v-if="isDownloading || isDownloaded" class="progress-section">
         <div class="progress-header">
-          <span>{{ isDownloaded ? '下载完成' : '正在下载更新' }}</span>
+          <span>{{
+            isDownloaded ? '下载完成' : isRollback ? '正在下载回退版本' : '正在下载更新'
+          }}</span>
           <span v-if="!isDownloaded" class="progress-percent">{{ percentText }}</span>
         </div>
         <div class="progress-track">
@@ -135,13 +147,21 @@ onUnmounted(() => {
           <span>{{ transferredText }} / {{ totalText }}</span>
           <span>{{ speedText }}</span>
         </div>
-        <p v-else class="progress-done">新版本已下载，重启应用即可完成安装。</p>
+        <p v-else class="progress-done">
+          {{
+            isRollback
+              ? '回退版本已下载，重启应用即可完成回退。'
+              : '新版本已下载，重启应用即可完成安装。'
+          }}
+        </p>
       </section>
 
       <p v-if="state.status === 'error'" class="error-text">
-        更新失败：{{ state.error || '未知错误' }}
+        {{ isRollback ? '回退失败' : '更新失败' }}：{{ state.error || '未知错误' }}
       </p>
-      <p v-else-if="state.status === 'checking'" class="muted-text">正在检查更新…</p>
+      <p v-else-if="state.status === 'checking'" class="muted-text">
+        {{ isRollback ? '正在查找可回退的正式版…' : '正在检查更新…' }}
+      </p>
       <p v-else-if="state.status === 'not-available'" class="muted-text">当前已是最新版本。</p>
     </main>
 
@@ -151,7 +171,7 @@ onUnmounted(() => {
         {{ downloadLabel }}
       </button>
       <button v-else-if="isDownloaded" class="btn btn-primary" @click="handleInstall">
-        立即重启安装
+        {{ isRollback ? '立即重启回退' : '立即重启安装' }}
       </button>
       <button v-else-if="isDownloading" class="btn btn-primary" disabled>正在下载…</button>
     </footer>
@@ -348,6 +368,15 @@ body,
 
 .notes-empty {
   font-size: 12px;
+  color: var(--text-muted);
+}
+
+.rollback-note {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--divider);
+  font-size: 12px;
+  line-height: 1.6;
   color: var(--text-muted);
 }
 

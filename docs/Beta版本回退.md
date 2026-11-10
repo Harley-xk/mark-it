@@ -1,26 +1,24 @@
-# Beta 版本回退到正式版方案（计划功能）
+# Beta 版本回退到正式版
 
-> 文档定位：记录「已开启 Beta 更新的用户主动回退到正式版」的需求背景、可行性、客户端方案、契约变更、风险与测试计划。
-> **当前状态：方案讨论稿，尚未实现。**
-> 路线边界：[rules/release.md](../../rules/release.md) 第 4.3 条禁止的是「降级通道」（自动、常驻、可被任意触发的降级路径），本方案是「用户主动发起的一次性回退」，两者不是同一路线，不构成规则冲突；建议在规则中补充边界说明，避免后续误读。
-> 实施完成后，按 [rules/base.md](../../rules/base.md) 的文档先行要求，把落地内容拆入 [自动更新](../自动更新.md)、[发版通道](../发版通道.md)、[状态与数据模型](../状态与数据模型.md) 等正式功能文档，并将本文移出 `docs/计划功能/`。
-> 计划功能目录的约定见 [文档中心](../README.md)。
+> 文档定位：说明已开启 Beta 更新的用户如何主动回退到正式版，以及客户端状态、IPC 契约、持久化兼容、平台边界与验证要求。运行时总览见 [自动更新](./自动更新.md)，通道规则见 [发版通道](./发版通道.md)。
+> **当前状态：已实施。** 状态字段、IPC、设置页入口、主进程回退流程、文案与测试矩阵均已落地。
+> 路线边界：[rules/release.md](../rules/release.md) 第 4.3 条禁止的是常驻「降级通道」（自动、常驻、可被任意触发的降级路径）。本功能只在用户明确确认后执行一次目标固定的回退，不构成降级通道。
 
 ## 1. 背景
 
 Beta 通道用于小范围验证新功能。用户开启「接收 Beta 版更新」后，可能装到一个不稳定的 beta，例如启动崩溃、核心编辑功能不可用、更新流程自身失效等。
 
-当前客户端的处理方式是「等下一个正式版」：
+实施前，客户端的处理方式是「等下一个正式版」：
 
-| 场景 | 当前行为 | 用户可用的手段 |
+| 场景 | 实施前行为 | 实施前用户可用的手段 |
 | --- | --- | --- |
 | 运行 `1.6.0-beta.4`，stable 最新为 `1.5.0` | 关闭 Beta 开关不会降级；检查更新只接受大于当前版本的候选 | 手动下载 `1.5.0` 安装包覆盖安装，并关闭 Beta 开关 |
 | 运行 `1.6.0-beta.4`，stable 已发布 `1.6.0` | 正常升级到 `1.6.0` | 等待 / 主动检查更新 |
 | 运行 `1.6.0-beta.4`，beta 通道又发布 `1.6.0-beta.5` | 升级到 `1.6.0-beta.5` | 无回退能力 |
 
-也就是说，**用户唯一可靠的退路是手动安装上一个正式版**。这对普通用户门槛偏高，而且手册里目前没有明确写出这条路径。
+也就是说，实施前**用户唯一可靠的退路是手动安装上一个正式版**。这对普通用户门槛偏高。
 
-本方案要解决的是第一种场景：给 Beta 用户一个**显式、一次性、用户主动触发**的回退入口，而不是引入常驻的降级通道。
+本功能解决第一种场景：给 Beta 用户一个**显式、一次性、用户主动触发**的回退入口，而不是引入常驻的降级通道。
 
 ## 2. 可行性结论
 
@@ -31,15 +29,15 @@ Beta 通道用于小范围验证新功能。用户开启「接收 Beta 版更新
 - Windows NSIS 与 Linux AppImage 的安装器没有硬性拒绝低版本覆盖安装的逻辑，降级由 electron-updater 的版本判断控制；
 - macOS 当前未配置签名与公证，Squirrel.Mac 自动更新本身不可用，回退也只能手动安装。
 
-真正的缺口不在更新库，而在客户端逻辑与产品规则：
+真正的缺口不在更新库，而在客户端逻辑与产品规则。实施前的差距与当前落地结果如下：
 
-| 环节 | 现状 | 需要新增 |
+| 环节 | 实施前 | 已落地 |
 | --- | --- | --- |
-| 候选选择 | [`update-channel.ts`](../../src/main/update-channel.ts) 的 `selectUpdateCandidate` 只接受大于当前版本的候选 | 回退流程绕过候选选择，直接检查 stable 通道 |
-| 降级开关 | [`updater.ts`](../../src/main/updater.ts) 从未设置 `allowDowngrade` | 回退期间临时置 `true`，结束后复位 |
+| 候选选择 | [`update-channel.ts`](../src/main/update-channel.ts) 的 `selectUpdateCandidate` 只接受大于当前版本的候选 | 回退流程绕过候选选择，直接检查 stable 通道 |
+| 降级开关 | [`updater.ts`](../src/main/updater.ts) 从未设置 `allowDowngrade` | 回退期间临时置 `true`，结束后复位 |
 | 状态模型 | 只有「更新」语义 | 增加「回退」标记，用于文案与交互 |
 | UI | 设置页只有 Beta 开关 | 增加「回退到正式版」入口与确认 |
-| 规则 | [rules/release.md](../../rules/release.md) 4.3 禁止**降级通道**（自动 / 常驻 / 可选择） | 本方案是用户主动的一次性回退，不属于降级通道；建议补充边界说明，不改变禁止降级通道的立场 |
+| 规则 | [rules/release.md](../rules/release.md) 4.3 禁止**降级通道**（自动 / 常驻 / 可选择） | 已补充边界说明：用户主动的一次性回退不属于降级通道，禁止常驻降级的立场不变 |
 
 ## 3. 目标与非目标
 
@@ -105,7 +103,7 @@ flowchart TD
 
 ### 5.1 预检纯函数
 
-在 [`src/main/update-channel.ts`](../../src/main/update-channel.ts) 增加纯函数，便于单元测试：
+在 [`src/main/update-channel.ts`](../src/main/update-channel.ts) 增加纯函数，便于单元测试：
 
 ```ts
 /**
@@ -123,7 +121,7 @@ export function isRollbackTarget(currentVersion: string, stableVersion: string |
 
 ### 5.2 主进程状态与流程
 
-在 [`src/main/updater.ts`](../../src/main/updater.ts) 增加两个模块级标记：
+在 [`src/main/updater.ts`](../src/main/updater.ts) 增加两个模块级标记：
 
 ```ts
 /** 本次检测由回退请求发起，update-available 据此标注回退并自动下载 */
@@ -168,15 +166,15 @@ let rollbacking = false
 
 #### 5.3.1 `UpdateState` 新增字段
 
-在 [`src/shared/update-types.ts`](../../src/shared/update-types.ts) 增加：
+在 [`src/shared/update-types.ts`](../src/shared/update-types.ts) 增加：
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
-| `isRollback` | `boolean`（可选） | 本次可用 / 下载中 / 已下载的版本是回退目标；普通更新时为空 |
+| `isRollback` | `boolean`（可选） | 本次检测 / 可用 / 下载中 / 已下载或可重试错误属于回退流程；普通更新时为空 |
 
 `latestVersion` 仍表示目标版本，`currentVersion` 仍是回退前版本，`latestChannel` 固定为 `stable`。
 
-`isRollback` 的生命周期必须收敛：只在回退流程的 `available / downloading / downloaded / error` 中为 `true`；任何普通检测、Beta 开关切换、回退结束或安装失败后的重新检测，都必须显式清空，避免把下一个普通更新误标成回退。
+`isRollback` 的生命周期必须收敛：只在回退流程的 `checking / available / downloading / downloaded / error` 中为 `true`；任何普通检测、Beta 开关切换、回退结束或安装失败后的重新检测，都必须显式清空，避免把下一个普通更新误标成回退。
 
 #### 5.3.2 新增 IPC
 
@@ -186,15 +184,15 @@ let rollbacking = false
 
 三处同步：
 
-1. 主进程 [`updater.ts`](../../src/main/updater.ts) 使用 `registerHandle` 注册，校验 `event.sender` 是主窗口；
-2. preload [`src/preload/index.ts`](../../src/preload/index.ts) 暴露 `rollbackToStable()`；
-3. [`src/preload/index.d.ts`](../../src/preload/index.d.ts) 的 `ExposedAPI` 补类型。
+1. 主进程 [`updater.ts`](../src/main/updater.ts) 使用 `registerHandle` 注册，校验 `event.sender` 是主窗口；
+2. preload [`src/preload/index.ts`](../src/preload/index.ts) 暴露 `rollbackToStable()`；
+3. [`src/preload/index.d.ts`](../src/preload/index.d.ts) 的 `ExposedAPI` 补类型。
 
 **不接受任何参数**：目标版本、feed URL 都不能由渲染进程传入，避免把更新通道变成任意下载入口。
 
 #### 5.3.3 渲染层 store
 
-[`src/renderer/src/stores/update.ts`](../../src/renderer/src/stores/update.ts) 增加：
+[`src/renderer/src/stores/update.ts`](../src/renderer/src/stores/update.ts) 增加：
 
 - `rollbackToStable()`：清空 `dismissedVersion`，调用 IPC 并 `apply()` 返回状态；`error` 状态下的「重试回退」也统一调用它，重新走预检与检测，避免依赖可能不存在的 `updateInfo`；
 - `canRollback` 计算属性：`currentChannel === 'beta'` 且状态不在 `disabled / checking / downloading / downloaded`；
@@ -214,7 +212,7 @@ let rollbacking = false
 | 回退进行中 | 状态文案：「正在查找可回退的正式版…」/「正在下载回退版本 N%」/「vX 已下载，重启后回退」 |
 | 回退失败 | 沿用 `error` 状态，按钮恢复可点击，文案「重试回退」 |
 
-确认弹窗复用 [`ConfirmDialog.vue`](../../src/renderer/src/components/common/ConfirmDialog.vue) 的交互与视觉，文案建议：
+确认弹窗复用 [`ConfirmDialog.vue`](../src/renderer/src/components/common/ConfirmDialog.vue) 的交互与视觉，文案建议：
 
 > 标题：回退到正式版
 > 内容：将关闭 Beta 更新并安装 stable 通道的最新正式版。当前 Beta 版本为 vX，回退后不会自动回到 Beta。是否继续？
@@ -314,38 +312,37 @@ Beta 开关下方的说明文案需要同步修改，明确「关闭开关不会
 
 两者在产品意图上相反：前者让客户端可能被动变旧，后者只在用户明确要求时执行一次。
 
-### 8.1 规则边界说明
+### 8.1 规则边界说明（已落地）
 
-建议在 4.3 第 3 条补充一句边界说明，而不是改变禁止降级通道的立场：
+4.3 第 3 条已补充边界说明，同时保留禁止常驻降级通道的立场：
 
 > 关闭 Beta 只停止接收 beta，**不得自动降级**已安装的 beta；不得提供降级通道。用户主动发起的一次性回退到 stable 通道当前最新版本不属于降级通道，回退后必须关闭 Beta 开关。
 
-同时在第 5 节「发版相关完成定义」补充：回退能力涉及主进程与 IPC，必须按 [testing.md](../../rules/testing.md) 做打包产物手工验证，并同步 `docs/自动更新.md`、`docs/发版通道.md`、`docs/状态与数据模型.md`。
+回退能力涉及主进程与 IPC，已按 [testing.md](../rules/testing.md) 纳入打包产物手工验证，并同步 `docs/自动更新.md`、`docs/发版通道.md`、`docs/状态与数据模型.md`。
 
 ### 8.2 文档同步清单
 
 | 文档 | 改动 |
 | --- | --- |
-| [自动更新](../自动更新.md) | 状态机增加 `isRollback` 分支、回退时序、`allowDowngrade` 生命周期、IPC 表 |
-| [发版通道](../发版通道.md) | 4.3 边界行为改为「可主动回退」；新增回退条件、目标版本与失败处理 |
-| [状态与数据模型](../状态与数据模型.md) | `UpdateState` 新字段、`update-preference.json` 的写入时机 |
-| [IPC 接口与进程契约](../IPC接口与进程契约.md) | 新增 `update:rollback-to-stable` |
-| [技术决策与已知限制](../技术决策与已知限制.md) | 记录「只允许主动一次性回退」的决策与平台限制 |
-| [测试与质量保障](../测试与质量保障.md) | 增加回退手工验证矩阵 |
-| [welcome.md](../../src/renderer/src/assets/welcome.md) | 增加「如何退出 Beta / 回退到正式版」条目 |
-| [文档中心](../README.md) | 实施后把本文移出计划功能目录并更新索引 |
+| [自动更新](./自动更新.md) | 状态机增加 `isRollback` 分支、回退时序、`allowDowngrade` 生命周期、IPC 表 |
+| [发版通道](./发版通道.md) | 4.3 边界行为改为「可主动回退」；新增回退条件、目标版本与失败处理 |
+| [状态与数据模型](./状态与数据模型.md) | `UpdateState` 新字段、`update-preference.json` 的写入时机 |
+| [IPC 接口与进程契约](./IPC接口与进程契约.md) | 新增 `update:rollback-to-stable` |
+| [技术决策与已知限制](./技术决策与已知限制.md) | 记录「只允许主动一次性回退」的决策与平台限制 |
+| [测试与质量保障](./测试与质量保障.md) | 增加回退手工验证矩阵 |
+| [welcome.md](../src/renderer/src/assets/welcome.md) | 增加「如何退出 Beta / 回退到正式版」条目 |
+| [文档中心](./README.md) | 移出计划功能目录并更新索引 |
 
-## 9. 实施顺序与工作量
+## 9. 实施记录
 
-| 阶段 | 内容 | 验收 |
+| 阶段 | 内容 | 当前状态 |
 | --- | --- | --- |
-| 0 | 澄清 `rules/release.md` 4.3 的路线边界，确认未决事项 | 规则边界与方案一致，评审通过 |
-| 1 | `isRollbackTarget` 纯函数 + 单测 | `npm test` 通过 |
-| 2 | 主进程回退流程、状态字段、IPC 三处同步 | `npm run typecheck`、`npm test` 通过 |
-| 3 | 设置页入口、确认弹窗、提示卡片与详情窗口文案 | `npm run lint`、`npm run typecheck` 通过 |
-| 4 | 打包产物实测、更新正式文档、移动本文 | 第 10 节手工用例全部通过 |
-
-粗略估计：**2–3 人日**（不含构建测试安装包与跨平台验证）。主要成本在 Windows NSIS 低版本覆盖安装的实测与文档收尾。
+| 0 | 澄清 `rules/release.md` 4.3 的路线边界，确认未决事项 | 已完成 |
+| 1 | `isRollbackTarget` / 状态守卫纯函数 + 单测 | 已完成，`npm test` 通过 |
+| 2 | 主进程回退流程、状态字段、IPC 三处同步 | 已完成，`npm run typecheck` 通过 |
+| 3 | 设置页入口、确认弹窗、提示卡片与详情窗口文案 | 已完成，lint / typecheck / build 通过 |
+| 4 | 正式文档、计划功能文档迁移 | 已完成 |
+| 5 | 打包产物跨版本安装实测 | 需在可安装低版本 stable 与更高 beta 的发布环境按第 10.2 节执行 |
 
 ## 10. 测试计划
 
@@ -360,7 +357,7 @@ Beta 开关下方的说明文案需要同步修改，明确「关闭开关不会
 5. `stableVersion` 为 `null` / 非法版本 → `false`；
 6. 当前版本非法 → `false`（视为不可回退）。
 
-如把状态守卫抽成纯函数，补充 `disabled / checking / downloading / downloaded` 拒绝、`idle / not-available / error / available` 允许的用例。
+状态守卫已抽为 `isRollbackStartAllowed`，覆盖 `disabled / checking / downloading / downloaded` 拒绝，以及 `idle / not-available / error / available` 允许的用例。
 
 ### 10.2 打包产物手工验证
 
@@ -382,18 +379,18 @@ Beta 开关下方的说明文案需要同步修改，明确「关闭开关不会
 - `npm run lint`、`npm run typecheck`、`npm test` 全部通过；
 - 普通 stable 更新、Beta 更新、强制更新、关闭 Beta 不降级、周期检测行为不变；
 - 更新窗口与主窗口的安装协作不受影响；
-- `src/preload/**`、`src/shared/**`、`src/renderer/src/utils/**` 如被改动，执行全量检查（见 [testing.md](../../rules/testing.md) 第 5 节）。
+- `src/preload/**`、`src/shared/**`、`src/renderer/src/utils/**` 如被改动，执行全量检查（见 [testing.md](../rules/testing.md) 第 5 节）。
 
-## 11. 未决事项
+## 11. 已确定决策
 
-| 编号 | 问题 | 建议 | 影响 |
+| 编号 | 问题 | 决策 | 影响 |
 | --- | --- | --- | --- |
-| O-1 | 是否在点击前展示可回退的具体版本号？ | 增加只读 IPC `update:get-rollback-target` 预取 stable 版本，按钮显示「回退到 v1.5.0」；若不希望增加网络请求，则按钮只写「回退到正式版」，点击后再校验 | UI 明确性 vs 契约复杂度 |
-| O-2 | 确认后自动下载，还是再点一次「下载」？ | 推荐自动下载，回退本身已是显式操作；下载进度仍完整展示 | 交互步数 |
+| O-1 | 是否在点击前展示可回退的具体版本号？ | 按钮写「回退到正式版」，确认后再预检并展示实际目标版本；不新增预取 IPC | 减少网络请求与契约复杂度 |
+| O-2 | 确认后自动下载，还是再点一次「下载」？ | 确认后自动下载，下载进度仍完整展示 | 交互步数 |
 | O-3 | 已有下载完成的更新时如何处理回退？ | 一期拒绝并提示；后续评估清理 updater 缓存或提供「取消已下载更新」 | 边界体验 |
-| O-4 | macOS 是否展示入口？ | 一期隐藏或在入口处说明「当前平台需手动下载正式版」 | 平台一致性 |
-| O-5 | 回退失败后是否恢复原来的 Beta 开关状态？ | 推荐保持关闭：用户已明确表达退出 Beta 的意图，失败可重试 | 用户预期 |
-| O-6 | 更新详情窗口是否也提供回退入口？ | 一期只做设置页；详情窗口保持只读更新信息 | 实现范围 |
+| O-4 | macOS 是否展示入口？ | 隐藏自动回退入口；直接调用 IPC 返回仅支持手动安装的提示 | 平台一致性 |
+| O-5 | 回退失败后是否恢复原来的 Beta 开关状态？ | 预检失败保持原状；进入下载后失败保持关闭，用户可重新开启或重试 | 用户预期 |
+| O-6 | 更新详情窗口是否也提供回退入口？ | 发起入口只在设置页；详情窗口只调整回退状态文案与安装按钮 | 实现范围 |
 | O-7 | 是否支持 beta → 旧 beta 回退？ | 不做；通过发布新的 beta 修复 | 版本规则 |
 | O-8 | 回退下载完成后是否仍保留 `autoInstallOnAppQuit`？ | 保持现状，与普通更新一致；在确认弹窗中明确「下载后退出应用也会安装」 | 行为一致性 |
 | O-9 | 是否允许在 `available`（普通更新提示）状态直接回退？ | 允许覆盖，回退优先；`forceUpdate` 标记不生效 | 状态冲突 |
@@ -402,14 +399,14 @@ Beta 开关下方的说明文案需要同步修改，明确「关闭开关不会
 
 | 文件 | 作用 |
 | --- | --- |
-| [`src/main/updater.ts`](../../src/main/updater.ts) | 回退入口、状态守卫、`allowDowngrade` 生命周期、IPC |
-| [`src/main/update-channel.ts`](../../src/main/update-channel.ts) | `isRollbackTarget` 纯函数与版本比较 |
-| [`src/shared/update-types.ts`](../../src/shared/update-types.ts) | `UpdateState.isRollback` |
-| [`src/preload/index.ts`](../../src/preload/index.ts) / [`src/preload/index.d.ts`](../../src/preload/index.d.ts) | `window.api.update.rollbackToStable()` |
-| [`src/renderer/src/stores/update.ts`](../../src/renderer/src/stores/update.ts) | 回退操作与按钮状态 |
-| [`src/renderer/src/components/settings/SettingsDialog.vue`](../../src/renderer/src/components/settings/SettingsDialog.vue) | 设置页回退入口与确认 |
-| [`src/renderer/src/components/update/UpdateNotice.vue`](../../src/renderer/src/components/update/UpdateNotice.vue) | 主窗口提示卡片文案 |
-| [`src/renderer/src/update/UpdateWindow.vue`](../../src/renderer/src/update/UpdateWindow.vue) | 更新详情窗口回退文案 |
-| [`docs/自动更新.md`](../自动更新.md) | 实施后承接状态机与运行机制 |
-| [`docs/发版通道.md`](../发版通道.md) | 实施后承接 Beta 开关与回退边界 |
-| [`rules/release.md`](../../rules/release.md) | 第 4.3 条补充「降级通道」与「主动回退」的边界说明 |
+| [`src/main/updater.ts`](../src/main/updater.ts) | 回退入口、状态守卫、`allowDowngrade` 生命周期、IPC |
+| [`src/main/update-channel.ts`](../src/main/update-channel.ts) | `isRollbackTarget` 纯函数与版本比较 |
+| [`src/shared/update-types.ts`](../src/shared/update-types.ts) | `UpdateState.isRollback` |
+| [`src/preload/index.ts`](../src/preload/index.ts) / [`src/preload/index.d.ts`](../src/preload/index.d.ts) | `window.api.update.rollbackToStable()` |
+| [`src/renderer/src/stores/update.ts`](../src/renderer/src/stores/update.ts) | 回退操作与按钮状态 |
+| [`src/renderer/src/components/settings/SettingsDialog.vue`](../src/renderer/src/components/settings/SettingsDialog.vue) | 设置页回退入口与确认 |
+| [`src/renderer/src/components/update/UpdateNotice.vue`](../src/renderer/src/components/update/UpdateNotice.vue) | 主窗口提示卡片文案 |
+| [`src/renderer/src/update/UpdateWindow.vue`](../src/renderer/src/update/UpdateWindow.vue) | 更新详情窗口回退文案 |
+| [`docs/自动更新.md`](./自动更新.md) | 实施后承接状态机与运行机制 |
+| [`docs/发版通道.md`](./发版通道.md) | 实施后承接 Beta 开关与回退边界 |
+| [`rules/release.md`](../rules/release.md) | 第 4.3 条补充「降级通道」与「主动回退」的边界说明 |

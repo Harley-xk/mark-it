@@ -4,6 +4,8 @@ import {
   channelOfVersion,
   compareVersions,
   isPrerelease,
+  isRollbackStartAllowed,
+  isRollbackTarget,
   parseChannelVersion,
   parseVersion,
   selectUpdateCandidate
@@ -96,6 +98,45 @@ describe('通道判定', () => {
       prerelease: ['beta', '2']
     })
     expect(parseVersion('1.6')).toBeNull()
+  })
+})
+
+describe('isRollbackTarget', () => {
+  it('当前为 Beta 且正式版更低时应允许回退', () => {
+    expect(isRollbackTarget('1.6.0-beta.4', '1.5.0')).toBe(true)
+    expect(isRollbackTarget('1.6.0-beta.1', '1.6.0-beta.0')).toBe(true)
+  })
+
+  it('正式版等于或高于当前版本时不应允许回退', () => {
+    expect(isRollbackTarget('1.6.0-beta.4', '1.6.0-beta.4')).toBe(false)
+    expect(isRollbackTarget('1.6.0-beta.4', '1.6.0')).toBe(false)
+    expect(isRollbackTarget('1.6.0-beta.4', '1.7.0')).toBe(false)
+  })
+
+  it('当前不是 Beta 时不应允许回退', () => {
+    expect(isRollbackTarget('1.6.0', '1.5.0')).toBe(false)
+  })
+
+  it('版本缺失或非法时不应允许回退', () => {
+    expect(isRollbackTarget('1.6.0-beta.4', null)).toBe(false)
+    expect(isRollbackTarget('1.6.0-beta.4', 'not-a-version')).toBe(false)
+    expect(isRollbackTarget('not-a-version', '1.5.0')).toBe(false)
+  })
+})
+
+describe('isRollbackStartAllowed', () => {
+  it('检测中、下载中、已下载和开发模式下应拒绝回退', () => {
+    expect(isRollbackStartAllowed('disabled')).toBe(false)
+    expect(isRollbackStartAllowed('checking')).toBe(false)
+    expect(isRollbackStartAllowed('downloading')).toBe(false)
+    expect(isRollbackStartAllowed('downloaded')).toBe(false)
+  })
+
+  it('空闲、无更新、错误和普通更新提示下应允许发起回退', () => {
+    expect(isRollbackStartAllowed('idle')).toBe(true)
+    expect(isRollbackStartAllowed('not-available')).toBe(true)
+    expect(isRollbackStartAllowed('error')).toBe(true)
+    expect(isRollbackStartAllowed('available')).toBe(true)
   })
 })
 

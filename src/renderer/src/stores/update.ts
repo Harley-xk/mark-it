@@ -26,6 +26,25 @@ export const useUpdateStore = defineStore('update', () => {
       state.value.status === 'downloading' ||
       state.value.status === 'downloaded'
   )
+  /** 回退仅允许当前 Beta、受支持平台，且不处于检测 / 下载 / 已下载状态 */
+  const canRollback = computed(
+    () =>
+      state.value.currentChannel === 'beta' &&
+      window.api.platform !== 'darwin' &&
+      (state.value.status === 'idle' ||
+        state.value.status === 'available' ||
+        state.value.status === 'not-available' ||
+        state.value.status === 'error') &&
+      (!state.value.isRollback || state.value.status === 'error')
+  )
+  const rollbackInProgress = computed(
+    () =>
+      state.value.isRollback === true &&
+      (state.value.status === 'checking' ||
+        state.value.status === 'available' ||
+        state.value.status === 'downloading' ||
+        state.value.status === 'downloaded')
+  )
 
   function apply(next: UpdateState): void {
     state.value = next
@@ -69,6 +88,12 @@ export const useUpdateStore = defineStore('update', () => {
     apply(await window.api.update.setBetaEnabled(enabled))
   }
 
+  /** 用户主动发起一次性回退；失败后清空跳过记录，允许直接重试 */
+  async function rollbackToStable(): Promise<void> {
+    dismissedVersion.value = null
+    apply(await window.api.update.rollbackToStable())
+  }
+
   async function install(): Promise<boolean> {
     return window.api.update.install()
   }
@@ -95,11 +120,14 @@ export const useUpdateStore = defineStore('update', () => {
     showNotice,
     isBusy,
     hasUpdate,
+    canRollback,
+    rollbackInProgress,
     init,
     dispose,
     check,
     download,
     setBetaEnabled,
+    rollbackToStable,
     install,
     openWindow,
     requestInstall,

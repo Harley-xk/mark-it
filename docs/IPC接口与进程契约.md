@@ -56,10 +56,10 @@
 
 | 方向                                  | 数量   | 说明                                                             |
 | ------------------------------------- | ------ | ---------------------------------------------------------------- |
-| renderer → main `invoke`（请求-响应） | 24     | 文件 4、对话框 3、窗口 4、系统 1、会话 2、导出 1、更新 6、集成 3 |
+| renderer → main `invoke`（请求-响应） | 26     | 文件 4、对话框 3、窗口 4、系统 1、会话 2、导出 1、更新 8、集成 3 |
 | renderer → main `send`（单向）        | 2      | `renderer:ready`、`update:close-window`                          |
 | main → renderer `send`（事件推送）    | 9      | 见 3.7                                                           |
-| **合计**                              | **35** | 全部经 `window.api` 白名单暴露                                   |
+| **合计**                              | **37** | 全部经 `window.api` 白名单暴露                                   |
 
 > 计数口径：按 `registerHandle` / `registerOn` / `webContents.send` 中实际出现的通道名去重统计。`window:zoom-changed` 在两个位置发送但只算一个通道。
 
@@ -115,6 +115,7 @@
 | `update:check`            | R→M invoke | `update.check()`           | 无        | `Promise<UpdateState>` | [`src/main/updater.ts:457`](../src/main/updater.ts) | `disabled` / `checking` / `downloading` 直接返回现状；开启 Beta 时同时比较两个通道；404 按「无更新」容错                                                  |
 | `update:download`         | R→M invoke | `update.download()`        | 无        | `Promise<UpdateState>` | [`src/main/updater.ts:458`](../src/main/updater.ts) | 仅在 `available` / `error` 状态执行，其余原样返回                                                                                                         |
 | `update:set-beta-enabled` | R→M invoke | `update.setBetaEnabled(v)` | `boolean` | `Promise<UpdateState>` | [`src/main/updater.ts:459`](../src/main/updater.ts) | 持久化「接收 Beta 版更新」；检测中记录待补检、下载中不打断，其余状态清除旧提示并立即重新检测                                                              |
+| `update:rollback-to-stable` | R→M invoke | `update.rollbackToStable()` | 无 | `Promise<UpdateState>` | [`src/main/updater.ts`](../src/main/updater.ts) | **只接受主窗口调用**；关闭 Beta 后直接检测 stable 当前版本，并要求其严格低于当前 Beta；不接受目标版本或 URL |
 | `update:install`          | R→M invoke | `update.install()`         | 无        | `Promise<boolean>`     | [`src/main/updater.ts:465`](../src/main/updater.ts) | **只接受主窗口调用**（必须先完成未保存确认）；仅在 `downloaded` 状态执行；`beforeInstall()` 放行关闭守卫；`setImmediate` 调 `quitAndInstall(false, true)` |
 | `update:open-window`      | R→M invoke | `update.openWindow()`      | 无        | `Promise<void>`        | [`src/main/updater.ts:470`](../src/main/updater.ts) | 打开或聚焦单例「更新详情」窗口（560×680，无边框）                                                                                                         |
 | `update:close-window`     | R→M send   | `update.closeWindow()`     | 无        | 无返回值               | [`src/main/updater.ts:473`](../src/main/updater.ts) | 只关闭 `event.sender` 所在窗口，**主窗口调用会被忽略**（防止绕过关闭守卫）；用 `send` 避免 `invoke` 的回复随窗口销毁丢失                                  |

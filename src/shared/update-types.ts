@@ -30,6 +30,8 @@ export interface UpdateState {
   latestVersion?: string
   /** 本次提供的更新来自哪个通道；无可用更新时为空 */
   latestChannel?: UpdateChannel
+  /** 当前回退流程（含检测、下载、已下载或可重试错误）是否由用户主动发起 */
+  isRollback?: boolean
   notes?: string
   forceUpdate: boolean
   progress?: UpdateProgress

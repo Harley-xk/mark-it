@@ -8,6 +8,9 @@ import type { UpdateChannel, UpdateState } from '../shared/update-types'
 import {
   channelFileName,
   channelOfVersion,
+  compareVersions,
+  isRollbackStartAllowed,
+  isRollbackTarget,
   parseChannelVersion,
   selectUpdateCandidate
 } from './update-channel'
@@ -85,6 +88,10 @@ let activeCheckChannel: UpdateChannel = 'stable'
 let recheckPending = false
 /** 正在下载：切换偏好时不打断已开始的下载 */
 let downloading = false
+/** 本次检测由一次性回退发起，update-available 据此标注回退并自动下载 */
+let rollbackPending = false
+/** 回退流程进行中：阻止周期检测、普通检测与 Beta 开关干扰 */
+let rollbacking = false
 /** 偏好文件路径，首次使用时按 userData 计算（init 在 app ready 之后） */
 let preferenceFile = ''
 
@@ -123,10 +130,12 @@ function loadBetaPreference(): boolean {
   }
 }
 
-function saveBetaPreference(enabled: boolean): void {
-  writeFile(getPreferenceFile(), JSON.stringify({ betaUpdatesEnabled: enabled }), 'utf-8').catch(
-    (error) => console.error('Failed to save update preference:', error)
-  )
+async function saveBetaPreference(enabled: boolean): Promise<void> {
+  try {
+    await writeFile(getPreferenceFile(), JSON.stringify({ betaUpdatesEnabled: enabled }), 'utf-8')
+  } catch (error) {
+    console.error('Failed to save update preference:', error)
+  }
 }
 
 function setFeed(channel: UpdateChannel): void {
@@ -166,6 +175,24 @@ function channelsToCheck(): UpdateChannel[] {
   return state.betaUpdatesEnabled ? ALL_CHANNELS : ['stable']
 }
 
+/** 退出回退运行态，并确保 electron-updater 不会长期保留降级许可 */
+function clearRollbackMode(): void {
+  rollbackPending = false
+  rollbacking = false
+  autoUpdater.allowDowngrade = false
+}
+
+function failRollback(message: string, isRollback = true): UpdateState {
+  clearRollbackMode()
+  setState({
+    status: 'error',
+    error: message,
+    progress: undefined,
+    isRollback
+  })
+  return state
+}
+
 /**
  * 双通道检测：取两个通道中大于当前版本的最高版本，再让 electron-updater
  * 对该通道执行正式检测。只开单通道时保持原有的单 feed 行为。
@@ -173,8 +200,15 @@ function channelsToCheck(): UpdateChannel[] {
 async function checkForUpdates(): Promise<UpdateState> {
   if (state.status === 'disabled') return state
   if (state.status === 'checking' || state.status === 'downloading') return state
+  if (rollbacking) return state
 
-  setState({ status: 'checking', error: undefined, progress: undefined })
+  clearRollbackMode()
+  setState({
+    status: 'checking',
+    error: undefined,
+    progress: undefined,
+    isRollback: false
+  })
 
   const channels = channelsToCheck()
   let targetChannel: UpdateChannel = channels[0] ?? 'stable'
@@ -232,9 +266,10 @@ function finishCheck(): void {
  * - 其余状态：清除旧提示并立即重新检测。
  */
 async function setBetaEnabled(enabled: boolean): Promise<UpdateState> {
+  if (rollbacking) return state
   if (state.betaUpdatesEnabled === enabled) return state
   state = { ...state, betaUpdatesEnabled: enabled }
-  saveBetaPreference(enabled)
+  await saveBetaPreference(enabled)
   broadcast()
 
   if (state.status === 'disabled') return state
@@ -251,9 +286,76 @@ async function setBetaEnabled(enabled: boolean): Promise<UpdateState> {
     notes: undefined,
     forceUpdate: false,
     error: undefined,
-    progress: undefined
+    progress: undefined,
+    isRollback: false
   })
   return checkForUpdates()
+}
+
+/**
+ * 用户主动发起的一次性回退：只检测 stable 当前最新版本，并在开始下载前退出 Beta。
+ * 预检失败不改变 Beta 开关；成功后才临时允许 electron-updater 降级。
+ */
+async function rollbackToStable(): Promise<UpdateState> {
+  if (rollbacking) return state
+  if (!isRollbackStartAllowed(state.status)) return state
+
+  if (state.currentChannel !== 'beta') {
+    setState({ status: 'error', error: '当前不是 Beta 版本', isRollback: false })
+    return state
+  }
+  if (process.platform === 'darwin') {
+    setState({
+      status: 'error',
+      error: '当前平台不支持自动回退，请手动安装正式版',
+      isRollback: false
+    })
+    return state
+  }
+
+  clearRollbackMode()
+  recheckPending = false
+  rollbacking = true
+  setState({
+    status: 'checking',
+    latestVersion: undefined,
+    latestChannel: undefined,
+    notes: undefined,
+    forceUpdate: false,
+    progress: undefined,
+    error: undefined,
+    isRollback: true
+  })
+
+  const stable = await peekChannel('stable')
+  if (!stable.reachable) return failRollback('无法获取正式版信息')
+  if (!stable.version) return failRollback('正式版通道暂无可用版本')
+  if (!isRollbackTarget(state.currentVersion, stable.version)) {
+    const sameVersion = compareVersions(stable.version, state.currentVersion) === 0
+    return failRollback(
+      sameVersion ? '已是最新正式版' : '正式版版本高于当前版本，请直接检查更新',
+      false
+    )
+  }
+
+  // 预检通过后才真正退出 Beta；后续任何失败都保持关闭，避免下一次检测又推回 Beta。
+  state = { ...state, betaUpdatesEnabled: false }
+  await saveBetaPreference(false)
+  broadcast()
+  rollbackPending = true
+  autoUpdater.allowDowngrade = true
+
+  try {
+    setFeed('stable')
+    await autoUpdater.checkForUpdates()
+  } catch (error) {
+    return failRollback(error instanceof Error ? error.message : String(error))
+  }
+
+  if (rollbackPending) {
+    return failRollback('正式版通道未返回可回退版本')
+  }
+  return state
 }
 
 /**
@@ -261,6 +363,7 @@ async function setBetaEnabled(enabled: boolean): Promise<UpdateState> {
  * 避免自动检测打断用户正在处理（或等待安装）的更新。
  */
 function periodicCheck(): void {
+  if (rollbacking) return
   if (
     state.status === 'checking' ||
     state.status === 'downloading' ||
@@ -275,12 +378,19 @@ function periodicCheck(): void {
 async function downloadUpdate(): Promise<UpdateState> {
   if (state.status === 'checking' || state.status === 'downloading') return state
   if (state.status !== 'available' && state.status !== 'error') return state
+  // 回退失败后必须重新预检 stable，不能直接复用旧的 updateInfo 下载
+  if (state.isRollback && state.status === 'error' && !rollbacking) return state
   // 检测与下载紧邻发生，下载地址仍在平台 2h 有效期内；失败重试会重新走下载
   downloading = true
   try {
     await autoUpdater.downloadUpdate()
   } catch (error) {
-    setState({ status: 'error', error: error instanceof Error ? error.message : String(error) })
+    const message = error instanceof Error ? error.message : String(error)
+    if (state.isRollback) {
+      failRollback(message)
+    } else {
+      setState({ status: 'error', error: message })
+    }
   } finally {
     downloading = false
   }
@@ -298,8 +408,10 @@ function installUpdate(): boolean {
     // 安装启动失败：撤销放行标志并把错误回传给两个窗口，避免静默无反应
     onInstallFailed?.()
     const message = error instanceof Error ? error.message : String(error)
+    const wasRollback = state.isRollback === true
+    clearRollbackMode()
     console.error('Failed to install update:', error)
-    setState({ status: 'error', error: `安装失败：${message}` })
+    setState({ status: 'error', error: `安装失败：${message}`, isRollback: wasRollback })
     return false
   }
 }
@@ -365,10 +477,30 @@ function bindEvents(): void {
 
   autoUpdater.on('update-available', (info) => {
     const { notes, forceUpdate } = extractReleaseNotes(info)
+    if (rollbackPending && isRollbackTarget(state.currentVersion, info.version)) {
+      rollbackPending = false
+      setState({
+        status: 'available',
+        latestVersion: info.version,
+        latestChannel: 'stable',
+        isRollback: true,
+        notes,
+        forceUpdate: false,
+        progress: undefined,
+        error: undefined
+      })
+      // 回退已由用户确认，直接进入下载；不沿用正式版的强制更新标记
+      void downloadUpdate()
+      return
+    }
+
+    // 预检后远端元数据发生变化：按普通更新处理，并立即复位一次性的降级许可
+    if (rollbackPending) clearRollbackMode()
     setState({
       status: 'available',
       latestVersion: info.version,
       latestChannel: activeCheckChannel,
+      isRollback: false,
       notes,
       forceUpdate,
       progress: undefined,
@@ -379,10 +511,15 @@ function bindEvents(): void {
   })
 
   autoUpdater.on('update-not-available', () => {
+    if (rollbacking || rollbackPending) {
+      failRollback('未找到可回退的正式版')
+      return
+    }
     setState({
       status: 'not-available',
       latestVersion: undefined,
       latestChannel: undefined,
+      isRollback: false,
       notes: undefined,
       forceUpdate: false
     })
@@ -412,7 +549,10 @@ function bindEvents(): void {
   autoUpdater.on('error', (error) => {
     // 已进入安装流程后失败：撤销放行标志，避免后续关窗绕过未保存确认
     const wasInstalling = state.status === 'downloaded'
-    if (isNotFoundError(error)) {
+    const wasRollback = rollbacking || rollbackPending || state.isRollback === true
+    if (wasRollback) {
+      failRollback(error?.message ?? String(error))
+    } else if (isNotFoundError(error)) {
       setState({ status: 'not-available', error: undefined })
     } else {
       setState({ status: 'error', error: error?.message ?? String(error) })
@@ -459,6 +599,11 @@ export function initAutoUpdater(
   registerHandle('update:set-beta-enabled', (_event, enabled: unknown) => {
     if (typeof enabled !== 'boolean') return state
     return setBetaEnabled(enabled)
+  })
+  registerHandle('update:rollback-to-stable', (event) => {
+    const win = getMainWindow?.()
+    if (!win || win.isDestroyed() || event.sender !== win.webContents) return state
+    return rollbackToStable()
   })
   // 只有主窗口能真正安装：它必须先完成未保存内容确认，
   // 更新窗口必须走 update:request-install 转交主窗口

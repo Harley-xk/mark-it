@@ -4,7 +4,7 @@
  *
  * 描述: 更新通道纯逻辑：通道元数据文件名、版本解析与比较、候选通道选择
  */
-import type { UpdateChannel } from '../shared/update-types'
+import type { UpdateChannel, UpdateStatus } from '../shared/update-types'
 
 export interface ParsedVersion {
   major: number
@@ -81,6 +81,26 @@ export function isPrerelease(version: string): boolean {
 /** 版本所属通道：含预发布后缀即为 beta */
 export function channelOfVersion(version: string): UpdateChannel {
   return isPrerelease(version) ? 'beta' : 'stable'
+}
+
+/**
+ * 是否允许发起一次性回退。
+ * 检测中、下载中、已下载和开发模式下不并发启动；普通更新提示可由回退覆盖。
+ */
+export function isRollbackStartAllowed(status: UpdateStatus): boolean {
+  return (
+    status === 'idle' || status === 'available' || status === 'not-available' || status === 'error'
+  )
+}
+
+/**
+ * 是否允许回退：当前必须是预发布版本，且 stable 版本严格低于当前版本。
+ * stable 版本缺失、非法或高于当前版本时返回 false。
+ */
+export function isRollbackTarget(currentVersion: string, stableVersion: string | null): boolean {
+  if (!stableVersion || !parseVersion(stableVersion)) return false
+  if (!isPrerelease(currentVersion)) return false
+  return compareVersions(stableVersion, currentVersion) < 0
 }
 
 /** electron-updater 在各平台读取的通道元数据文件名 */

@@ -45,7 +45,7 @@
 
 1. `UpdateChannel`、`UpdateState.betaUpdatesEnabled` / `currentChannel` / `latestChannel` 是跨进程契约；修改时必须同步主进程、preload、渲染层，并更新 [docs/自动更新.md](../docs/自动更新.md)、[docs/状态与数据模型.md](../docs/状态与数据模型.md)、[docs/发版通道.md](../docs/发版通道.md)。
 2. Beta 开关持久化在主进程 `userData/update-preference.json`，默认关闭。不得改为 localStorage，不得改变默认值。
-3. 关闭 Beta 只停止接收 beta，**不得降级**已安装的 beta；不得提供降级通道。下一个正式版发布后自动归队。
+3. 关闭 Beta 只停止接收 beta，**不得自动降级**已安装的 beta；不得提供常驻降级通道。用户可在设置页主动发起一次回退到 stable 当前最新版本，回退前必须关闭 Beta 开关；下一个正式版发布后仍按正常升级自动归队。
 4. beta 通道 404 必须按「没有 beta」处理，不能把开关开启变成错误状态。
 5. 双通道选择必须「取大于当前版本的最高版本」；不得简化成先查某个通道、查到就返回。
 6. 已下载的更新不因切换开关而中断；下一次检测按新偏好执行。这条行为必须保留并在设置页说明。

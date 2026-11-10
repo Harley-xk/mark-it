@@ -62,7 +62,8 @@ const offCloseRequest = window.api.onCloseRequest(async ({ quit }) => {
 
 // 更新详情窗口请求安装：先处理未保存内容，再由主进程退出安装
 const offInstallRequest = window.api.update.onInstallRequest(async () => {
-  if (!(await saveAllBeforeExit('安装更新'))) return
+  const actionLabel = update.state.isRollback ? '回退到正式版' : '安装更新'
+  if (!(await saveAllBeforeExit(actionLabel))) return
   await update.install()
 })
 

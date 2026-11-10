@@ -118,6 +118,8 @@ const api = {
     /** 切换「接收 Beta 版更新」，返回持久化后的最新状态 */
     setBetaEnabled: (enabled: boolean): Promise<UpdateState> =>
       ipcRenderer.invoke('update:set-beta-enabled', enabled),
+    /** 当前 Beta 用户主动回退到 stable 通道当前最新版本 */
+    rollbackToStable: (): Promise<UpdateState> => ipcRenderer.invoke('update:rollback-to-stable'),
     install: (): Promise<boolean> => ipcRenderer.invoke('update:install'),
     /** 打开独立的更新详情窗口 */
     openWindow: (): Promise<void> => ipcRenderer.invoke('update:open-window'),

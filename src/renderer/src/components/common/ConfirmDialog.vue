@@ -10,6 +10,10 @@ defineProps<{
   discardText?: string
   cancelText?: string
   diff?: DiffLine[]
+  /** 仅需要确认 / 取消时隐藏中间的次要操作 */
+  hideDiscard?: boolean
+  /** 确认操作为破坏性动作时使用红色主按钮 */
+  primaryDanger?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -49,12 +53,7 @@ function diffSign(type: DiffLine['type']): string {
               <span class="legend-add">+ 本地未保存的内容</span>
             </div>
             <div class="diff-body">
-              <div
-                v-for="(line, index) in diff"
-                :key="index"
-                class="diff-line"
-                :class="line.type"
-              >
+              <div v-for="(line, index) in diff" :key="index" class="diff-line" :class="line.type">
                 <template v-if="line.type === 'gap'">… 省略 {{ line.count }} 行 …</template>
                 <template v-else>{{ diffSign(line.type) }} {{ line.text }}</template>
               </div>
@@ -64,10 +63,14 @@ function diffSign(type: DiffLine['type']): string {
             <button v-if="cancelText" class="btn btn-secondary" @click="emit('cancel')">
               {{ cancelText }}
             </button>
-            <button class="btn btn-danger" @click="emit('discard')">
+            <button v-if="!hideDiscard" class="btn btn-danger" @click="emit('discard')">
               {{ discardText || '放弃修改' }}
             </button>
-            <button class="btn btn-primary" @click="emit('save')">
+            <button
+              class="btn"
+              :class="primaryDanger ? 'btn-danger' : 'btn-primary'"
+              @click="emit('save')"
+            >
               {{ saveText || '保存' }}
             </button>
           </div>

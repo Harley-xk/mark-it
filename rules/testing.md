@@ -22,7 +22,7 @@
 | 滚动同步 / 布局切换      | `useScrollSync.ts`、`SplitPane.vue`                            | 三种布局各滚动一次，确认双向联动                                              |
 | Mermaid 识别与导出       | `utils/mermaid.ts`、`utils/diagram-export.ts`                  | 渲染、弹窗预览、导出图片各一次；`npm test` 的语言标记用例通过                 |
 | PDF 导出                 | `usePdfExport.ts`、`PdfExportDialog.vue`                       | 导出一次并打开产物检查分页与目录                                              |
-| 自动更新                 | `src/main/updater.ts`、`stores/update.ts`                      | 至少验证「检查更新 → 状态渲染」不报错；周期检测可按 MV-27A 用环境变量缩短间隔 |
+| 自动更新与回退           | `src/main/updater.ts`、`src/main/update-channel.ts`、`stores/update.ts` | 至少验证「检查更新 → 状态渲染」不报错；周期检测可按 MV-27A；Windows / Linux 打包产物还要验证 Beta 主动回退、失败恢复与 Beta 关闭持久化 |
 | 本地图片协议             | `markit-file://`（`src/main/index.ts`）                        | 相对路径图片正常显示；非图片扩展名被拒绝                                      |
 
 修复缺陷时，如果缺陷能在纯函数层复现（如 `text-diff.ts`、`mermaid.ts`、`local-image.ts`、`frontmatter.ts`），必须补一条同目录 `*.spec.ts` 回归用例。

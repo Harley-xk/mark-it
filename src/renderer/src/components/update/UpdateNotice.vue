@@ -7,7 +7,8 @@ const app = useAppStore()
 const update = useUpdateStore()
 
 const visible = computed(() => update.showNotice && update.hasUpdate)
-const forced = computed(() => update.state.forceUpdate && update.hasUpdate)
+const isRollback = computed(() => update.state.isRollback === true)
+const forced = computed(() => !isRollback.value && update.state.forceUpdate && update.hasUpdate)
 const isBeta = computed(() => update.state.latestChannel === 'beta')
 
 function handleView(): void {
@@ -42,7 +43,11 @@ function handleDismiss(): void {
           </span>
           <div class="toast-text">
             <div class="toast-title">
-              发现新版本 v{{ update.state.latestVersion }}
+              {{
+                isRollback
+                  ? `可回退到正式版 v${update.state.latestVersion}`
+                  : `发现新版本 v${update.state.latestVersion}`
+              }}
               <span v-if="isBeta" class="toast-badge is-beta">Beta</span>
               <span v-if="forced" class="toast-badge">重要</span>
             </div>

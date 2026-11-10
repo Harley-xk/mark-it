@@ -1,18 +1,23 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useAppStore } from '../../stores/app'
 import { MAX_CUSTOM_STYLE_CHARS, useStyleStore } from '../../stores/style'
 import { useUpdateStore } from '../../stores/update'
 import { saveAllBeforeExit } from '../../composables/useExitGuard'
 import type { ThemeMode } from '../../types'
+import ConfirmDialog from '../common/ConfirmDialog.vue'
 import VSCodeIntegration from './VSCodeIntegration.vue'
 
 const app = useAppStore()
 const styleStore = useStyleStore()
 const update = useUpdateStore()
+const showRollbackConfirm = ref(false)
 
 /** Beta 通道的更新在状态文案后加标识，避免与正式版混淆 */
 const betaSuffix = computed(() => (update.state.latestChannel === 'beta' ? '（Beta）' : ''))
+const showRollbackButton = computed(
+  () => update.state.currentChannel === 'beta' && window.api.platform !== 'darwin'
+)
 
 const updateStatusText = computed(() => {
   const s = update.state
@@ -22,17 +27,25 @@ const updateStatusText = computed(() => {
     case 'idle':
       return '尚未检测'
     case 'checking':
-      return '正在检查更新…'
+      return s.isRollback ? '正在查找可回退的正式版…' : '正在检查更新…'
     case 'not-available':
       return '已是最新版本'
     case 'available':
-      return `发现新版本 v${s.latestVersion}${betaSuffix.value}`
+      return s.isRollback
+        ? `可回退到正式版 v${s.latestVersion}`
+        : `发现新版本 v${s.latestVersion}${betaSuffix.value}`
     case 'downloading':
-      return `正在下载 ${Math.floor(s.progress?.percent ?? 0)}%`
+      return s.isRollback
+        ? `正在下载回退版本 ${Math.floor(s.progress?.percent ?? 0)}%`
+        : `正在下载 ${Math.floor(s.progress?.percent ?? 0)}%`
     case 'downloaded':
-      return `v${s.latestVersion} 已下载，重启后安装${betaSuffix.value}`
+      return s.isRollback
+        ? `v${s.latestVersion} 已下载，重启后回退`
+        : `v${s.latestVersion} 已下载，重启后安装${betaSuffix.value}`
     case 'error':
-      return `更新检查失败：${s.error ?? '未知错误'}`
+      return s.isRollback
+        ? `回退失败：${s.error ?? '未知错误'}`
+        : `更新检查失败：${s.error ?? '未知错误'}`
     default:
       return ''
   }
@@ -42,8 +55,13 @@ async function handleUpdateAction(): Promise<void> {
   const status = update.state.status
   if (status === 'downloaded') {
     // 与主窗口的安装流程一致：逐个确认所有标签页，并保存会话
-    if (!(await saveAllBeforeExit('安装更新'))) return
+    const actionLabel = update.state.isRollback ? '回退到正式版' : '安装更新'
+    if (!(await saveAllBeforeExit(actionLabel))) return
     await update.install()
+    return
+  }
+  if (status === 'error' && update.state.isRollback) {
+    await update.rollbackToStable()
     return
   }
   if (status === 'available') {
@@ -55,23 +73,45 @@ async function handleUpdateAction(): Promise<void> {
 }
 
 async function handleBetaToggle(): Promise<void> {
+  if (update.rollbackInProgress) return
   await update.setBetaEnabled(!update.state.betaUpdatesEnabled)
 }
 
+async function requestRollback(): Promise<void> {
+  if (!update.canRollback) return
+  if (update.state.status === 'error' && update.state.isRollback) {
+    await update.rollbackToStable()
+    return
+  }
+  showRollbackConfirm.value = true
+}
+
+async function confirmRollback(): Promise<void> {
+  showRollbackConfirm.value = false
+  await update.rollbackToStable()
+}
+
 const updateActionText = computed(() => {
+  const rollback = update.state.isRollback === true
   switch (update.state.status) {
     case 'downloaded':
-      return '重启安装'
+      return rollback ? '重启回退' : '重启安装'
     case 'available':
-      return '下载更新'
+      return rollback ? '下载回退版本' : '下载更新'
     case 'error':
-      return '重试'
+      return rollback ? '重试回退' : '重试'
     case 'checking':
     case 'downloading':
       return '处理中…'
     default:
       return '检查更新'
   }
+})
+
+const rollbackActionText = computed(() => {
+  if (update.state.status === 'error' && update.state.isRollback) return '重试回退'
+  if (update.rollbackInProgress) return '回退中…'
+  return '回退到正式版'
 })
 
 const themeOptions: { value: ThemeMode; label: string; icon: string }[] = [
@@ -286,7 +326,8 @@ function removeStyle(id: string): void {
                 <span class="beta-label">接收 Beta 版更新</span>
                 <span class="beta-hint">
                   开启后可提前体验新功能，更新可能不稳定。关闭后仅接收正式版；当前 Beta
-                  版本会在下一个正式版发布后自动归队，不会降级。
+                  版本会在下一个正式版发布后自动归队，不会自动降级。如需立即退出
+                  Beta，可使用「回退到正式版」。
                 </span>
               </div>
               <button
@@ -297,6 +338,7 @@ function removeStyle(id: string): void {
                 :aria-label="
                   update.state.betaUpdatesEnabled ? '关闭 Beta 版更新' : '接收 Beta 版更新'
                 "
+                :disabled="update.rollbackInProgress"
                 @click="handleBetaToggle"
               >
                 <span class="switch-thumb"></span>
@@ -315,13 +357,23 @@ function removeStyle(id: string): void {
                   Beta
                 </span>
               </div>
-              <button
-                class="update-btn"
-                :disabled="update.isBusy || update.state.status === 'disabled'"
-                @click="handleUpdateAction"
-              >
-                {{ updateActionText }}
-              </button>
+              <div class="about-actions">
+                <button
+                  v-if="showRollbackButton"
+                  class="rollback-btn"
+                  :disabled="!update.canRollback"
+                  @click="requestRollback"
+                >
+                  {{ rollbackActionText }}
+                </button>
+                <button
+                  class="update-btn"
+                  :disabled="update.isBusy || update.state.status === 'disabled'"
+                  @click="handleUpdateAction"
+                >
+                  {{ updateActionText }}
+                </button>
+              </div>
             </div>
             <div class="update-status" :class="{ 'is-error': update.state.status === 'error' }">
               {{ updateStatusText }}
@@ -334,6 +386,18 @@ function removeStyle(id: string): void {
       </div>
     </div>
   </Teleport>
+
+  <ConfirmDialog
+    :visible="showRollbackConfirm"
+    title="回退到正式版"
+    :message="`将关闭 Beta 更新并安装 stable 通道的当前最新正式版。当前 Beta 版本为 v${update.state.currentVersion}，回退后不会自动回到 Beta；下载完成后退出应用也会安装。是否继续？`"
+    save-text="继续回退"
+    cancel-text="取消"
+    hide-discard
+    primary-danger
+    @save="confirmRollback"
+    @cancel="showRollbackConfirm = false"
+  />
 </template>
 
 <style scoped>
@@ -473,6 +537,11 @@ function removeStyle(id: string): void {
 .switch.active .switch-thumb {
   transform: translateX(18px);
   background: #8fb4ff;
+}
+
+.switch:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .channel-badge {
@@ -657,6 +726,12 @@ function removeStyle(id: string): void {
   gap: 8px;
 }
 
+.about-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .about-name {
   font-size: 13px;
   font-weight: 600;
@@ -686,6 +761,28 @@ function removeStyle(id: string): void {
 }
 
 .update-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.rollback-btn {
+  padding: 6px 10px;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 7px;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.rollback-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.rollback-btn:disabled {
   opacity: 0.5;
   cursor: default;
 }
@@ -873,6 +970,16 @@ function removeStyle(id: string): void {
 
 .settings-dialog.light .update-btn:hover:not(:disabled) {
   background: rgba(59, 130, 246, 0.16);
+}
+
+.settings-dialog.light .rollback-btn {
+  border-color: rgba(0, 0, 0, 0.1);
+  color: rgba(0, 0, 0, 0.55);
+}
+
+.settings-dialog.light .rollback-btn:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.04);
+  color: rgba(0, 0, 0, 0.8);
 }
 
 .settings-dialog.light .update-notes {
