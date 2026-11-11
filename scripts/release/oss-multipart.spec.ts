@@ -10,6 +10,7 @@ import {
   encodeOssSubresources,
   isObjectSizeCheckForbidden,
   planParts,
+  redactSensitiveText,
   shouldUseMultipart,
   uploadMultipart
 } from './oss-multipart.mjs'
@@ -163,6 +164,30 @@ describe('OSS multipart 重试与中止', () => {
 })
 
 describe('OSS multipart 日志脱敏', () => {
+  it('脱敏 Authorization、AccessKey、JWT 与 JSON 凭据字段', () => {
+    const message = redactSensitiveText(
+      'Authorization: OSS SECRETKEY:SECRETSIGN; Authorization=OTHER-SECRET; ' +
+        'AccessKeyId=SECRET-KEY; AccessKeySecret=SECRET-SECRET; ' +
+        'securityToken=SECRET-TOKEN; signature=SECRET-SIGNATURE; ' +
+        'Bearer SECRET.JWT.VALUE; {"password":"JSON-PASSWORD","signSecret":"JSON-SIGN"}'
+    )
+
+    for (const secret of [
+      'SECRETKEY:SECRETSIGN',
+      'OTHER-SECRET',
+      'SECRET-KEY',
+      'SECRET-SECRET',
+      'SECRET-TOKEN',
+      'SECRET-SIGNATURE',
+      'SECRET.JWT.VALUE',
+      'JSON-PASSWORD',
+      'JSON-SIGN'
+    ]) {
+      expect(message).not.toContain(secret)
+    }
+    expect(message).toContain('[redacted]')
+  })
+
   it('错误摘要不输出凭证正文', () => {
     const message = describeOssResponse(
       403,
@@ -173,6 +198,88 @@ describe('OSS multipart 日志脱敏', () => {
 
     const unknownResponse = describeOssResponse(500, '<Detail>AccessKeyId=SECRET-KEY</Detail>')
     expect(unknownResponse).toBe('HTTP 500')
+  })
+
+  it('分片重试警告不输出 OSS 凭证或签名', async () => {
+    const warn = vi.fn()
+    const uploadPart = vi.fn(
+      async (_objectKey: string, _uploadId: string, part: { partNumber: number }) => {
+        if (part.partNumber === 1 && uploadPart.mock.calls.length === 1) {
+          throw new OssTransferError(
+            'Authorization: OSS SECRETKEY:SECRETSIGN AccessKeyId=SECRET-KEY',
+            { retryable: true }
+          )
+        }
+        return `"etag-${part.partNumber}"`
+      }
+    )
+
+    await uploadMultipart({
+      filePath: 'ignored.zip',
+      fileSize: OSS_MIN_PART_SIZE,
+      objectKey: 'packages/mark-it.zip',
+      partSizeBytes: OSS_MIN_PART_SIZE,
+      concurrency: 1,
+      partRetries: 1,
+      transport: {
+        initiate: vi.fn(async () => 'upload-1'),
+        uploadPart,
+        complete: vi.fn(async () => undefined),
+        abort: vi.fn(async () => undefined)
+      },
+      log: vi.fn(),
+      warn,
+      sleep: async () => undefined,
+      backoff: () => 0
+    })
+
+    const output = warn.mock.calls.flat().join('\n')
+    expect(output).not.toContain('SECRETKEY:SECRETSIGN')
+    expect(output).not.toContain('SECRET-KEY')
+    expect(output).toContain('[redacted]')
+  })
+
+  it('最终错误与 Abort 警告均不输出秘密', async () => {
+    const warn = vi.fn()
+    let caught: unknown
+
+    try {
+      await uploadMultipart({
+        filePath: 'ignored.zip',
+        fileSize: OSS_MIN_PART_SIZE,
+        objectKey: 'packages/mark-it.zip',
+        partSizeBytes: OSS_MIN_PART_SIZE,
+        concurrency: 1,
+        partRetries: 0,
+        transport: {
+          initiate: vi.fn(async () => 'upload-1'),
+          uploadPart: vi.fn(async () => {
+            throw new OssTransferError('password=PASSWORD-SECRET securityToken=STS-SECRET-TOKEN', {
+              retryable: false
+            })
+          }),
+          complete: vi.fn(async () => undefined),
+          abort: vi.fn(async () => {
+            throw new Error('signature=SIGNATURE-SECRET Authorization: OSS KEY:SIGN')
+          })
+        },
+        log: vi.fn(),
+        warn,
+        sleep: async () => undefined
+      })
+    } catch (error) {
+      caught = error
+    }
+
+    expect(caught).toBeInstanceOf(Error)
+    const errorOutput = (caught as Error).message
+    const warningOutput = warn.mock.calls.flat().join('\n')
+    const combined = `${errorOutput}\n${warningOutput}`
+    for (const secret of ['PASSWORD-SECRET', 'STS-SECRET-TOKEN', 'SIGNATURE-SECRET', 'KEY:SIGN']) {
+      expect(combined).not.toContain(secret)
+    }
+    expect(warningOutput).toContain('中止 OSS 会话失败')
+    expect(warningOutput).toContain('[redacted]')
   })
 })
 

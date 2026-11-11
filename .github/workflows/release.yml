@@ -31,7 +31,7 @@ on:
         default: false
         type: boolean
       replace:
-        description: '替换已存在的平台包（重跑同一版本时勾选）'
+        description: '重跑同一版本时勾选；已有平台包替换，不存在的平台包按新增处理'
         required: false
         default: false
         type: boolean

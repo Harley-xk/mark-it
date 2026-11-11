@@ -40,7 +40,9 @@
    - stable 的更新说明包含 beta 期间的全部改动；
    - 更新说明与 apphub 上的说明口径一致。
 7. 首批上线可以先用正式版带出 Beta 开关，也可以先发 beta；无论哪种顺序，beta 都必须满足第 1 节的版本规则，且旧客户端只会看到 stable。
-8. CI 发布必须使用 `prepare` + 三平台并行 `upload` 编排：`prepare` 只创建或复用一次草稿，三个上传任务必须 `fail-fast: false`，`publish` 只能在全部平台上传成功后执行。单平台失败时保留草稿，修复后按同一版本重跑并按需启用 `replace`。
+8. CI 发布必须使用 `prepare` + 三平台并行 `upload` 编排：`prepare` 只创建或复用一次草稿，三个上传任务必须 `fail-fast: false`，`publish` 只能在全部平台上传成功后执行。单平台失败时保留草稿，修复后按同一版本重跑并按需启用 `replace`；重跑时已有平台包替换，不存在的平台包按新增登记。
+9. `upload` 的统一入口是 `scripts/release/apphub-upload.mjs`，默认 `multipart=auto`；小文件委托原 CLI，大文件使用 OSS 分片。权限或兼容问题必须显式选择 `multipart=off` 后重跑，不得自动降级。
+10. 上述适配层不得修改 `scripts/release/apphub.mjs`。分片重试只保证单次 job 内有效，不承诺跨 job 断点续传。
 
 ## 4. 客户端契约（不可随意改）
 

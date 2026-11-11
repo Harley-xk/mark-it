@@ -1,6 +1,6 @@
 # AppHub OSS 分片上传适配层设计
 
-> **状态：阶段 2 实施中（2026-11-11）。** 设计已确定，代码、单元测试和真实 Beta 权限验证完成前不得标记为已上线。
+> **状态：本地实现和自动化测试已完成；真实 Beta STS multipart 权限及 >500 MB macOS zip 验证仍待完成。**
 >
 > 文档定位：在不修改会自更新的 `scripts/release/apphub.mjs` 的前提下，为大安装包增加 OSS multipart（分片上传）能力。
 >
@@ -39,15 +39,15 @@ flowchart TD
 
 默认参数：
 
-| 参数             |      默认值 | 可调方式                                |
-| ---------------- | ----------: | --------------------------------------- |
-| 启用阈值         |      64 MiB | `APPHUB_MULTIPART_THRESHOLD_BYTES`      |
-| 分片大小         |      16 MiB | `APPHUB_MULTIPART_PART_SIZE_BYTES`      |
-| 并发度           |           4 | `APPHUB_MULTIPART_CONCURRENCY`          |
-| 单分片重试       |        3 次 | `APPHUB_MULTIPART_RETRIES`              |
-| 单分片无进展超时 |       90 秒 | `APPHUB_MULTIPART_PART_TIMEOUT_MS`      |
-| 进度间隔         | 5% 或 15 秒 | `APPHUB_MULTIPART_PROGRESS_INTERVAL_MS` |
-| 模式开关         |      `auto` | workflow 输入或 `--multipart auto       | off` |
+| 参数             |      默认值 | 可调方式                                   |
+| ---------------- | ----------: | ------------------------------------------ |
+| 启用阈值         |      64 MiB | `APPHUB_MULTIPART_THRESHOLD_BYTES`         |
+| 分片大小         |      16 MiB | `APPHUB_MULTIPART_PART_SIZE_BYTES`         |
+| 并发度           |           4 | `APPHUB_MULTIPART_CONCURRENCY`             |
+| 单分片重试       |        3 次 | `APPHUB_MULTIPART_RETRIES`                 |
+| 单分片无进展超时 |       90 秒 | `APPHUB_MULTIPART_PART_TIMEOUT_MS`         |
+| 进度间隔         | 5% 或 15 秒 | `APPHUB_MULTIPART_PROGRESS_INTERVAL_MS`    |
+| 模式开关         |      `auto` | workflow 输入或 `--multipart auto` / `off` |
 
 小文件、`--multipart off` 或发生兼容问题时，直接委托现有 `apphub.mjs upload`，确保哈希、STS、整文件
 `PUT` 和包登记保持原行为。大文件模式不自动在权限错误后降级，避免把 STS 权限问题伪装成成功；运维人员应明确选择 `off` 后重跑。
@@ -75,7 +75,7 @@ flowchart TD
 - 网络错误、超时、HTTP 408、429 和 5xx 可重试；其余 4xx 以及协议字段缺失不盲目重试。
 - 每次重试使用指数退避并加入随机抖动，默认最多 3 次重试。
 - 同一时刻最多运行配置数量的分片；某个分片最终失败后不再调度新分片，等待已发出的请求结束后中止会话。
-- 首版只支持单次 job 内恢复，不持久化 `uploadId` 或分片列表，**不承诺跨 job 断点续传**。
+- 首版只支持单次 job 内的分片重试，不持久化 `uploadId` 或分片列表，**不承诺跨 job 断点续传**。
 - 重跑时创建新的 multipart 会话；未完成会话通过 Abort 或 OSS 生命周期规则清理。
 
 ## 5. 进度与安全
@@ -92,16 +92,16 @@ OSS 错误只提取安全的 `Code` / `Message` 和 HTTP 状态，不回显请�
 ## 6. 兼容性与回退
 
 1. Beta / stable 通道仍由配置文件决定，上传入口不新增 `--channel`。
-2. 版本状态仍允许 `draft` / `published`；`--replace` 语义保持不变。
+2. 版本状态仍允许 `draft` / `published`；`--replace` 对已有平台包执行替换，对尚不存在的平台包按新增登记。
 3. blockmap 仍按当前文件名和哈希字段登记；只有超过阈值的对象使用 multipart。
 4. AppHub 发布、更新检测和 GitHub Release 阶段不变。
 5. workflow 提供 `multipart=off` 回退；回退后调用原 CLI，不删除已上传对象，也不改变版本号。
 6. 若平台 STS 缺少初始化、UploadPart、Complete 或 Abort 权限，必须阻止包登记，并在真实 Beta 验证后补充最小权限说明。
-7. 当前 STS 不授予对象 HEAD 读取权限；只读大小复核可降级为警告，但上传分片或 Complete 的任何失败都不得降级。
+7. 若平台 STS 未授予对象 HEAD 读取权限，只读大小复核可降级为警告；但上传分片或 Complete 的任何失败都不得降级。
 
 ## 7. 测试与验收
 
-自动化测试至少覆盖：
+本地自动化测试已覆盖：
 
 - 分片边界、最后短分片和超出部分数量限制；
 - 乱序完成后按 `partNumber` 生成 Complete XML；
@@ -111,7 +111,7 @@ OSS 错误只提取安全的 `Code` / `Message` 和 HTTP 状态，不回显请�
 - CanonicalizedResource 包含正确的 `uploads` / `partNumber` / `uploadId` 子资源；
 - 进度与错误输出不包含 STS 凭证、AccessKey、Authorization 或签名。
 
-真实 Beta 验收仍需确认：
+真实 Beta 验收仍需确认，完成前不得把本适配层标记为已上线：
 
 - STS 对四个 multipart 操作的权限与凭证有效期；
 - 超过 500 MB 的 macOS universal zip 能完成、合并并通过大小校验（STS 无读取权限时记录降级警告）；

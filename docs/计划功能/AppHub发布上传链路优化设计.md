@@ -1,6 +1,6 @@
 # AppHub 发布上传链路优化设计
 
-> **状态：阶段 1 已实现，阶段 2 实施中（2026-11-11），阶段 3 待评估。** 当前发版已采用 `prepare` + 三平台并行 `upload` 矩阵；OSS multipart 适配层、上传进度与故障注入测试正在补齐。
+> **状态：阶段 1 已实现；阶段 2 本地实现和自动化测试已完成，真实 Beta 验证待完成；阶段 3 待评估。** 当前发版已采用 `prepare` + 三平台并行 `upload` 矩阵，并通过仓库适配层提供 OSS multipart、进度、分片重试和中止。
 >
 > 文档定位：优化 `.github/workflows/release.yml` 中三平台安装包上传到 AppHub 的耗时、可观测性和失败恢复能力。
 >
@@ -10,9 +10,9 @@
 
 1. 当前上传不是经过 AppHub 服务端中转，而是由单台 GitHub Actions Ubuntu runner 直接向阿里云 OSS 整文件 `PUT`。
 2. 改造前，三平台在同一个 job 内顺序上传，Windows 完成后才开始 macOS，最后上传 Linux；任一平台失败会阻塞后续步骤。
-3. 当前上传没有分片、单分片重试、传输超时、进度心跳或断点续传，因此慢连接和连接停滞在日志中表现完全相同。
+3. 改造前上传没有分片、单分片重试、传输超时、进度心跳或断点续传，因此慢连接和连接停滞在日志中表现完全相同。
 4. 第一阶段已把三个平台拆成并行矩阵任务。该方案只改工作流，不触碰会自更新的 `scripts/release/apphub.mjs`，可缩短总等待时间并隔离平台故障。
-5. 第二阶段仍推荐由 AppHub CLI 上游提供 OSS multipart upload，支持多分片并行、进度、重试与中止。OSS 允许同一文件的不同分片并行上传，但本仓库不得直接修改 `apphub.mjs` 技能快照。
+5. 第二阶段已通过 `scripts/release/apphub-upload.mjs` 和 `scripts/release/oss-multipart.mjs` 提供 OSS multipart，支持多分片并行、进度、重试与中止，不修改 `apphub.mjs` 技能快照。
 6. 若分片并行后跨境链路的吞吐仍无改善，再评估国内自托管 runner 或 OSS 传输加速；不应先假设分片一定能解决线路质量问题。
 
 ## 2. 问题与观测
@@ -166,18 +166,19 @@ upload:
       with:
         name: ${{ matrix.artifact }}
         path: dist
-    - run: node scripts/release/apphub.mjs upload ...
+    - run: node scripts/release/apphub-upload.mjs upload ... --multipart auto
 
 publish:
   needs: [validate, prepare, upload]
 ```
 
-第一阶段不改变 `apphub.mjs upload` 的参数和语义，只为每个平台独立准备文件并调用现有命令。
+阶段 1 只改 workflow，仍直接调用原 `apphub.mjs upload`。当前实际入口已升级为
+`apphub-upload.mjs`：小文件或 `multipart=off` 委托原 CLI，大文件走仓库适配层并保持原有包登记语义。
 
 ### 5.3 重跑语义
 
 1. 重跑整个工作流时，`create-version` 应继续复用同一版本下的 draft。
-2. 已成功登记的平台在 `--replace` 模式下重新上传；未成功的平台正常上传。
+2. 重跑勾选 `--replace` 时，已成功登记的平台执行替换；尚无包记录的平台按新增登记，避免部分平台先成功、其余平台因替换目标不存在而再次失败。
 3. 发布前仍要求三个平台包记录同时存在，不能因矩阵并行而降低完整性校验。
 4. 如果 `prepare` 已创建 draft 而所有上传均失败，保留 draft 供修复后重跑，不自动删除。
 
@@ -228,7 +229,7 @@ endpoint 连接能力、TLS / 签名计算和进程内存共同约束，不会�
 | 总尝试上限 | 由 job 超时兜底 | 防止持续重试掩盖线路故障                   |
 | 进度间隔   |     5% 或 15 秒 | 以先到者为准，输出已传字节、速度和 ETA     |
 
-实际分片大小还需要满足 OSS 对分片数量、单片大小和服务端策略的限制。实现前必须校验 STS 临时凭证具备初始化、上传分片、完成和中止 multipart upload 的权限。
+实际分片大小还需要满足 OSS 对分片数量、单片大小和服务端策略的限制。真实 Beta 验收必须校验 STS 临时凭证具备初始化、上传分片、完成和中止 multipart upload 的权限。
 
 ### 6.3 上传流程
 
@@ -323,18 +324,21 @@ apphub.mjs upload \
 ### 阶段 1：工作流并行化（已完成）
 
 1. 已将现有 `draft` 拆为 `prepare` 和 `upload` matrix。
-2. 每个上传 job 只下载对应 artifact，使用现有 `apphub.mjs upload`。
+2. 每个上传 job 只下载对应 artifact；阶段 1 使用原 `apphub.mjs upload`，当前入口为 `apphub-upload.mjs`。
 3. 已设置 `fail-fast: false`，保证一个平台失败时其他平台仍可完成。
 4. `publish` 已改为等待全部 upload jobs 成功。
 5. 代码与文档改造已完成；仍需在真实 Beta 发版中回归包记录、更新说明和 GitHub Release。
 
-### 阶段 2：仓库适配层 multipart 与进度（实施中）
+### 阶段 2：仓库适配层 multipart 与进度（本地实现与测试已完成，真实 Beta 验证待完成）
 
-1. 确认 AppHub 服务端签发的 STS 对 multipart 操作的权限。
-2. 通过 `scripts/release/apphub-upload.mjs` 和 `scripts/release/oss-multipart.mjs` 提供分片计划、并发上传、重试、进度和中止，不修改技能快照。
-3. 增加分片边界、Complete 排序、单分片重试、Abort、签名子资源和凭据脱敏测试。
-4. 先在 Beta 通道使用小文件和中型文件验证，再验证超过 500 MB 的 macOS zip。
-5. 保留单 PUT 回退开关，遇到兼容问题时可以关闭 multipart。
+1. [x] 通过 `scripts/release/apphub-upload.mjs` 和 `scripts/release/oss-multipart.mjs` 提供分片计划、并发上传、重试、进度和中止，不修改技能快照。
+2. [x] 增加分片边界、Complete 排序、单分片重试、Abort、签名子资源和凭据脱敏测试。
+3. [x] workflow 提供 `multipart=auto|off`，默认 `auto`。
+4. [ ] 确认真实 Beta 环境中的 STS 对四个 multipart 操作的权限与凭证有效期。
+5. [ ] 验证超过 500 MB 的 macOS universal zip，以及 AppHub 包登记、发布和三平台 `verify`。
+6. [ ] 确认失败后按同一版本重跑与 `replace` 流程符合现有规则。
+
+完成上述真实 Beta 验收前，不得把分片上传标记为已上线。
 
 ### 阶段 3：网络路径优化
 

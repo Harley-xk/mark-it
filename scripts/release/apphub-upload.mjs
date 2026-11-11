@@ -17,18 +17,20 @@ import {
   createOssMultipartTransport,
   isObjectSizeCheckForbidden,
   planParts,
+  redactSensitiveText,
   shouldUseMultipart,
   uploadMultipart
 } from './oss-multipart.mjs'
 
 const APPHUB_CLI = fileURLToPath(new URL('./apphub.mjs', import.meta.url))
+const REPLACE_TARGET_MISSING_CODE = 300400007
 
-function ok(message) {
-  console.log(`✓ ${message}`)
+function ok(message, logger) {
+  logger.log(`✓ ${message}`)
 }
 
-function readPositiveIntegerEnv(name, fallback, { allowZero = false } = {}) {
-  const raw = process.env[name]
+function readPositiveIntegerEnv(name, fallback, { allowZero = false, env = process.env } = {}) {
+  const raw = env[name]
   if (raw === undefined || raw === '') return fallback
   const value = Number(raw)
   if (!Number.isSafeInteger(value) || value < (allowZero ? 0 : 1))
@@ -36,11 +38,11 @@ function readPositiveIntegerEnv(name, fallback, { allowZero = false } = {}) {
   return value
 }
 
-function resolveCredentials(config) {
+function resolveCredentials(config, env = process.env) {
   const credentials = config.credentials ?? {}
-  const username = process.env.APPHUB_USERNAME ?? credentials.username
-  const password = process.env.APPHUB_PASSWORD ?? credentials.password
-  const signSecret = process.env.APPHUB_SIGN_SECRET ?? credentials.signSecret
+  const username = env.APPHUB_USERNAME ?? credentials.username
+  const password = env.APPHUB_PASSWORD ?? credentials.password
+  const signSecret = env.APPHUB_SIGN_SECRET ?? credentials.signSecret
   if (!username || !password) {
     throw new CliError(
       '缺少发版账号凭据：请设置 APPHUB_USERNAME / APPHUB_PASSWORD，或在配置文件 credentials 节填写'
@@ -98,8 +100,8 @@ function buildLegacyArgs(values) {
   return args
 }
 
-function delegateToApphub(values) {
-  const result = spawnSync(process.execPath, [APPHUB_CLI, ...buildLegacyArgs(values)], {
+function delegateToApphub(values, { spawn = spawnSync } = {}) {
+  const result = spawn(process.execPath, [APPHUB_CLI, ...buildLegacyArgs(values)], {
     stdio: 'inherit',
     env: process.env
   })
@@ -107,11 +109,52 @@ function delegateToApphub(values) {
   return result.status ?? 1
 }
 
-function resolveMultipartMode(explicit) {
-  const mode = String(explicit ?? process.env.APPHUB_MULTIPART ?? 'auto').toLowerCase()
+function resolveMultipartMode(explicit, env = process.env) {
+  const mode = String(explicit ?? env.APPHUB_MULTIPART ?? 'auto').toLowerCase()
   if (!['auto', 'off'].includes(mode))
     throw new CliError(`--multipart 只支持 auto / off，当前值：${mode}`)
   return mode
+}
+
+function isReplaceTargetMissing(error) {
+  return error instanceof CliError && error.code === REPLACE_TARGET_MISSING_CODE
+}
+
+async function requestUploadCredential({ client, versionId, uploadBody, replaceExisting, logger }) {
+  try {
+    const credential = await client.request(
+      'POST',
+      `/appcenter/version/${versionId}/package/upload-token`,
+      { body: uploadBody }
+    )
+    return { credential, replaceExisting }
+  } catch (error) {
+    if (!replaceExisting || !isReplaceTargetMissing(error)) throw error
+
+    const newPackageBody = { ...uploadBody }
+    delete newPackageBody.replaceExisting
+    logger.warn('  替换目标不存在，按新增平台包继续上传')
+    const credential = await client.request(
+      'POST',
+      `/appcenter/version/${versionId}/package/upload-token`,
+      { body: newPackageBody }
+    )
+    return { credential, replaceExisting: false }
+  }
+}
+
+function resolveDependencies(overrides = {}) {
+  return {
+    statFile: (filePath) => fs.stat(filePath),
+    spawnSync,
+    loadConfig,
+    createClient: (options) => new ApphubClient(options),
+    hashFile,
+    putObject: ossPutObject,
+    createMultipartTransport: createOssMultipartTransport,
+    uploadMultipart,
+    ...overrides
+  }
 }
 
 async function transferObject({
@@ -121,20 +164,22 @@ async function transferObject({
   fileSize,
   label,
   thresholdBytes,
-  multipartOptions
+  multipartOptions,
+  dependencies,
+  logger
 }) {
   if (!shouldUseMultipart(fileSize, { thresholdBytes })) {
-    await ossPutObject(credential, objectKey, filePath, fileSize)
-    ok(`${label} 已单次直传：${objectKey}（${fileSize} 字节）`)
+    await dependencies.putObject(credential, objectKey, filePath, fileSize)
+    ok(`${label} 已单次直传：${objectKey}（${fileSize} 字节）`, logger)
     return 'single'
   }
 
   const parts = planParts(fileSize, multipartOptions.partSizeBytes)
-  console.log(
+  logger.log(
     `[${label}] multipart 开始：${parts.length} 片，分片 ${multipartOptions.partSizeBytes} 字节，并发 ${multipartOptions.concurrency}`
   )
-  const transport = createOssMultipartTransport({ credential })
-  await uploadMultipart({
+  const transport = dependencies.createMultipartTransport({ credential })
+  await dependencies.uploadMultipart({
     filePath,
     fileSize,
     objectKey,
@@ -146,88 +191,106 @@ async function transferObject({
     await transport.assertObjectSize(objectKey, fileSize)
   } catch (error) {
     if (!isObjectSizeCheckForbidden(error)) throw error
-    console.warn(
+    logger.warn(
       `  [${label}] STS 凭证不允许 HEAD 读取；分片均成功且 Complete 已确认，跳过对象大小复核`
     )
   }
-  ok(`${label} 已分片直传：${objectKey}（${fileSize} 字节）`)
+  ok(`${label} 已分片直传：${objectKey}（${fileSize} 字节）`, logger)
   return 'multipart'
 }
 
-export async function uploadLargePackage({ client, config, values, stat }) {
+export async function uploadLargePackage({
+  client,
+  config,
+  values,
+  stat,
+  env = process.env,
+  dependencies: dependencyOverrides = {},
+  logger = console
+}) {
+  const dependencies = resolveDependencies(dependencyOverrides)
   const { platform, arch, file, blockmap } = values
-  const replaceExisting = Boolean(values.replace)
+  const replaceRequested = Boolean(values.replace)
   const version = await resolveVersion(client, config, values.version)
-  if (version.status === 'published' && replaceExisting) {
-    console.log('  注意：替换只影响之后的新下载 / 新安装；版本号未变，已安装客户端不会自动更新。')
+  if (version.status === 'published' && replaceRequested) {
+    logger.log('  注意：替换只影响之后的新下载 / 新安装；版本号未变，已安装客户端不会自动更新。')
   }
 
-  ok(`计算哈希（流式）：${file}`)
-  const hash = await hashFile(file)
-  console.log(`  sha256 = ${hash.sha256}`)
-  console.log(`  sha512 = ${hash.sha512}`)
+  ok(`计算哈希（流式）：${file}`, logger)
+  const hash = await dependencies.hashFile(file)
+  logger.log(`  sha256 = ${hash.sha256}`)
+  logger.log(`  sha512 = ${hash.sha512}`)
 
   let minisignSignature
   if (values['sig-file']) {
     minisignSignature = (await fs.readFile(values['sig-file'], 'utf8')).trim()
     if (!minisignSignature) throw new CliError(`minisign 签名文件为空：${values['sig-file']}`)
-    ok(`已读取 minisign 签名：${values['sig-file']}`)
+    ok(`已读取 minisign 签名：${values['sig-file']}`, logger)
   }
 
   let blockmapSha512
   let blockmapFileSize
   let blockmapStat
   if (blockmap) {
-    blockmapStat = await fs.stat(blockmap).catch(() => null)
+    blockmapStat = await dependencies.statFile(blockmap).catch(() => null)
     if (!blockmapStat?.isFile()) throw new CliError(`blockmap 文件不存在：${blockmap}`)
-    const blockmapHash = await hashFile(blockmap)
+    const blockmapHash = await dependencies.hashFile(blockmap)
     blockmapSha512 = blockmapHash.sha512
     blockmapFileSize = blockmapStat.size
   }
 
   const uploadBody = { platform, fileName: path.basename(file) }
   if (arch) uploadBody.arch = arch
-  if (replaceExisting) uploadBody.replaceExisting = true
-  const credential = await client.request(
-    'POST',
-    `/appcenter/version/${version.id}/package/upload-token`,
-    { body: uploadBody }
-  )
+  if (replaceRequested) uploadBody.replaceExisting = true
+  const credentialResult = await requestUploadCredential({
+    client,
+    versionId: version.id,
+    uploadBody,
+    replaceExisting: replaceRequested,
+    logger
+  })
+  const credential = credentialResult.credential
+  const replaceExisting = credentialResult.replaceExisting
   if (!credential?.objectKey) throw new CliError('upload-token 响应缺少 objectKey')
   if (blockmap && !credential.blockmapObjectKey)
     throw new CliError('upload-token 响应缺少 blockmapObjectKey')
   ok(
     `STS 凭证已签发（${credential.region} / ${credential.bucket}，${new Date(
       credential.expiration
-    ).toLocaleString()} 过期）`
+    ).toLocaleString()} 过期）`,
+    logger
   )
 
   const thresholdBytes = readPositiveIntegerEnv(
     'APPHUB_MULTIPART_THRESHOLD_BYTES',
     MULTIPART_DEFAULTS.thresholdBytes,
-    { allowZero: true }
+    { allowZero: true, env }
   )
   const multipartOptions = {
     partSizeBytes: readPositiveIntegerEnv(
       'APPHUB_MULTIPART_PART_SIZE_BYTES',
-      MULTIPART_DEFAULTS.partSizeBytes
+      MULTIPART_DEFAULTS.partSizeBytes,
+      { env }
     ),
     concurrency: readPositiveIntegerEnv(
       'APPHUB_MULTIPART_CONCURRENCY',
-      MULTIPART_DEFAULTS.concurrency
+      MULTIPART_DEFAULTS.concurrency,
+      { env }
     ),
     partRetries: readPositiveIntegerEnv(
       'APPHUB_MULTIPART_RETRIES',
       MULTIPART_DEFAULTS.partRetries,
-      { allowZero: true }
+      { allowZero: true, env }
     ),
     partTimeoutMs: readPositiveIntegerEnv(
       'APPHUB_MULTIPART_PART_TIMEOUT_MS',
-      MULTIPART_DEFAULTS.partTimeoutMs
+      MULTIPART_DEFAULTS.partTimeoutMs,
+      { env }
     ),
     progressIntervalMs: readPositiveIntegerEnv(
       'APPHUB_MULTIPART_PROGRESS_INTERVAL_MS',
-      MULTIPART_DEFAULTS.progressIntervalMs
+      MULTIPART_DEFAULTS.progressIntervalMs,
+      { env }
     )
   }
 
@@ -238,7 +301,9 @@ export async function uploadLargePackage({ client, config, values, stat }) {
     fileSize: stat.size,
     label: `${platform}${arch ? `-${arch}` : ''}`,
     thresholdBytes,
-    multipartOptions
+    multipartOptions,
+    dependencies,
+    logger
   })
   if (blockmap) {
     await transferObject({
@@ -248,7 +313,9 @@ export async function uploadLargePackage({ client, config, values, stat }) {
       fileSize: blockmapFileSize,
       label: `${platform}${arch ? `-${arch}` : ''}-blockmap`,
       thresholdBytes,
-      multipartOptions
+      multipartOptions,
+      dependencies,
+      logger
     })
   }
 
@@ -273,7 +340,8 @@ export async function uploadLargePackage({ client, config, values, stat }) {
   ok(
     `包记录已${replaceExisting ? '替换' : '登记'}（packageId ${packageId}）：${platform}${
       arch ? `-${arch}` : ''
-    } ← ${path.basename(file)}`
+    } ← ${path.basename(file)}`,
+    logger
   )
   return {
     packageId,
@@ -281,13 +349,18 @@ export async function uploadLargePackage({ client, config, values, stat }) {
   }
 }
 
-async function main() {
-  const argv = process.argv.slice(2)
+export async function runUpload({
+  argv = process.argv.slice(2),
+  env = process.env,
+  dependencies: dependencyOverrides = {},
+  logger = console
+} = {}) {
+  const dependencies = resolveDependencies(dependencyOverrides)
   if (argv.length === 0 || argv[0] === '--help' || argv[0] === '-h') {
-    console.log(
+    logger.log(
       '用法：node scripts/release/apphub-upload.mjs upload --config <文件> --version <版本> --platform <平台> --file <安装包> [--arch <架构>] [--blockmap <文件>] [--replace] [--multipart auto|off]'
     )
-    return
+    return 0
   }
   if (argv[0] !== 'upload') throw new CliError(`只支持 upload 子命令，收到：${argv[0]}`)
 
@@ -312,31 +385,58 @@ async function main() {
     if (!values[key]) throw new CliError(`缺少必填参数 --${key}`)
   }
 
-  const stat = await fs.stat(values.file).catch(() => null)
+  const stat = await dependencies.statFile(values.file).catch(() => null)
   if (!stat?.isFile()) throw new CliError(`安装包文件不存在：${values.file}`)
 
-  const mode = resolveMultipartMode(values.multipart)
+  const mode = resolveMultipartMode(values.multipart, env)
   const thresholdBytes = readPositiveIntegerEnv(
     'APPHUB_MULTIPART_THRESHOLD_BYTES',
     MULTIPART_DEFAULTS.thresholdBytes,
-    { allowZero: true }
+    { allowZero: true, env }
   )
   if (mode === 'off' || !shouldUseMultipart(stat.size, { thresholdBytes })) {
-    process.exitCode = delegateToApphub(values)
-    return
+    return delegateToApphub(values, { spawn: dependencies.spawnSync })
   }
 
-  const config = await loadConfig(values.config)
-  const credentials = resolveCredentials(config)
-  const client = new ApphubClient({
+  const config = await dependencies.loadConfig(values.config)
+  const credentials = resolveCredentials(config, env)
+  const client = dependencies.createClient({
     baseUrl: config.baseUrl,
     appKey: config.appKey,
     credentials
   })
   await client.login()
-  ok(`登录成功：${config.baseUrl}（账号 ${credentials.username}）`)
+  ok(`登录成功：${config.baseUrl}`, logger)
 
-  await uploadLargePackage({ client, config, values, stat })
+  await uploadLargePackage({
+    client,
+    config,
+    values,
+    stat,
+    env,
+    dependencies,
+    logger
+  })
+  return 0
+}
+
+export function formatUploadError(error) {
+  const message =
+    error instanceof CliError
+      ? `${error.message}${error.code ? `（code ${error.code}）` : ''}`
+      : error instanceof Error
+        ? error.message
+        : String(error)
+  return redactSensitiveText(message)
+}
+
+async function main() {
+  try {
+    process.exitCode = await runUpload()
+  } catch (error) {
+    console.error(`✗ ${formatUploadError(error)}`)
+    process.exitCode = 1
+  }
 }
 
 function isDirectExecution() {
@@ -349,14 +449,5 @@ function isDirectExecution() {
 }
 
 if (isDirectExecution()) {
-  main().catch((error) => {
-    const message =
-      error instanceof CliError
-        ? `${error.message}${error.code ? `（code ${error.code}）` : ''}`
-        : error instanceof Error
-          ? error.message
-          : String(error)
-    console.error(`✗ ${message}`)
-    process.exitCode = 1
-  })
+  main()
 }

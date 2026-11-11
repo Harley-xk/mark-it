@@ -15,9 +15,9 @@ flowchart TD
     B --> M["macos-latest<br/>dmg + universal zip"]
     B --> L["ubuntu-latest<br/>AppImage + deb"]
     B --> PR["prepare<br/>生成更新说明<br/>create-version 建草稿"]
-    PR --> UW["upload windows-x64<br/>仅下载本平台 artifact"]
-    PR --> UM["upload macos-universal<br/>仅下载本平台 artifact"]
-    PR --> UL["upload linux-x64<br/>仅下载本平台 artifact"]
+    PR --> UW["upload windows-x64<br/>apphub-upload.mjs<br/>大文件自动分片"]
+    PR --> UM["upload macos-universal<br/>apphub-upload.mjs<br/>大文件自动分片"]
+    PR --> UL["upload linux-x64<br/>apphub-upload.mjs<br/>大文件自动分片"]
     W --> UW
     M --> UM
     L --> UL
@@ -27,7 +27,7 @@ flowchart TD
     P --> G["github-release<br/>创建 / 更新 vX.Y.Z 的 GitHub Release<br/>并把同一批产物作为 Release 附件上传"]
 ```
 
-发布没有人工审批环节：草稿上传完成后立即对客户端可见；GitHub Release 在 apphub 发布并验证通过后生成。`prepare` 只执行一次且不下载产物；三个 `upload` job 使用 `fail-fast: false` 并行运行，某个平台失败不会取消其他平台，但 `publish` 仍要求三个平台全部成功。
+发布没有人工审批环节：草稿上传完成后立即对客户端可见；GitHub Release 在 apphub 发布并验证通过后生成。`prepare` 只执行一次且不下载产物；三个 `upload` job 使用 `fail-fast: false` 并行运行，某个平台失败不会取消其他平台，但 `publish` 仍要求三个平台全部成功。上传默认使用 `multipart=auto`，超过 64 MiB 的安装包和 blockmap 走 OSS 分片；单次上传兼容问题可显式切换为 `multipart=off`。
 
 ## 2. 前置条件
 
@@ -137,20 +137,24 @@ gh workflow run release.yml --ref master \
 ```bash
 gh workflow run release.yml --ref master \
   -f version=1.4.0 \
+  -f multipart=auto \
   -f notes="- 新增格式工具栏
 - 修复标签页残留"
 ```
 
 参数说明：
 
-| 参数      | 必填           | 说明                                                                   |
-| --------- | -------------- | ---------------------------------------------------------------------- |
-| `version` | 是（手动触发） | 手动触发时必填；标签触发时取标签名去掉 `v`                             |
-| `notes`   | 否             | 更新说明；留空按第 3 节自动生成，自动结果仅作素材，发布前须按 3.1 提炼 |
-| `force`   | 否             | `true` 标记为强制更新                                                  |
-| `replace` | 否             | `true` 时替换已存在的平台包，仅用于重跑同一版本                        |
+| 参数        | 必填           | 说明                                                                   |
+| ----------- | -------------- | ---------------------------------------------------------------------- |
+| `version`   | 是（手动触发） | 手动触发时必填；标签触发时取标签名去掉 `v`                             |
+| `notes`     | 否             | 更新说明；留空按第 3 节自动生成，自动结果仅作素材，发布前须按 3.1 提炼 |
+| `force`     | 否             | `true` 标记为强制更新                                                  |
+| `replace`   | 否             | `true` 时替换已存在的平台包，仅用于重跑同一版本                        |
+| `multipart` | 否             | OSS 上传模式；默认 `auto`（大文件分片），`off` 时全部回退单次 `PUT`    |
 
 无需传通道参数：`validate` 阶段根据版本号是否含预发布后缀选择 `stable` / `beta`，并自动切换到对应的发版配置 `.apphub-release.ci.json` / `.apphub-release.beta.ci.json`。
+
+`multipart=auto` 按单个文件大小判断：超过阈值的安装包或 blockmap 使用分片，否则委托原 `apphub.mjs upload` 单次上传。大文件遇到权限、分片或完成失败时直接失败，不会自动降级；确认兼容问题后重新运行时显式选择 `multipart=off`。
 
 ## 5. 流水线阶段与产物
 
@@ -168,6 +172,8 @@ gh workflow run release.yml --ref master \
 - `snap` 已从默认 target 移除（GitHub 托管 runner 无 snapcraft）。
 - GitHub Release 的正文复用 `prepare` 阶段生成的更新说明；`1.4.0-beta.1` 这类带后缀的版本会标记为 prerelease，不会被当作 latest。
 - 三个平台的安装包由独立 `upload` job 并行上传；每个 job 只下载并处理对应平台的 workflow artifact。
+- 上传入口为 `scripts/release/apphub-upload.mjs`，默认 `multipart=auto`；macOS universal zip 等大文件会显示分片、字节进度、速度和 ETA。
+- `multipart=off` 只回退文件传输方式，不改变 AppHub 认证、版本、包登记、发布与验证接口，也不会删除已上传对象。
 - beta 版本的产物路径、上传平台与命名规则与正式版完全一致，只是写入 `beta` 通道；客户端是否接收由用户开关决定（见 [发版通道与 Beta 更新](./发版通道.md)）。
 
 ## 6. 安全约束
@@ -242,7 +248,8 @@ git push origin :refs/tags/v1.6.0-beta.3
 ```bash
 gh workflow run release.yml --ref master \
   -f version=1.4.0 \
-  -f replace=true
+  -f replace=true \
+  -f multipart=auto
 ```
 
 **注意**：替换已发布版本的包只影响新下载 / 新安装；已安装客户端按版本号判断，不会重新下载。
@@ -292,11 +299,12 @@ npm run build:win
 node scripts/release/apphub.mjs create-version \
   --version 1.4.0 --title "v1.4.0" --notes="- 更新说明"
 
-# 上传
-node scripts/release/apphub.mjs upload \
+# 上传；默认 multipart=auto，超过 64 MiB 自动分片
+node scripts/release/apphub-upload.mjs upload \
   --version 1.4.0 --platform windows --arch x64 \
   --file dist/mark-it-1.4.0-setup.exe \
-  --blockmap dist/mark-it-1.4.0-setup.exe.blockmap
+  --blockmap dist/mark-it-1.4.0-setup.exe.blockmap \
+  --multipart auto
 
 # 发布
 node scripts/release/apphub.mjs publish --version 1.4.0
@@ -342,7 +350,9 @@ gh secret set APPHUB_SIGN_SECRET --repo Harley-xk/mark-it
 | `300300005`                                | 发布校验失败（无可用包）             | 至少一个非 web 平台 upload 成功后再发布                                         |
 | `300400002`                                | 平台 / 架构槽位重复                  | 重跑时勾选 `replace`                                                            |
 | `300400003`                                | 框架产物缺失                         | 检查 electron sha512 与 `latest.yml` 是否一致                                   |
-| `300400007`                                | `--replace` 指向的槽位不存在         | 去掉 `replace`，按新增包重传                                                    |
+| `300400007`                                | `--replace` 指向的槽位不存在         | 适配入口会自动按新增包继续；`multipart=off` 时去掉 `replace` 后重跑              |
+| multipart 初始化 / 分片 / 完成返回 403     | STS 缺少 OSS multipart 权限          | 核对服务端最小权限；确认兼容问题后显式使用 `multipart=off` 重跑                 |
+| multipart 分片持续无进展                   | 跨境链路停滞或连接质量差             | 查看分片号与重试日志；必要时以 `multipart=off` 对照，或进入线路优化评估         |
 | `verify` 返回无更新                        | 发布未生效 / 通道停用                | 核对版本状态与通道状态后重验                                                    |
 | 构建失败                                   | 依赖、签名或平台工具问题             | 查看对应 matrix job 日志；mac/linux 首次运行重点关注                            |
 
@@ -351,7 +361,9 @@ gh secret set APPHUB_SIGN_SECRET --repo Harley-xk/mark-it
 | 文件                                                                      | 作用                                                                   |
 | ------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
 | [.github/workflows/release.yml](../.github/workflows/release.yml)         | 三平台构建与并行上传 apphub、发布验证、同步 GitHub Release 的 workflow |
-| [scripts/release/apphub.mjs](../scripts/release/apphub.mjs)               | apphub 发版 CLI（零依赖）                                              |
+| [scripts/release/apphub.mjs](../scripts/release/apphub.mjs)               | apphub 上游 CLI 技能快照（零依赖，不得修改）                           |
+| [scripts/release/apphub-upload.mjs](../scripts/release/apphub-upload.mjs) | 上传适配入口：单次 / 分片选择、STS、包登记                             |
+| [scripts/release/oss-multipart.mjs](../scripts/release/oss-multipart.mjs) | OSS 分片计划、签名、并发、重试、进度、完成与中止                       |
 | [scripts/release/channel-state.mjs](../scripts/release/channel-state.mjs) | 双通道发版节点查询、版本校验与建议                                     |
 | [.apphub-release.ci.json](../.apphub-release.ci.json)                     | CI 使用的 stable 无凭据配置（baseUrl / appKey / channel）              |
 | [.apphub-release.beta.ci.json](../.apphub-release.beta.ci.json)           | CI 使用的 beta 无凭据配置                                              |

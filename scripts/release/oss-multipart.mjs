@@ -207,15 +207,20 @@ export function buildCompleteMultipartXml(parts) {
 
 export function redactSensitiveText(text) {
   return String(text)
-    .replace(/\b(authorization)\b\s*[:=]\s*OSS\s+[^\s,<]+/gi, '$1=[redacted]')
+    .replace(
+      /([?&](?:securityToken|security_token|signature|password|signSecret|jwt)=)[^&\s]*/gi,
+      '$1[redacted]'
+    )
+    .replace(/\b(authorization)\b["']?\s*[:=]\s*OSS\s+[^\s,<"']+/gi, '$1=[redacted]')
     .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer [redacted]')
     .replace(/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g, '[redacted-jwt]')
     .replace(
-      /\b(accessKeyId|accessKeySecret|access_key_id|access_key_secret|securityToken|security_token|x-oss-security-token|signature|password|passwd|signSecret|jwt)\b\s*[:=]\s*[^\s,<]+/gi,
+      /\b(accessKeyId|accessKeySecret|access_key_id|access_key_secret|securityToken|security_token|x-oss-security-token|signature|password|passwd|signSecret|jwt|username|account)\b["']?\s*[:=：]\s*["']?[^"'\s,，<}）)]+/gi,
       '$1=[redacted]'
     )
+    .replace(/((?:账号|用户名)\s*[:=：]\s*)[^\s,，<）)]+/g, '$1[redacted]')
     .replace(/\bLTAI[A-Za-z0-9]{8,}\b/g, '[redacted-access-key]')
-    .replace(/\b(authorization)\b\s*[:=]\s*[^\s,<]+/gi, '$1=[redacted]')
+    .replace(/\b(authorization)\b["']?\s*[:=]\s*[^\s,<"']+/gi, '$1=[redacted]')
     .slice(0, 300)
 }
 
