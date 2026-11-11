@@ -25,4 +25,11 @@ export interface PreviewStyle {
 }
 
 export type { PdfExportOptions, PdfPageSize, PdfMargin } from '../../../shared/pdf-types'
-export type { ImageExportOptions } from '../../../shared/image-types'
+export type {
+  ImageContentWidth,
+  ImageExportFormat,
+  ImageExportOptions,
+  ImageExportResult,
+  ImageExportSettings,
+  ImageExportTheme
+} from '../../../shared/image-types'

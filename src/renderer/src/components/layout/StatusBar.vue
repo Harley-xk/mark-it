@@ -10,13 +10,14 @@ const exportKindLabel = computed(() => (app.exportKind === 'image' ? '图片' : 
 
 const exportStatusText = computed(() => {
   const label = exportKindLabel.value
+  const detail = app.exportStatusDetail ? `（${app.exportStatusDetail}）` : ''
   switch (app.exportStatus) {
     case 'exporting':
       return `${label}导出中…`
     case 'success':
-      return `${label}导出成功`
+      return `${label}导出成功${detail}`
     case 'error':
-      return `${label}导出失败`
+      return `${label}导出失败${detail}`
     default:
       return ''
   }

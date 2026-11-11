@@ -484,6 +484,15 @@ test('导出当前文档为一张完整 PNG 长图', async () => {
     }, imagePath)
 
     await window.locator('.tb-btn[title="导出长图"]').click()
+    const imageDialog = window.locator('.image-export-dialog')
+    await expect(imageDialog).toBeVisible()
+    await expect(imageDialog.locator('.format-option.active')).toHaveText('PNG')
+    await imageDialog.locator('.width-option', { hasText: '1000 px' }).click()
+    await imageDialog.locator('.scale-option', { hasText: '1×' }).click()
+    await imageDialog.locator('.theme-select').selectOption('light')
+    await imageDialog.locator('input[type="checkbox"]').uncheck()
+    await imageDialog.locator('.btn-primary').click()
+    await expect(imageDialog).toHaveCount(0)
     await expect(window.locator('.status-export')).toBeVisible()
 
     await expect
@@ -504,13 +513,65 @@ test('导出当前文档为一张完整 PNG 长图', async () => {
       ({ nativeImage }, filePath) => nativeImage.createFromPath(filePath).getSize(),
       imagePath
     )
-    expect(size.width).toBe(1760)
-    expect(size.height).toBeGreaterThan(1760)
+    expect(size.width).toBe(1080)
+    expect(size.height).toBeGreaterThan(1080)
+
+    const savedSettings = await window.evaluate(() => {
+      const raw = localStorage.getItem('markit-image-export-settings')
+      return raw ? JSON.parse(raw) : null
+    })
+    expect(savedSettings).toEqual({
+      format: 'png',
+      contentWidth: 1000,
+      scale: 1,
+      theme: 'light',
+      includeFrontmatter: false
+    })
 
     const defaultPath = await app.evaluate(
       () => (globalThis as { __imageDefaultPath?: string }).__imageDefaultPath
     )
     expect(defaultPath).toBe(imagePath)
+
+    const jpegPath = join(workDir, 'image-smoke.jpg')
+    await app.evaluate(({ dialog }, filePath) => {
+      const state = globalThis as { __imageDefaultPath?: string }
+      state.__imageDefaultPath = ''
+      const stub = async (...args: unknown[]): Promise<{ canceled: boolean; filePath: string }> => {
+        const options = args[args.length - 1] as { defaultPath?: string } | undefined
+        state.__imageDefaultPath = options?.defaultPath ?? ''
+        return { canceled: false, filePath }
+      }
+      dialog.showSaveDialog = stub as typeof dialog.showSaveDialog
+    }, imagePath)
+
+    await window.locator('.tb-btn[title="导出长图"]').click()
+    const jpegDialog = window.locator('.image-export-dialog')
+    await expect(jpegDialog).toBeVisible()
+    await expect(jpegDialog.locator('.width-option.active')).toContainText('1000 px')
+    await expect(jpegDialog.locator('.scale-option.active')).toHaveText('1×')
+    await expect(jpegDialog.locator('.theme-select')).toHaveValue('light')
+    await expect(jpegDialog.locator('input[type="checkbox"]')).not.toBeChecked()
+    await jpegDialog.locator('.format-option', { hasText: 'JPEG' }).click()
+    await jpegDialog.locator('.btn-primary').click()
+
+    await expect
+      .poll(
+        () => {
+          try {
+            return statSync(jpegPath).size
+          } catch {
+            return 0
+          }
+        },
+        { timeout: 30_000 }
+      )
+      .toBeGreaterThan(0)
+    expect(readFileSync(jpegPath).subarray(0, 3).toString('hex')).toBe('ffd8ff')
+    const jpegDefaultPath = await app.evaluate(
+      () => (globalThis as { __imageDefaultPath?: string }).__imageDefaultPath
+    )
+    expect(jpegDefaultPath).toBe(jpegPath)
   } finally {
     await app.close()
     rmSync(workDir, { recursive: true, force: true })

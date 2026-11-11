@@ -2,10 +2,11 @@
  * 作者: Harley-xk
  * 创建: 2026-11-11
  *
- * 描述: 将当前文档按预览主题渲染为自包含 HTML，并交给主进程导出长图
+ * 描述: 按图片导出设置生成当前文档长图，并交给主进程截图
  */
 
 import { ref, type Ref } from 'vue'
+import type { ImageExportOptions } from '../types'
 import { useAppStore } from '../stores/app'
 import { useDocumentsStore } from '../stores/documents'
 import { useEditorStore } from '../stores/editor'
@@ -14,15 +15,15 @@ import { getDiagramTheme } from '../utils/diagram-theme'
 import { renderMermaidDiagramsForExport } from '../utils/export-markdown'
 import { parseFrontmatter, renderFrontmatterTable } from '../utils/frontmatter'
 import { installHeadingAnchors } from '../utils/headings'
+import { normalizeImageExportSettings } from '../utils/image-export-settings'
 import { installLinkTitles } from '../utils/link-title'
 import { installLocalImageRule } from '../utils/local-image'
 import { createMarkdownRenderer } from '../utils/markdown'
-import { deriveImageFileName } from '../utils/pdf-name'
 import imageExportCss from '../styles/export/image-export.css?raw'
 
 interface UseImageExport {
   exporting: Ref<boolean>
-  exportImage: () => Promise<void>
+  exportImage: (options: ImageExportOptions) => Promise<void>
 }
 
 function escapeStyleContent(css: string): string {
@@ -41,19 +42,25 @@ export function useImageExport(): UseImageExport {
   installHeadingAnchors(md)
   installLinkTitles(md)
 
-  async function exportImage(): Promise<void> {
+  async function exportImage(options: ImageExportOptions): Promise<void> {
     if (exporting.value || app.exportStatus === 'exporting') return
 
     const doc = documents.activeDoc
     if (!doc) return
 
+    const settings = normalizeImageExportSettings(options)
+    const theme = settings.theme === 'preview' ? app.resolvedTheme : settings.theme
+    const isDark = theme === 'dark'
+    const background = isDark ? '#121218' : '#ffffff'
+    const canvasWidth = settings.contentWidth + 80
+
     exporting.value = true
+    app.showImageExportDialog = false
     app.setExportStatus('image', 'exporting')
     try {
       const { entries, body } = parseFrontmatter(editor.content)
-      const frontmatter = entries.length > 0 ? renderFrontmatterTable(entries) : ''
-      const theme = app.resolvedTheme
-      const isDark = theme === 'dark'
+      const frontmatter =
+        settings.includeFrontmatter && entries.length > 0 ? renderFrontmatterTable(entries) : ''
       const currentStyleId = styles.currentStyle(isDark).id
       const fontFamily =
         currentStyleId === 'academic'
@@ -71,7 +78,10 @@ export function useImageExport(): UseImageExport {
 
       const themeCss = escapeStyleContent(styles.currentCss(isDark))
       const html = `<!DOCTYPE html>
-<html lang="zh-CN">
+<html
+  lang="zh-CN"
+  style="--image-content-width: ${settings.contentWidth}px; --image-canvas-width: ${canvasWidth}px; --image-background: ${background}"
+>
 <head>
 <meta charset="utf-8">
 <style>${themeCss}</style>
@@ -84,12 +94,15 @@ export function useImageExport(): UseImageExport {
 </body>
 </html>`
 
-      const filePath = await window.api.exportImage(html, {
-        scale: 2,
-        fileName: deriveImageFileName(doc.name),
-        sourcePath: doc.path
-      })
-      app.setExportStatus('image', filePath ? 'success' : 'idle')
+      const result = await window.api.exportImage(html, { ...options, ...settings })
+      if (!result) {
+        app.setExportStatus('image', 'idle')
+        return
+      }
+
+      const detail =
+        result.appliedScale < result.requestedScale ? `已自动降至 ${result.appliedScale}×` : ''
+      app.setExportStatus('image', 'success', detail)
     } catch (err) {
       app.setExportStatus('image', 'error')
       throw err

@@ -60,9 +60,11 @@ export const useAppStore = defineStore('app', () => {
   const filePath = computed(() => documents.activeDoc?.path ?? null)
   const isModified = computed(() => documents.activeDoc?.isModified ?? false)
   const showPdfDialog = ref(false)
+  const showImageExportDialog = ref(false)
   /** PDF / 长图共用的导出任务状态，状态栏据此展示当前类型与进度 */
   const exportStatus = ref<ExportStatus>('idle')
   const exportKind = ref<ExportKind | null>(null)
+  const exportStatusDetail = ref('')
   let exportStatusTimer: ReturnType<typeof setTimeout> | null = null
   /** 会话写盘失败（只读目录 / 磁盘已满等），状态栏据此给出可见提示 */
   const sessionSaveFailed = ref(false)
@@ -153,18 +155,20 @@ export const useAppStore = defineStore('app', () => {
     sessionSaveFailed.value = failed
   }
 
-  function setExportStatus(kind: ExportKind, status: ExportStatus): void {
+  function setExportStatus(kind: ExportKind, status: ExportStatus, detail = ''): void {
     if (exportStatusTimer) {
       clearTimeout(exportStatusTimer)
       exportStatusTimer = null
     }
     exportKind.value = kind
     exportStatus.value = status
+    exportStatusDetail.value = detail
     if (status === 'success' || status === 'error') {
       exportStatusTimer = setTimeout(() => {
         exportStatusTimer = null
         exportStatus.value = 'idle'
         exportKind.value = null
+        exportStatusDetail.value = ''
       }, EXPORT_STATUS_VISIBLE_MS)
     }
   }
@@ -182,8 +186,10 @@ export const useAppStore = defineStore('app', () => {
     filePath,
     isModified,
     showPdfDialog,
+    showImageExportDialog,
     exportStatus,
     exportKind,
+    exportStatusDetail,
     sessionSaveFailed,
     zoomFactor,
     zoomPercent,

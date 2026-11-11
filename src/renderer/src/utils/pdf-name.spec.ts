@@ -36,4 +36,9 @@ describe('deriveImageFileName', () => {
     expect(deriveImageFileName('')).toBe('untitled.png')
     expect(deriveImageFileName(null)).toBe('untitled.png')
   })
+
+  it('JPEG 格式应派生 jpg 扩展名', () => {
+    expect(deriveImageFileName('示例.md', 'jpeg')).toBe('示例.jpg')
+    expect(deriveImageFileName(null, 'jpeg')).toBe('untitled.jpg')
+  })
 })

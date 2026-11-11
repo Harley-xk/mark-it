@@ -134,6 +134,7 @@ export function useKeyboardShortcuts(): void {
     // Ctrl+P: 导出 PDF
     if (isCtrl(e) && !e.shiftKey && e.key === 'p') {
       e.preventDefault()
+      app.showImageExportDialog = false
       app.showPdfDialog = true
       return
     }

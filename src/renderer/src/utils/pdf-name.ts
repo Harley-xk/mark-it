@@ -17,7 +17,7 @@ export function derivePdfFileName(name: string | null | undefined): string {
 /** 按导出格式派生默认文件名，供 PDF 与图片导出共用 */
 export function deriveExportFileName(
   name: string | null | undefined,
-  extension: 'pdf' | 'png'
+  extension: 'pdf' | 'png' | 'jpg'
 ): string {
   const base = (name ?? '')
     .trim()
@@ -26,6 +26,9 @@ export function deriveExportFileName(
   return `${base || 'untitled'}.${extension}`
 }
 
-export function deriveImageFileName(name: string | null | undefined): string {
-  return deriveExportFileName(name, 'png')
+export function deriveImageFileName(
+  name: string | null | undefined,
+  format: 'png' | 'jpeg' = 'png'
+): string {
+  return deriveExportFileName(name, format === 'jpeg' ? 'jpg' : 'png')
 }

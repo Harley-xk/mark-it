@@ -6,7 +6,7 @@ body {
 
 html,
 body {
-  background: #121218;
+  background: var(--image-background, #121218);
 }
 
 body {
@@ -27,13 +27,13 @@ body.light {
 
 .image-export-page {
   box-sizing: border-box;
-  width: 880px;
+  width: var(--image-canvas-width, 880px);
   padding: 32px 40px;
 }
 
 .image-export-page .preview-content {
-  width: 800px;
-  max-width: 800px;
+  width: var(--image-content-width, 800px);
+  max-width: var(--image-content-width, 800px);
   margin: 0;
   overflow-wrap: anywhere;
 }

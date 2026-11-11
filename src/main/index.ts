@@ -8,8 +8,13 @@ import { existsSync, readFileSync, watchFile, unwatchFile } from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import type { PdfExportOptions } from '../shared/pdf-types'
-import type { ImageExportOptions } from '../shared/image-types'
-import { resolveImageCaptureScale } from './image-export'
+import type { ImageExportFormat, ImageExportOptions } from '../shared/image-types'
+import {
+  createImageExportResult,
+  ensureImageFileExtension,
+  imageExtensionFor,
+  resolveImageCaptureScale
+} from './image-export'
 import { closeUpdateWindow, initAutoUpdater } from './updater'
 import { isAppUrl, registerHandle, registerOn } from './ipc-guard'
 import { normalizeSessionTab, parseSessionData, parseSessionFile } from './session-store'
@@ -1388,8 +1393,16 @@ function buildPdfDefaultPath(fileName: string, sourcePath: string | null | undef
   return dir && dir !== '.' ? join(dir, base) : base
 }
 
-function buildImageDefaultPath(fileName: string, sourcePath: string | null | undefined): string {
-  const base = sanitizeFileName(fileName || 'untitled.png', 'png')
+function buildImageDefaultPath(
+  fileName: string,
+  sourcePath: string | null | undefined,
+  format: ImageExportFormat
+): string {
+  const extension = imageExtensionFor(format)
+  const base = ensureImageFileExtension(
+    sanitizeFileName(fileName || `untitled.${extension}`, extension),
+    format
+  )
   if (!sourcePath) return base
   const dir = dirname(sourcePath)
   return dir && dir !== '.' ? join(dir, base) : base
@@ -1487,12 +1500,26 @@ registerHandle('export:image', async (event, html: string, options: ImageExportO
   if (typeof html !== 'string' || !options || typeof options !== 'object') {
     throw new Error('图片导出参数无效')
   }
+  if (options.format !== 'png' && options.format !== 'jpeg') {
+    throw new Error('不支持的图片导出格式')
+  }
+
+  const format: ImageExportFormat = options.format
+  const contentWidth = [640, 800, 1000, 1200].includes(options.contentWidth)
+    ? options.contentWidth
+    : 800
+  const requestedScale = options.scale === 1 ? 1 : 2
 
   const result = await dialog.showSaveDialog(parent, {
-    defaultPath: buildImageDefaultPath(options.fileName, options.sourcePath),
-    filters: [{ name: 'PNG', extensions: ['png'] }]
+    defaultPath: buildImageDefaultPath(options.fileName, options.sourcePath, format),
+    filters: [
+      format === 'jpeg'
+        ? { name: 'JPEG', extensions: ['jpg', 'jpeg'] }
+        : { name: 'PNG', extensions: ['png'] }
+    ]
   })
   if (result.canceled || !result.filePath) return null
+  const outputPath = ensureImageFileExtension(result.filePath, format)
 
   const htmlBytes = Buffer.byteLength(html, 'utf8')
   if (htmlBytes > IMAGE_HTML_MAX_BYTES) {
@@ -1504,7 +1531,7 @@ registerHandle('export:image', async (event, html: string, options: ImageExportO
   }
 
   const imageWin = new BrowserWindow({
-    width: 900,
+    width: Math.max(900, contentWidth + 120),
     height: 1100,
     show: false,
     webPreferences: {
@@ -1552,11 +1579,7 @@ registerHandle('export:image', async (event, html: string, options: ImageExportO
           const page = document.querySelector('.image-export-page')
           const rect = page ? page.getBoundingClientRect() : null
           return {
-            width: Math.ceil(Math.max(
-              document.documentElement.scrollWidth,
-              document.body.scrollWidth,
-              rect ? rect.width : 0
-            )),
+            width: Math.ceil(rect ? rect.width : document.documentElement.scrollWidth),
             height: Math.ceil(Math.max(
               document.documentElement.scrollHeight,
               document.body.scrollHeight,
@@ -1566,31 +1589,55 @@ registerHandle('export:image', async (event, html: string, options: ImageExportO
         })()`
     )) as { width: number; height: number }
 
-    const scale = resolveImageCaptureScale(size.width, size.height, options.scale)
+    const scale = resolveImageCaptureScale(size.width, size.height, requestedScale)
     const debuggerClient = imageWin.webContents.debugger
     if (!debuggerClient.isAttached()) {
       debuggerClient.attach('1.3')
       debuggerAttached = true
     }
     await debuggerClient.sendCommand('Page.enable')
-    const screenshot = (await debuggerClient.sendCommand('Page.captureScreenshot', {
-      format: 'png',
-      fromSurface: true,
-      captureBeyondViewport: true,
-      clip: {
-        x: 0,
-        y: 0,
-        width: size.width,
-        height: size.height,
-        scale
-      }
-    })) as { data?: string }
+    const screenshot = (await debuggerClient.sendCommand(
+      'Page.captureScreenshot',
+      format === 'jpeg'
+        ? {
+            format: 'jpeg',
+            quality: 92,
+            fromSurface: true,
+            captureBeyondViewport: true,
+            clip: {
+              x: 0,
+              y: 0,
+              width: size.width,
+              height: size.height,
+              scale
+            }
+          }
+        : {
+            format: 'png',
+            fromSurface: true,
+            captureBeyondViewport: true,
+            clip: {
+              x: 0,
+              y: 0,
+              width: size.width,
+              height: size.height,
+              scale
+            }
+          }
+    )) as { data?: string }
 
     if (!screenshot.data) {
       throw new Error('Chromium 未返回图片数据')
     }
-    await writeFile(result.filePath, Buffer.from(screenshot.data, 'base64'))
-    return result.filePath
+    await writeFile(outputPath, Buffer.from(screenshot.data, 'base64'))
+    return createImageExportResult(
+      outputPath,
+      format,
+      requestedScale,
+      scale,
+      size.width,
+      size.height
+    )
   } catch (err) {
     const message = err instanceof Error ? err.message : '未知错误'
     dialog.showErrorBox('图片导出失败', message)

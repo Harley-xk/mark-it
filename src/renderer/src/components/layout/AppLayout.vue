@@ -10,8 +10,9 @@ import OutlinePanel from '../outline/OutlinePanel.vue'
 import EditorPane from '../editor/EditorPane.vue'
 import MarkdownPreview from '../preview/MarkdownPreview.vue'
 import PdfExportDialog from '../export/PdfExportDialog.vue'
+import ImageExportDialog from '../export/ImageExportDialog.vue'
 import SearchHud from '../common/SearchHud.vue'
-import type { PdfExportOptions } from '../../types'
+import type { ImageExportOptions, PdfExportOptions } from '../../types'
 
 const app = useAppStore()
 const { exporting, exportPdf } = usePdfExport()
@@ -25,9 +26,9 @@ async function onExport(options: PdfExportOptions): Promise<void> {
   }
 }
 
-async function onExportImage(): Promise<void> {
+async function onExportImage(options: ImageExportOptions): Promise<void> {
   try {
-    await exportImage()
+    await exportImage(options)
   } catch (err) {
     console.error('Image export failed:', err)
   }
@@ -37,7 +38,7 @@ async function onExportImage(): Promise<void> {
 <template>
   <div class="app-layout" :class="[app.resolvedTheme]">
     <TitleBar />
-    <Toolbar :image-exporting="imageExporting" @export-image="onExportImage" />
+    <Toolbar />
     <div class="main-area">
       <OutlinePanel v-if="app.showOutline" />
       <div class="content-area">
@@ -62,6 +63,11 @@ async function onExportImage(): Promise<void> {
     </div>
     <StatusBar />
     <PdfExportDialog :exporting="exporting" @close="app.showPdfDialog = false" @export="onExport" />
+    <ImageExportDialog
+      :exporting="imageExporting"
+      @close="app.showImageExportDialog = false"
+      @export="onExportImage"
+    />
   </div>
 </template>
 

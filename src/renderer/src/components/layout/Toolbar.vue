@@ -5,11 +5,19 @@ import type { LayoutMode } from '../../types'
 
 const app = useAppStore()
 const file = useFile()
-const props = defineProps<{ imageExporting: boolean }>()
-const emit = defineEmits<{ exportImage: [] }>()
 
 function openSettings(): void {
   void window.api.settings.open()
+}
+
+function openPdfExport(): void {
+  app.showImageExportDialog = false
+  app.showPdfDialog = true
+}
+
+function openImageExport(): void {
+  app.showPdfDialog = false
+  app.showImageExportDialog = true
 }
 
 const layouts: { mode: LayoutMode; icon: string; tip: string }[] = [
@@ -98,7 +106,7 @@ const layouts: { mode: LayoutMode; icon: string; tip: string }[] = [
         class="tb-btn"
         title="导出 PDF (Ctrl+P)"
         :disabled="app.exportStatus === 'exporting'"
-        @click="app.showPdfDialog = true"
+        @click="openPdfExport"
       >
         <svg
           width="15"
@@ -119,8 +127,8 @@ const layouts: { mode: LayoutMode; icon: string; tip: string }[] = [
       <button
         class="tb-btn"
         title="导出长图"
-        :disabled="props.imageExporting || app.exportStatus === 'exporting'"
-        @click="emit('exportImage')"
+        :disabled="app.exportStatus === 'exporting'"
+        @click="openImageExport"
       >
         <svg
           width="15"
