@@ -4,6 +4,7 @@ import type { SessionData } from '../shared/session-types'
 import type { EditorHistoryEntries } from '../shared/history-types'
 import type { FileReadResult } from '../shared/file-types'
 import type { PdfExportOptions } from '../shared/pdf-types'
+import type { ImageExportOptions } from '../shared/image-types'
 import type {
   EditorWindowContext,
   EditorWindowSummary,
@@ -128,6 +129,8 @@ const api = {
   ): Promise<string | null> => ipcRenderer.invoke('dialog:saveImage', fileName, data, extension),
   exportPdf: (html: string, options: PdfExportOptions): Promise<string | null> =>
     ipcRenderer.invoke('export:pdf', html, options),
+  exportImage: (html: string, options: ImageExportOptions): Promise<string | null> =>
+    ipcRenderer.invoke('export:image', html, options),
   /** 关闭当前编辑窗口；兼容保留 quit 参数 */
   close: (quit = false): Promise<boolean> => ipcRenderer.invoke('window:close', quit),
   isFullscreen: (): Promise<boolean> => ipcRenderer.invoke('window:is-fullscreen'),

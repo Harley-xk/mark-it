@@ -1,0 +1,245 @@
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  background: #121218;
+}
+
+body {
+  color: #d4d4d8;
+  font-family:
+    'Segoe UI',
+    -apple-system,
+    BlinkMacSystemFont,
+    system-ui,
+    sans-serif;
+  line-height: 1.7;
+}
+
+body.light {
+  background: #ffffff;
+  color: #374151;
+}
+
+.image-export-page {
+  box-sizing: border-box;
+  width: 880px;
+  padding: 32px 40px;
+}
+
+.image-export-page .preview-content {
+  width: 800px;
+  max-width: 800px;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.image-export-page .preview-content.markdown-body {
+  background-color: transparent;
+}
+
+.image-export-page .markdown-body {
+  --hljs-keyword: #ff7b72;
+  --hljs-string: #a5d6ff;
+  --hljs-number: #79c0ff;
+  --hljs-comment: #8b949e;
+  --hljs-title: #d2a8ff;
+  --hljs-built-in: #ffa657;
+}
+
+body.light .image-export-page .markdown-body {
+  --hljs-keyword: #cf222e;
+  --hljs-string: #0a3069;
+  --hljs-number: #0550ae;
+  --hljs-comment: #6e7781;
+  --hljs-title: #8250df;
+  --hljs-built-in: #953800;
+}
+
+.image-export-page .markdown-body .hljs-comment,
+.image-export-page .markdown-body .hljs-quote {
+  color: var(--hljs-comment);
+  font-style: italic;
+}
+
+.image-export-page .markdown-body .hljs-keyword,
+.image-export-page .markdown-body .hljs-selector-tag,
+.image-export-page .markdown-body .hljs-doctag,
+.image-export-page .markdown-body .hljs-template-tag,
+.image-export-page .markdown-body .hljs-template-variable {
+  color: var(--hljs-keyword);
+}
+
+.image-export-page .markdown-body .hljs-string,
+.image-export-page .markdown-body .hljs-regexp,
+.image-export-page .markdown-body .hljs-meta .hljs-string {
+  color: var(--hljs-string);
+}
+
+.image-export-page .markdown-body .hljs-number,
+.image-export-page .markdown-body .hljs-literal,
+.image-export-page .markdown-body .hljs-variable,
+.image-export-page .markdown-body .hljs-attr,
+.image-export-page .markdown-body .hljs-attribute,
+.image-export-page .markdown-body .hljs-selector-attr,
+.image-export-page .markdown-body .hljs-selector-class,
+.image-export-page .markdown-body .hljs-selector-id {
+  color: var(--hljs-number);
+}
+
+.image-export-page .markdown-body .hljs-title,
+.image-export-page .markdown-body .hljs-section {
+  color: var(--hljs-title);
+  font-weight: 600;
+}
+
+.image-export-page .markdown-body .hljs-built_in,
+.image-export-page .markdown-body .hljs-type,
+.image-export-page .markdown-body .hljs-name,
+.image-export-page .markdown-body .hljs-tag {
+  color: var(--hljs-built-in);
+}
+
+.image-export-page .markdown-body .hljs-meta,
+.image-export-page .markdown-body .hljs-symbol,
+.image-export-page .markdown-body .hljs-bullet,
+.image-export-page .markdown-body .hljs-link {
+  color: var(--hljs-comment);
+}
+
+.image-export-page .markdown-body .hljs-emphasis {
+  font-style: italic;
+}
+
+.image-export-page .markdown-body .hljs-strong {
+  font-weight: 600;
+}
+
+.image-export-page .preview-content .frontmatter-block {
+  margin: 0 0 1.6em;
+}
+
+.image-export-page .preview-content .frontmatter-title {
+  margin-bottom: 8px;
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+
+.image-export-page .preview-content .frontmatter-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.image-export-page .preview-content .frontmatter-table th {
+  padding: 8px 14px;
+  color: rgba(255, 255, 255, 0.62);
+  text-align: left;
+  font-weight: 600;
+  background: rgba(108, 155, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.image-export-page .preview-content .frontmatter-table td {
+  padding: 8px 14px;
+  color: #d4d4d8;
+  vertical-align: top;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.image-export-page .preview-content .frontmatter-table .fm-key {
+  width: 160px;
+  color: #9db4ff;
+  white-space: nowrap;
+  font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+  font-size: 12px;
+}
+
+.image-export-page .preview-content .frontmatter-table .fm-value {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+body.light .image-export-page .frontmatter-title {
+  color: rgba(0, 0, 0, 0.45);
+}
+
+body.light .image-export-page .frontmatter-table th {
+  color: rgba(0, 0, 0, 0.62);
+  background: rgba(59, 130, 246, 0.06);
+  border-color: rgba(0, 0, 0, 0.08);
+}
+
+body.light .image-export-page .frontmatter-table td {
+  color: #374151;
+  border-color: rgba(0, 0, 0, 0.08);
+}
+
+body.light .image-export-page .frontmatter-table .fm-key {
+  color: #3b5bdb;
+}
+
+.image-export-page .markdown-body pre,
+.image-export-page .markdown-body pre code {
+  overflow: visible;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.image-export-page .markdown-body table {
+  width: 100%;
+  max-width: 100%;
+}
+
+.image-export-page .markdown-body th,
+.image-export-page .markdown-body td {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.image-export-page .markdown-body img,
+.image-export-page .markdown-body svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.image-export-page .mermaid-diagram {
+  overflow: hidden;
+  text-align: center;
+}
+
+.image-export-page .mermaid-diagram svg {
+  display: block;
+  margin: 0 auto;
+}
+
+.image-export-page .mermaid-error {
+  margin: 8px 0 1.2em;
+  padding: 8px 12px;
+  color: #ff6b6b;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: rgba(255, 107, 107, 0.08);
+  border: 1px solid rgba(255, 107, 107, 0.2);
+  border-radius: 6px;
+}
+
+body.light .image-export-page .mermaid-error {
+  color: #cf222e;
+  background: rgba(207, 34, 46, 0.06);
+  border-color: rgba(207, 34, 46, 0.15);
+}
+
+.image-export-page .mermaid-error-source {
+  opacity: 0.8;
+}

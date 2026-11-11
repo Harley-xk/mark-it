@@ -6,14 +6,17 @@ import { useAppStore } from '../../stores/app'
 const editor = useEditorStore()
 const app = useAppStore()
 
-const pdfStatusText = computed(() => {
-  switch (app.pdfExportStatus) {
+const exportKindLabel = computed(() => (app.exportKind === 'image' ? '图片' : 'PDF'))
+
+const exportStatusText = computed(() => {
+  const label = exportKindLabel.value
+  switch (app.exportStatus) {
     case 'exporting':
-      return '导出中…'
+      return `${label}导出中…`
     case 'success':
-      return '导出成功'
+      return `${label}导出成功`
     case 'error':
-      return '导出失败'
+      return `${label}导出失败`
     default:
       return ''
   }
@@ -30,20 +33,22 @@ const pdfStatusText = computed(() => {
       </template>
     </div>
     <div class="status-right">
-      <template v-if="app.pdfExportStatus !== 'idle'">
+      <template v-if="app.exportStatus !== 'idle'">
         <span
           class="status-item status-export"
-          :class="`is-${app.pdfExportStatus}`"
+          :class="`is-${app.exportStatus}`"
           :title="
-            app.pdfExportStatus === 'error' ? 'PDF 导出失败，详情见开发者工具控制台' : undefined
+            app.exportStatus === 'error'
+              ? `${exportKindLabel} 导出失败，详情见开发者工具控制台`
+              : undefined
           "
         >
           <span
-            v-if="app.pdfExportStatus === 'exporting'"
+            v-if="app.exportStatus === 'exporting'"
             class="status-spinner"
             aria-hidden="true"
           ></span>
-          {{ pdfStatusText }}
+          {{ exportStatusText }}
         </span>
         <span class="status-sep">|</span>
       </template>

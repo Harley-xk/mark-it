@@ -11,9 +11,21 @@
  * 避免系统保存对话框的文件名输入框留空。
  */
 export function derivePdfFileName(name: string | null | undefined): string {
+  return deriveExportFileName(name, 'pdf')
+}
+
+/** 按导出格式派生默认文件名，供 PDF 与图片导出共用 */
+export function deriveExportFileName(
+  name: string | null | undefined,
+  extension: 'pdf' | 'png'
+): string {
   const base = (name ?? '')
     .trim()
     .replace(/\.(?:md|markdown|txt)$/i, '')
     .trim()
-  return `${base || 'untitled'}.pdf`
+  return `${base || 'untitled'}.${extension}`
+}
+
+export function deriveImageFileName(name: string | null | undefined): string {
+  return deriveExportFileName(name, 'png')
 }

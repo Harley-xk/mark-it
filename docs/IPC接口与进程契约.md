@@ -51,6 +51,7 @@
 - [`src/shared/update-types.ts`](../src/shared/update-types.ts)：`UpdateStatus`、`UpdateProgress`、`UpdateState`
 - [`src/shared/file-types.ts`](../src/shared/file-types.ts)：`FileReadResult`
 - [`src/shared/pdf-types.ts`](../src/shared/pdf-types.ts)：`PdfExportOptions`、`PdfPageSize`、`PdfMargin`
+- [`src/shared/image-types.ts`](../src/shared/image-types.ts)：`ImageExportOptions`
 - [`src/shared/integration-types.ts`](../src/shared/integration-types.ts)：`VSCodeVariant`、`VSCodeInstallation`、`IntegrationResult`、`VSCodeIntegrationConfig`
 
 不得在 `src/shared` 中引入 `electron`、`node:*`、Vue、Pinia 等运行时依赖。
@@ -59,10 +60,10 @@
 
 | 方向                                  | 数量   | 说明                                                             |
 | ------------------------------------- | ------ | ---------------------------------------------------------------- |
-| renderer → main `invoke`（请求-响应） | 36     | 文件 5、对话框 3、窗口 11、系统 1、会话 2、历史 2、导出 1、更新 8、集成 3 |
+| renderer → main `invoke`（请求-响应） | 37     | 文件 5、对话框 3、窗口 11、系统 1、会话 2、历史 2、导出 2、更新 8、集成 3 |
 | renderer → main `send`（单向）        | 7      | 就绪、窗口关闭、迁移确认 / 拒绝、拖拽开始 / 结束、退出协调       |
 | main → renderer `send`（事件推送）    | 11     | 见 3.8                                                           |
-| **合计**                              | **54** | 全部经 `window.api` 白名单暴露                                   |
+| **合计**                              | **55** | 全部经 `window.api` 白名单暴露                                   |
 
 > 计数口径：按 `registerHandle` / `registerOn` / `webContents.send` 中实际出现的通道名去重统计。`window:zoom-changed` 在两个位置发送但只算一个通道。
 
@@ -131,6 +132,7 @@
 | 通道名       | 方向       | preload 方法               | 参数                                                                                                                                           | 返回值                    | 主进程处理位置                              | 备注                                                                                                                                                              |
 | ------------ | ---------- | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- | ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `export:pdf` | R→M invoke | `exportPdf(html, options)` | `html: string`；`options: PdfExportOptions`（`pageSize`、`margin`、`showPageNumbers`、`showToc`、`showFrontmatter`、`fileName`、`sourcePath`） | `Promise<string \| null>` | [`src/main/index.ts`](../src/main/index.ts) | 渲染进程生成自包含 HTML；主进程用隐藏 `BrowserWindow` 等待图片加载后 `printToPDF`；`margins` / 页码 / 默认文件名均已生效；取消返回 `null`；`finally` 销毁隐藏窗口 |
+| `export:image` | R→M invoke | `exportImage(html, options)` | `html: string`；`options: ImageExportOptions`（`scale`、`fileName`、`sourcePath`）                                                             | `Promise<string \| null>` | [`src/main/index.ts`](../src/main/index.ts) | 渲染进程生成当前预览主题的自包含长图 HTML；主进程用隐藏 `BrowserWindow` 测量尺寸并通过 `Page.captureScreenshot` 截取整页 PNG；取消返回 `null`；`finally` 清理窗口、调试器与临时文件 |
 
 ### 3.6 更新
 
@@ -222,9 +224,10 @@
 | `{ path, content }` | `dialog:openFiles` 返回、`file:read` 返回、`open-file-from-argv`、`file:external-change` | `path: string`、`content: string`                                                                                                                                              |
 | 图片保存参数        | `dialog:saveImage`                                                                       | `fileName: string`、`data: Uint8Array`、`extension: 'svg' \| 'png'`                                                                                                            |
 | PDF 选项            | `export:pdf`                                                                             | `PdfExportOptions`（[`src/shared/pdf-types.ts`](../src/shared/pdf-types.ts)）：`pageSize`、`margin`、`showPageNumbers`、`showToc`、`showFrontmatter`、`fileName`、`sourcePath` |
+| 长图选项            | `export:image`                                                                           | `ImageExportOptions`（[`src/shared/image-types.ts`](../src/shared/image-types.ts)）：`scale`、`fileName`、`sourcePath`                                                         |
 | 文件读取结果        | `dialog:openFiles` 返回、`file:read` 返回、`open-file-from-argv`、`file:external-change` | `FileReadResult`（[`src/shared/file-types.ts`](../src/shared/file-types.ts)）：`path`、`content`                                                                               |
 
-> `PdfExportOptions` 与 `FileReadResult` 都放在 `src/shared`，preload、主进程与渲染进程共用同一份声明，不再维护内联重复类型。新增字段时改共享类型即可，类型检查会覆盖三处调用。
+> `PdfExportOptions`、`ImageExportOptions` 与 `FileReadResult` 都放在 `src/shared`，preload、主进程与渲染进程共用同一份声明，不再维护内联重复类型。新增字段时改共享类型即可，类型检查会覆盖三处调用。
 
 ## 5. 关键契约与约束
 

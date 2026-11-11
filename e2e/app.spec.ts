@@ -369,6 +369,90 @@ test('导出 PDF 并生成有效产物', async () => {
   }
 })
 
+test('导出当前文档为一张完整 PNG 长图', async () => {
+  test.skip(!existsSync(appEntry), '请先执行 npm run build 生成 out/main/index.js')
+
+  const workDir = mkdtempSync(join(tmpdir(), 'markit-e2e-image-'))
+  const userDataDir = mkdtempSync(join(tmpdir(), 'markit-e2e-image-user-'))
+  const mdPath = join(workDir, 'image-smoke.md')
+  const imagePath = join(workDir, 'image-smoke.png')
+  writeFileSync(
+    mdPath,
+    [
+      '# PNG 长图冒烟',
+      '',
+      '> 验证当前主题、长内容与静态 Mermaid 渲染。',
+      '',
+      '| 列 A | 列 B |',
+      '| --- | --- |',
+      '| 1 | 2 |',
+      '',
+      '```mermaid',
+      'flowchart TD',
+      '  A --> B',
+      '```',
+      '',
+      ...Array.from({ length: 50 }, (_, index) => `第 ${index + 1} 段正文。`),
+      ''
+    ].join('\n'),
+    'utf-8'
+  )
+
+  const app = await electron.launch({
+    args: ['.', `--user-data-dir=${userDataDir}`, mdPath],
+    cwd: projectRoot,
+    env: getLaunchEnv()
+  })
+  try {
+    const window = await app.firstWindow()
+    await expect(window.locator('.tab-name', { hasText: 'image-smoke.md' })).toBeVisible()
+
+    await app.evaluate(({ dialog }, filePath) => {
+      const state = globalThis as { __imageDefaultPath?: string }
+      state.__imageDefaultPath = ''
+      const stub = async (...args: unknown[]): Promise<{ canceled: boolean; filePath: string }> => {
+        const options = args[args.length - 1] as { defaultPath?: string } | undefined
+        state.__imageDefaultPath = options?.defaultPath ?? ''
+        return { canceled: false, filePath }
+      }
+      dialog.showSaveDialog = stub as typeof dialog.showSaveDialog
+    }, imagePath)
+
+    await window.locator('.tb-btn[title="导出长图"]').click()
+    await expect(window.locator('.status-export')).toBeVisible()
+
+    await expect
+      .poll(
+        () => {
+          try {
+            return statSync(imagePath).size
+          } catch {
+            return 0
+          }
+        },
+        { timeout: 30_000 }
+      )
+      .toBeGreaterThan(0)
+
+    expect(readFileSync(imagePath).subarray(0, 8).toString('hex')).toBe('89504e470d0a1a0a')
+    const size = await app.evaluate(
+      ({ nativeImage }, filePath) => nativeImage.createFromPath(filePath).getSize(),
+      imagePath
+    )
+    expect(size.width).toBe(1760)
+    expect(size.height).toBeGreaterThan(1760)
+
+    const defaultPath = await app.evaluate(
+      () => (globalThis as { __imageDefaultPath?: string }).__imageDefaultPath
+    )
+    expect(defaultPath).toBe(imagePath)
+  } finally {
+    await app.close()
+    rmSync(workDir, { recursive: true, force: true })
+    rmSync(userDataDir, { recursive: true, force: true })
+  }
+})
+
 test('标签页可以拖拽排序并在重启后保持顺序', async () => {
   test.skip(!existsSync(appEntry), '请先执行 npm run build 生成 out/main/index.js')
 

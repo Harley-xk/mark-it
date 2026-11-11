@@ -8,6 +8,8 @@ import { existsSync, readFileSync, watchFile, unwatchFile } from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import type { PdfExportOptions } from '../shared/pdf-types'
+import type { ImageExportOptions } from '../shared/image-types'
+import { resolveImageCaptureScale } from './image-export'
 import { closeUpdateWindow, initAutoUpdater } from './updater'
 import { isAppUrl, registerHandle, registerOn } from './ipc-guard'
 import { normalizeSessionTab, parseSessionData, parseSessionFile } from './session-store'
@@ -1283,10 +1285,21 @@ const PDF_FOOTER_HEIGHT_INCH = 0.18
 const PDF_LAYOUT_TIMEOUT_MS = 1500
 /** 自包含 HTML 的硬上限，超过时直接提示，避免隐藏窗口因内存压力崩溃 */
 const PDF_HTML_MAX_BYTES = 64 * 1024 * 1024
+/** 长图等待网络图片、字体与布局稳定的兜底上限 */
+const IMAGE_LAYOUT_TIMEOUT_MS = 4000
+/** 长图自包含 HTML 与 PDF 使用同一保守体积上限 */
+const IMAGE_HTML_MAX_BYTES = 64 * 1024 * 1024
 
 /** 保存对话框的默认路径：优先定位到当前文档所在目录，文件名永不为空 */
 function buildPdfDefaultPath(fileName: string, sourcePath: string | null | undefined): string {
   const base = sanitizeFileName(fileName || 'untitled.pdf', 'pdf')
+  if (!sourcePath) return base
+  const dir = dirname(sourcePath)
+  return dir && dir !== '.' ? join(dir, base) : base
+}
+
+function buildImageDefaultPath(fileName: string, sourcePath: string | null | undefined): string {
+  const base = sanitizeFileName(fileName || 'untitled.png', 'png')
   if (!sourcePath) return base
   const dir = dirname(sourcePath)
   return dir && dir !== '.' ? join(dir, base) : base
@@ -1374,6 +1387,135 @@ registerHandle('export:pdf', async (event, html: string, options: PdfExportOptio
     if (!pdfWin.isDestroyed()) pdfWin.destroy()
     await rm(tempHtmlPath, { force: true }).catch((err) => {
       console.error('Failed to remove PDF temp file:', tempHtmlPath, err)
+    })
+  }
+})
+
+registerHandle('export:image', async (event, html: string, options: ImageExportOptions) => {
+  const parent = windowForSender(event)
+  if (!parent) return null
+  if (typeof html !== 'string' || !options || typeof options !== 'object') {
+    throw new Error('图片导出参数无效')
+  }
+
+  const result = await dialog.showSaveDialog(parent, {
+    defaultPath: buildImageDefaultPath(options.fileName, options.sourcePath),
+    filters: [{ name: 'PNG', extensions: ['png'] }]
+  })
+  if (result.canceled || !result.filePath) return null
+
+  const htmlBytes = Buffer.byteLength(html, 'utf8')
+  if (htmlBytes > IMAGE_HTML_MAX_BYTES) {
+    const message = `图片内容过大（${(htmlBytes / 1024 / 1024).toFixed(
+      1
+    )} MB），请减少内嵌图片后重试`
+    dialog.showErrorBox('图片导出失败', message)
+    throw new Error(message)
+  }
+
+  const imageWin = new BrowserWindow({
+    width: 900,
+    height: 1100,
+    show: false,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: true
+    }
+  })
+  const tempHtmlPath = join(app.getPath('temp'), `markit-image-${randomUUID()}.html`)
+  let debuggerAttached = false
+
+  try {
+    await writeFile(tempHtmlPath, html, 'utf-8')
+    await imageWin.loadFile(tempHtmlPath)
+
+    const layoutReady = imageWin.webContents
+      .executeJavaScript(
+        `(async () => {
+            await Promise.all(Array.from(document.images).map((img) =>
+              img.complete
+                ? null
+                : new Promise((resolve) => {
+                    img.addEventListener('load', resolve, { once: true })
+                    img.addEventListener('error', resolve, { once: true })
+                  })
+            ))
+            if (document.fonts && document.fonts.ready) {
+              try { await document.fonts.ready } catch {}
+            }
+            await new Promise((resolve) =>
+              requestAnimationFrame(() => requestAnimationFrame(resolve))
+            )
+          })()`
+      )
+      .catch((err) => {
+        console.error('Failed to wait for image export layout:', err)
+      })
+    await Promise.race([
+      layoutReady,
+      new Promise((resolve) => setTimeout(resolve, IMAGE_LAYOUT_TIMEOUT_MS))
+    ])
+
+    const size = (await imageWin.webContents.executeJavaScript(
+      `(() => {
+          const page = document.querySelector('.image-export-page')
+          const rect = page ? page.getBoundingClientRect() : null
+          return {
+            width: Math.ceil(Math.max(
+              document.documentElement.scrollWidth,
+              document.body.scrollWidth,
+              rect ? rect.width : 0
+            )),
+            height: Math.ceil(Math.max(
+              document.documentElement.scrollHeight,
+              document.body.scrollHeight,
+              rect ? rect.height : 0
+            ))
+          }
+        })()`
+    )) as { width: number; height: number }
+
+    const scale = resolveImageCaptureScale(size.width, size.height, options.scale)
+    const debuggerClient = imageWin.webContents.debugger
+    if (!debuggerClient.isAttached()) {
+      debuggerClient.attach('1.3')
+      debuggerAttached = true
+    }
+    await debuggerClient.sendCommand('Page.enable')
+    const screenshot = (await debuggerClient.sendCommand('Page.captureScreenshot', {
+      format: 'png',
+      fromSurface: true,
+      captureBeyondViewport: true,
+      clip: {
+        x: 0,
+        y: 0,
+        width: size.width,
+        height: size.height,
+        scale
+      }
+    })) as { data?: string }
+
+    if (!screenshot.data) {
+      throw new Error('Chromium 未返回图片数据')
+    }
+    await writeFile(result.filePath, Buffer.from(screenshot.data, 'base64'))
+    return result.filePath
+  } catch (err) {
+    const message = err instanceof Error ? err.message : '未知错误'
+    dialog.showErrorBox('图片导出失败', message)
+    throw err
+  } finally {
+    if (debuggerAttached && imageWin.webContents.debugger.isAttached()) {
+      try {
+        imageWin.webContents.debugger.detach()
+      } catch (err) {
+        console.warn('Failed to detach image export debugger:', err)
+      }
+    }
+    if (!imageWin.isDestroyed()) imageWin.destroy()
+    await rm(tempHtmlPath, { force: true }).catch((err) => {
+      console.error('Failed to remove image export temp file:', tempHtmlPath, err)
     })
   }
 })

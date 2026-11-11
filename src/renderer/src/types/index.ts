@@ -4,8 +4,10 @@ export type ThemeMode = 'light' | 'dark' | 'system'
 
 export type PreviewWidthMode = 'auto' | 'fixed'
 
-/** PDF 导出在状态栏展示的生命周期：空闲 / 导出中 / 成功 / 失败 */
-export type PdfExportStatus = 'idle' | 'exporting' | 'success' | 'error'
+/** 文档导出在状态栏展示的生命周期：空闲 / 导出中 / 成功 / 失败 */
+export type ExportStatus = 'idle' | 'exporting' | 'success' | 'error'
+
+export type ExportKind = 'pdf' | 'image'
 
 export interface HeadingItem {
   id: string
@@ -23,3 +25,4 @@ export interface PreviewStyle {
 }
 
 export type { PdfExportOptions, PdfPageSize, PdfMargin } from '../../../shared/pdf-types'
+export type { ImageExportOptions } from '../../../shared/image-types'

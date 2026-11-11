@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { derivePdfFileName } from './pdf-name'
+import { deriveImageFileName, derivePdfFileName } from './pdf-name'
 
 describe('derivePdfFileName', () => {
   it('应把 Markdown 扩展名替换为 pdf', () => {
@@ -23,5 +23,17 @@ describe('derivePdfFileName', () => {
     expect(derivePdfFileName('.md')).toBe('untitled.pdf')
     expect(derivePdfFileName(null)).toBe('untitled.pdf')
     expect(derivePdfFileName(undefined)).toBe('untitled.pdf')
+  })
+})
+
+describe('deriveImageFileName', () => {
+  it('应把 Markdown 扩展名替换为 png', () => {
+    expect(deriveImageFileName('示例.md')).toBe('示例.png')
+    expect(deriveImageFileName('notes.markdown')).toBe('notes.png')
+  })
+
+  it('文档名缺失或为空时应回退到 untitled.png', () => {
+    expect(deriveImageFileName('')).toBe('untitled.png')
+    expect(deriveImageFileName(null)).toBe('untitled.png')
   })
 })

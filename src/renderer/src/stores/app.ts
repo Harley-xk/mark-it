@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
-import type { LayoutMode, PdfExportStatus, PreviewWidthMode, ThemeMode } from '../types'
+import type { ExportKind, ExportStatus, LayoutMode, PreviewWidthMode, ThemeMode } from '../types'
 import { LAYOUT_MODES, loadSavedLayoutMode, saveLayoutMode } from '../utils/layout-mode'
 import { useDocumentsStore } from './documents'
 
@@ -34,6 +34,8 @@ const APP_STORAGE_KEYS = new Set([
   'markit-preview-width'
 ])
 
+const EXPORT_STATUS_VISIBLE_MS = 3000
+
 export const useAppStore = defineStore('app', () => {
   const documents = useDocumentsStore()
   // 布局按标签保存；没有激活标签的瞬间（关闭最后一个标签到窗口关闭之间）用兜底值
@@ -53,8 +55,10 @@ export const useAppStore = defineStore('app', () => {
   const filePath = computed(() => documents.activeDoc?.path ?? null)
   const isModified = computed(() => documents.activeDoc?.isModified ?? false)
   const showPdfDialog = ref(false)
-  /** PDF 导出状态，由 usePdfExport 驱动，状态栏据此展示「导出中… / 导出成功 / 导出失败」 */
-  const pdfExportStatus = ref<PdfExportStatus>('idle')
+  /** PDF / 长图共用的导出任务状态，状态栏据此展示当前类型与进度 */
+  const exportStatus = ref<ExportStatus>('idle')
+  const exportKind = ref<ExportKind | null>(null)
+  let exportStatusTimer: ReturnType<typeof setTimeout> | null = null
   /** 会话写盘失败（只读目录 / 磁盘已满等），状态栏据此给出可见提示 */
   const sessionSaveFailed = ref(false)
   // 整窗缩放比例由主进程维护，这里仅用于状态栏展示
@@ -138,6 +142,22 @@ export const useAppStore = defineStore('app', () => {
     sessionSaveFailed.value = failed
   }
 
+  function setExportStatus(kind: ExportKind, status: ExportStatus): void {
+    if (exportStatusTimer) {
+      clearTimeout(exportStatusTimer)
+      exportStatusTimer = null
+    }
+    exportKind.value = kind
+    exportStatus.value = status
+    if (status === 'success' || status === 'error') {
+      exportStatusTimer = setTimeout(() => {
+        exportStatusTimer = null
+        exportStatus.value = 'idle'
+        exportKind.value = null
+      }, EXPORT_STATUS_VISIBLE_MS)
+    }
+  }
+
   return {
     layoutMode,
     themeMode,
@@ -151,7 +171,8 @@ export const useAppStore = defineStore('app', () => {
     filePath,
     isModified,
     showPdfDialog,
-    pdfExportStatus,
+    exportStatus,
+    exportKind,
     sessionSaveFailed,
     zoomFactor,
     zoomPercent,
@@ -163,6 +184,7 @@ export const useAppStore = defineStore('app', () => {
     setThemeMode,
     cycleTheme,
     toggleOutline,
-    setSessionSaveFailed
+    setSessionSaveFailed,
+    setExportStatus
   }
 })

@@ -5,6 +5,8 @@ import type { LayoutMode } from '../../types'
 
 const app = useAppStore()
 const file = useFile()
+const props = defineProps<{ imageExporting: boolean }>()
+const emit = defineEmits<{ exportImage: [] }>()
 
 function openSettings(): void {
   void window.api.settings.open()
@@ -92,7 +94,12 @@ const layouts: { mode: LayoutMode; icon: string; tip: string }[] = [
           />
         </svg>
       </button>
-      <button class="tb-btn" title="导出 PDF (Ctrl+P)" @click="app.showPdfDialog = true">
+      <button
+        class="tb-btn"
+        title="导出 PDF (Ctrl+P)"
+        :disabled="app.exportStatus === 'exporting'"
+        @click="app.showPdfDialog = true"
+      >
         <svg
           width="15"
           height="15"
@@ -107,6 +114,27 @@ const layouts: { mode: LayoutMode; icon: string; tip: string }[] = [
           <polyline points="14 2 14 8 20 8" />
           <path d="M12 11v7" />
           <polyline points="9 15 12 18 15 15" />
+        </svg>
+      </button>
+      <button
+        class="tb-btn"
+        title="导出长图"
+        :disabled="props.imageExporting || app.exportStatus === 'exporting'"
+        @click="emit('exportImage')"
+      >
+        <svg
+          width="15"
+          height="15"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.8"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <rect x="3" y="3" width="18" height="18" rx="2" />
+          <circle cx="8.5" cy="8.5" r="1.5" />
+          <path d="m21 15-5-5L5 21" />
         </svg>
       </button>
     </div>

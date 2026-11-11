@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useAppStore } from '../../stores/app'
 import { usePdfExport } from '../../composables/usePdfExport'
+import { useImageExport } from '../../composables/useImageExport'
 import TitleBar from './TitleBar.vue'
 import Toolbar from './Toolbar.vue'
 import StatusBar from './StatusBar.vue'
@@ -14,6 +15,7 @@ import type { PdfExportOptions } from '../../types'
 
 const app = useAppStore()
 const { exporting, exportPdf } = usePdfExport()
+const { exporting: imageExporting, exportImage } = useImageExport()
 
 async function onExport(options: PdfExportOptions): Promise<void> {
   try {
@@ -22,12 +24,20 @@ async function onExport(options: PdfExportOptions): Promise<void> {
     console.error('PDF export failed:', err)
   }
 }
+
+async function onExportImage(): Promise<void> {
+  try {
+    await exportImage()
+  } catch (err) {
+    console.error('Image export failed:', err)
+  }
+}
 </script>
 
 <template>
   <div class="app-layout" :class="[app.resolvedTheme]">
     <TitleBar />
-    <Toolbar />
+    <Toolbar :image-exporting="imageExporting" @export-image="onExportImage" />
     <div class="main-area">
       <OutlinePanel v-if="app.showOutline" />
       <div class="content-area">
