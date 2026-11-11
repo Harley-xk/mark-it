@@ -57,6 +57,7 @@ flowchart TD
 
   subgraph PLANNED["计划功能"]
     VSRESEARCH["计划功能/VSCode衍生桌面编辑器兼容性调研.md"]
+    UPLOADPLAN["计划功能/AppHub发布上传链路优化设计.md"]
   end
 
   IDX --> ARCH
@@ -92,6 +93,8 @@ flowchart TD
   BUILD --> INSTALLER
   BUILD --> CHANNEL
   CHANNEL --> RELEASE
+  BUILD --> UPLOADPLAN
+  UPLOADPLAN --> RELEASE
   QA --> TODO
   DEC --> TODO
   TABORDER --> MULTI
@@ -140,6 +143,7 @@ flowchart TD
 3. [构建与发布](./构建与发布.md) —— 构建产物、打包配置、CI 流水线
 4. [Windows 安装向导](./Windows安装向导.md) —— 安装路径、快捷方式选项、静默升级与卸载行为
 5. [GitHub Actions 发版说明](./github-release.md) —— apphub CLI 详细操作（存量文档）
+6. [AppHub 发布上传链路优化设计](./计划功能/AppHub发布上传链路优化设计.md) —— 三平台并行上传、OSS 分片、进度、重试与线路优化（待实现）
 
 ### 2.5 需要理解「为什么这样设计」
 
@@ -203,6 +207,7 @@ flowchart TD
 | [自动更新](./自动更新.md)                                                        | 更新状态机、apphub 通道、双通道检测、强制更新、双窗口安装协作            | 更新相关开发者                   |
 | [发版通道与 Beta 更新](./发版通道.md)                                            | 双通道模型、严格单序列版本规则、发版节点记录、客户端 Beta 开关           | 维护者、更新相关开发者           |
 | [构建与发布](./构建与发布.md)                                                    | 命令、构建架构、打包配置、产物命名、CI 流水线                            | 维护者、发版者                   |
+| [AppHub 发布上传链路优化设计](./计划功能/AppHub发布上传链路优化设计.md)         | 三平台并行、OSS multipart、上传进度、重试、可观测性与线路优化（待实现）   | 维护者、发版与 CI 开发者         |
 | [Windows 安装向导](./Windows安装向导.md)                                         | 交互式安装流程、安装路径与快捷方式选项、静默升级、自定义 NSIS 脚本       | 维护者、发版者                   |
 | [GitHub Actions 发版说明](./github-release.md)                                   | apphub CLI 详细操作、Secrets、故障排查（存量文档）                       | 发版者                           |
 | [开发指南](./开发指南.md)                                                        | 环境、目录速查、编码约定、常见任务操作手册、DoD                          | 新成员、全体开发者               |
