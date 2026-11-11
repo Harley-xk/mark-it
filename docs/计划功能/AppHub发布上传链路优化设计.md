@@ -1,6 +1,6 @@
 # AppHub 发布上传链路优化设计
 
-> **状态：阶段 1 已实现；阶段 2 本地实现和自动化测试已完成，真实 Beta 验证待完成；阶段 3 待评估。** 当前发版已采用 `prepare` + 三平台并行 `upload` 矩阵，并通过仓库适配层提供 OSS multipart、进度、分片重试和中止。
+> **状态：阶段 1、2 已完成并通过真实 Beta 验证；阶段 3 待评估。** 当前发版已采用 `prepare` + 三平台并行 `upload` 矩阵，并通过仓库适配层提供 OSS multipart 并行分片、进度、分片重试和中止。`1.6.0-beta.9` 已验证约 245 MiB 的最大真实样本；超过 500 MiB 的样本与 Abort 真实失败路径仍待验证。
 >
 > 文档定位：优化 `.github/workflows/release.yml` 中三平台安装包上传到 AppHub 的耗时、可观测性和失败恢复能力。
 >
@@ -14,6 +14,7 @@
 4. 第一阶段已把三个平台拆成并行矩阵任务。该方案只改工作流，不触碰会自更新的 `scripts/release/apphub.mjs`，可缩短总等待时间并隔离平台故障。
 5. 第二阶段已通过 `scripts/release/apphub-upload.mjs` 和 `scripts/release/oss-multipart.mjs` 提供 OSS multipart，支持多分片并行、进度、重试与中止，不修改 `apphub.mjs` 技能快照。
 6. 若分片并行后跨境链路的吞吐仍无改善，再评估国内自托管 runner 或 OSS 传输加速；不应先假设分片一定能解决线路质量问题。
+7. `1.6.0-beta.9` 已完成三平台并行、同文件多分片并行、实时进度、包登记、发布和三平台 `verify` 的真实回归。当前最大样本约 245 MiB，尚不能据此宣称超过 500 MiB 已得到验证。
 
 ## 2. 问题与观测
 
@@ -217,6 +218,18 @@ endpoint 连接能力、TLS / 签名计算和进程内存共同约束，不会�
 并发作为基线，在同一发布机、同一文件和同一时段对比 4 / 8 / 16 并发，选择吞吐达到平台期且
 失败率不升高的配置。并行度、分片大小和重试策略必须统一管理，不能只提高并发而不限制资源。
 
+`1.6.0-beta.9` 的真实发版结果如下：
+
+| 产物               |       大小（字节） | 分片数 | 并发度 |
+| ------------------ | -----------------: | -----: | -----: |
+| Windows EXE        |        134,913,737 |      9 |      4 |
+| macOS Universal ZIP |       257,061,588 |     16 |      4 |
+| Linux AppImage     |        169,526,561 |     11 |      4 |
+
+三个大文件均输出实时百分比、速度和 ETA，并在所有分片完成后由 Complete 正确合并。同目录的 blockmap
+均小于启用阈值，继续走单次 `PUT`。分片完成顺序不受限制，提交时统一按 `partNumber` 升序生成
+Complete 请求。
+
 ### 6.2 推荐参数
 
 | 参数       |          初始值 | 说明                                       |
@@ -327,18 +340,19 @@ apphub.mjs upload \
 2. 每个上传 job 只下载对应 artifact；阶段 1 使用原 `apphub.mjs upload`，当前入口为 `apphub-upload.mjs`。
 3. 已设置 `fail-fast: false`，保证一个平台失败时其他平台仍可完成。
 4. `publish` 已改为等待全部 upload jobs 成功。
-5. 代码与文档改造已完成；仍需在真实 Beta 发版中回归包记录、更新说明和 GitHub Release。
+5. `1.6.0-beta.9` 已完成真实回归：三平台构建与上传、包记录、发布、三平台 `verify` 和 GitHub Release 均成功。
 
-### 阶段 2：仓库适配层 multipart 与进度（本地实现与测试已完成，真实 Beta 验证待完成）
+### 阶段 2：仓库适配层 multipart 与进度（已完成并通过真实 Beta 验证）
 
 1. [x] 通过 `scripts/release/apphub-upload.mjs` 和 `scripts/release/oss-multipart.mjs` 提供分片计划、并发上传、重试、进度和中止，不修改技能快照。
 2. [x] 增加分片边界、Complete 排序、单分片重试、Abort、签名子资源和凭据脱敏测试。
 3. [x] workflow 提供 `multipart=auto|off`，默认 `auto`。
-4. [ ] 确认真实 Beta 环境中的 STS 对四个 multipart 操作的权限与凭证有效期。
-5. [ ] 验证超过 500 MB 的 macOS universal zip，以及 AppHub 包登记、发布和三平台 `verify`。
-6. [ ] 确认失败后按同一版本重跑与 `replace` 流程符合现有规则。
-
-完成上述真实 Beta 验收前，不得把分片上传标记为已上线。
+4. [x] 真实 Beta STS 已证明初始化、UploadPart 和 Complete 可用，凭证有效期覆盖本轮最慢平台上传。
+5. [x] HEAD 返回 403 时按设计记录警告并跳过只读大小复核，不影响后续包登记。
+6. [x] AppHub 包登记、替换、发布和三平台 `verify` 均成功。
+7. [x] 同版本重跑和 `replace` 流程已按现有发版规则验证。
+8. [ ] 超过 500 MiB 的产物尚未验证；当前真实最大样本约 245 MiB。
+9. [ ] Abort 权限和失败中止路径尚未真实触发验证；目前只有自动化 mock 覆盖。
 
 ### 阶段 3：网络路径优化
 
@@ -382,6 +396,22 @@ apphub.mjs upload \
 
 性能结论必须基于同一时段的多次真实运行，不能仅凭一次快跑判断已经稳定。
 
+### 11.4 `1.6.0-beta.9` 真实验收记录
+
+2026-11-11 的 [Beta 发版工作流](https://github.com/Harley-xk/mark-it/actions/runs/42992882874)
+已完成以下真实验收：
+
+- Windows、macOS、Linux 三个构建和上传矩阵任务全部成功，总等待时间不再串联三个平台的构建与上传。
+- 三个大文件分别按 9、16、11 个分片、4 并发上传，均持续输出百分比、速度和 ETA；Complete 全部成功。
+- blockmap 均低于阈值，走单次 `PUT`，验证了同一版本内单次上传与 multipart 混合使用。
+- STS 已证明初始化、UploadPart 和 Complete 可用；HEAD 返回 403 后记录警告并跳过只读大小复核。
+- AppHub 包登记、替换、发布和三平台 `verify` 均成功，同版本重跑与 `replace` 流程可用。
+- [GitHub Release](https://github.com/Harley-xk/mark-it/releases/tag/v1.6.0-beta.9) 已发布，标记为 prerelease 且不是 draft。
+- Beta 更新接口返回 `1.6.0-beta.9`。
+
+当前真实最大样本为 257,061,588 字节（约 245.2 MiB）。超过 500 MiB 的产物、Abort 权限及失败中止路径
+仍待验证；AppHub CLI 上游也尚未合并原生 multipart。
+
 ## 12. 回退方案
 
 1. 工作流并行化导致发布编排异常时，可临时恢复现有单 `draft` job，不影响已发布版本。
@@ -391,8 +421,8 @@ apphub.mjs upload \
 
 ## 13. 待确认事项
 
-1. AppHub 服务端 STS 当前是否允许 multipart upload 的全部必要操作，默认凭证有效期是否覆盖最慢平台；需在真实 Beta 发布中验证。
-2. AppHub CLI 上游若后续原生支持 multipart 和进度，应迁移到上游参数并移除仓库适配层。
+1. Abort 权限及失败中止路径尚未真实触发验证；超过 500 MiB 的产物也仍需专门验收。
+2. AppHub CLI 上游尚未合并原生 multipart；合并后应迁移到上游参数并移除仓库适配层。
 3. GitHub 托管 runner 的实测吞吐是否足以在分片后满足目标，还是必须引入国内 runner。
 4. 是否需要跨 workflow 重跑恢复未完成上传；若需要，应单独设计会话持久化和清理。
 5. 未完成 multipart upload 的 OSS 生命周期规则由客户端 Abort、AppHub 服务端清理还是 bucket 生命周期负责。

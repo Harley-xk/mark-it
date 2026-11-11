@@ -2,7 +2,7 @@
 
 本文档中心是 MarkIt（仓库 `mark-it`）的**全量工程文档入口**，覆盖架构、进程契约、数据模型、核心功能、构建发布、开发规范与质量保障。
 
-- 适用版本：`1.5.0`（stable）/ `1.6.0-beta.8`（beta）
+- 适用版本：`1.5.0`（stable）/ `1.6.0-beta.9`（beta）
 - 适用分支：`develop`（主分支为 `master`）
 - 最后核对：2026-11-11
 - 文档语言：中文；图表统一使用 Mermaid，不使用 ASCII 字符画
@@ -149,9 +149,9 @@ flowchart TD
 3. [构建与发布](./构建与发布.md) —— 构建产物、打包配置、CI 流水线
 4. [Windows 安装向导](./Windows安装向导.md) —— 安装路径、快捷方式选项、静默升级与卸载行为
 5. [GitHub Actions 发版说明](./github-release.md) —— apphub CLI 详细操作（存量文档）
-6. [AppHub 发布上传链路优化设计](./计划功能/AppHub发布上传链路优化设计.md) —— 三平台并行上传已实现；OSS 分片本地实现已完成，真实 Beta 验证待完成
-7. [AppHub OSS 分片上传适配层设计](./计划功能/AppHub%20OSS分片上传适配层设计.md) —— 分片、进度、重试与中止的落地边界和验收要求
-8. [AppHub skill OSS 分片上传上游改造说明](./计划功能/AppHub%20skill%20OSS分片上传上游改造说明.md) —— 提供给 `apphub-release` 上游合并原生 multipart 的接口、协议与验收要求
+6. [AppHub 发布上传链路优化设计](./计划功能/AppHub发布上传链路优化设计.md) —— 三平台并行、OSS 分片、进度与包登记已通过 `1.6.0-beta.9` 真实验证
+7. [AppHub OSS 分片上传适配层设计](./计划功能/AppHub%20OSS分片上传适配层设计.md) —— 多分片并行、进度、重试与中止的落地边界和已验证范围
+8. [AppHub skill OSS 分片上传上游改造说明](./计划功能/AppHub%20skill%20OSS分片上传上游改造说明.md) —— 提供给 `apphub-release` 上游合并原生 multipart 的接口、协议与验收要求；上游尚未合并
 
 ### 2.5 需要理解「为什么这样设计」
 
@@ -215,9 +215,9 @@ flowchart TD
 | [自动更新](./自动更新.md)                                                                       | 更新状态机、apphub 通道、双通道检测、强制更新、双窗口安装协作            | 更新相关开发者                   |
 | [发版通道与 Beta 更新](./发版通道.md)                                                           | 双通道模型、严格单序列版本规则、发版节点记录、客户端 Beta 开关           | 维护者、更新相关开发者           |
 | [构建与发布](./构建与发布.md)                                                                   | 命令、构建架构、打包配置、产物命名、CI 流水线                            | 维护者、发版者                   |
-| [AppHub 发布上传链路优化设计](./计划功能/AppHub发布上传链路优化设计.md)                         | 三平台并行上传已实现；OSS multipart 本地实现完成，真实 Beta 验证待完成   | 维护者、发版与 CI 开发者         |
-| [AppHub OSS 分片上传适配层设计](./计划功能/AppHub%20OSS分片上传适配层设计.md)                   | 分片上传、进度、重试、中止、权限边界与真实验收要求                       | 维护者、发版与 CI 开发者         |
-| [AppHub skill OSS 分片上传上游改造说明](./计划功能/AppHub%20skill%20OSS分片上传上游改造说明.md) | 原生 `upload` 的 multipart 契约、协议、兼容、manifest 与 Beta 验收要求   | AppHub skill 上游、发版开发者    |
+| [AppHub 发布上传链路优化设计](./计划功能/AppHub发布上传链路优化设计.md)                         | `1.6.0-beta.9` 已验证三平台并行、OSS 分片、进度和包登记                   | 维护者、发版与 CI 开发者         |
+| [AppHub OSS 分片上传适配层设计](./计划功能/AppHub%20OSS分片上传适配层设计.md)                   | 多分片并行、进度、重试、中止、权限边界与已验证范围                       | 维护者、发版与 CI 开发者         |
+| [AppHub skill OSS 分片上传上游改造说明](./计划功能/AppHub%20skill%20OSS分片上传上游改造说明.md) | 原生 `upload` 的 multipart 契约、协议、兼容、manifest 与上游验收要求     | AppHub skill 上游、发版开发者    |
 | [Windows 安装向导](./Windows安装向导.md)                                                        | 交互式安装流程、安装路径与快捷方式选项、静默升级、自定义 NSIS 脚本       | 维护者、发版者                   |
 | [GitHub Actions 发版说明](./github-release.md)                                                  | apphub CLI 详细操作、Secrets、故障排查（存量文档）                       | 发版者                           |
 | [开发指南](./开发指南.md)                                                                       | 环境、目录速查、编码约定、常见任务操作手册、DoD                          | 新成员、全体开发者               |

@@ -4,7 +4,7 @@
 >
 > **目标结论**：原 `apphub.mjs upload` 可以统一复用同一套分片能力。正确做法是让上游 CLI 原生支持 `--multipart auto|off`，并把传输实现抽成独立模块；仅让调用方改用一个外部适配脚本，不能使 skill 本身获得分片能力。
 >
-> **当前状态**：MarkIt 仓库已有参考实现和自动化测试；上游尚未合并，真实 Beta STS 权限及约 516 MiB macOS universal zip 验收仍待完成。
+> **当前状态**：MarkIt 仓库适配层已完成自动化测试，并通过 `1.6.0-beta.9` 真实 Beta 验证；超过 500 MiB 样本与 Abort 失败路径仍待验证。AppHub skill 上游尚未合并，原生入口仍需在合并后重跑真实验收。
 >
 > **最后核对**：2026-11-11。
 
@@ -25,7 +25,7 @@ AppHub 当前 `upload` 由调用方直接从 runner 向阿里云 OSS 上传整�
 - 请求没有可区分的字节进度、速度和 ETA；运行缓慢与连接停滞不易判断。
 - 单个连接长期无进展时，通常只能等待整个 job 超时。
 
-MarkIt 的实测发版产物中，macOS universal zip 约 516 MB。只增加三平台并行 job 可以缩短总墙钟时间，但不能解决单文件传输效率问题。因此需要把 OSS multipart 作为 AppHub `upload` 的原生能力。
+MarkIt 的 macOS universal 产物需要按 500 MB 量级规划；当前 Beta 的实际 zip 最大样本约 245 MiB，更大边界仍待专项验证。只增加三平台并行 job 可以缩短总墙钟时间，但不能解决单文件传输效率问题。因此需要把 OSS multipart 作为 AppHub `upload` 的原生能力。
 
 ## 2. 改造目标与非目标
 
@@ -418,22 +418,25 @@ manifest 的文件路径白名单当前允许 `SKILL.md`、`VERSION` 和 `script
 - 参数优先级为 CLI > 环境变量 > 默认值。
 - 非法值直接失败，不静默回退默认值。
 
-## 15. 真实 Beta 验收
+## 15. 真实 Beta 验收（适配层已验证，上游仍待重跑）
 
-自动化 mock 通过不等于上线完成。上游发布前至少验证：
+MarkIt 的仓库适配层已通过 `1.6.0-beta.9` 真实 Beta 验证：
 
-1. 一个小于阈值的真实安装包使用单 PUT，包登记和更新检测成功。
-2. 一个大于阈值的真实安装包使用 multipart，进度、Complete、HEAD、包登记和更新检测成功。
-3. 安装包与 blockmap 混合模式正常。
-4. `--multipart off` 回退真实可用。
-5. STS 确实允许 Initiate、UploadPart、Complete 和 Abort，且凭证有效期覆盖最慢平台上传。
-6. 约 516 MB macOS universal zip 可在预期时间内完成，不出现长时间静默。
-7. 发布后三平台 `verify` 均返回目标版本。
-8. 单平台失败时不进入发布阶段，其他平台任务不被取消。
-9. 同版本重跑和 `--replace` 流程符合现有发版规则。
-10. 日志、失败输出和 CI artifact 中没有临时凭证。
+- Windows EXE、macOS Universal ZIP、Linux AppImage 分别使用 9、16、11 个分片和 4 并发上传，Complete 全部成功。
+- 三个大文件均持续输出百分比、速度和 ETA；blockmap 均低于阈值，使用单次 `PUT`，混合传输路径正常。
+- STS 已证明 Initiate、UploadPart 和 Complete 可用，凭证有效期覆盖本轮最慢平台上传。
+- HEAD 返回 403 后按降级策略记录警告并跳过只读复核，包登记继续成功。
+- AppHub 包登记、替换、发布、三平台 `verify` 和 GitHub Release 均成功；同版本重跑与 `replace` 已验证。
 
-在以上验收完成前，只能标记为“上游候选实现”或“本地验证通过”，不能宣称统一入口迁移已完成。
+上游合并后必须用原生 `apphub.mjs upload` 重跑，以下边界仍待验证：
+
+1. 原生入口的 `auto|off` 参数、自更新和旧命令兼容。
+2. 超过 500 MiB 的 macOS universal zip 能在预期时间内完成，不出现长时间静默。当前最大真实样本约 245 MiB。
+3. Abort 权限及失败中止路径；当前只有自动化 mock 覆盖，未在真实 OSS 中触发。
+4. 单平台失败时其他平台任务不被取消、失败平台不进入发布阶段。
+5. 日志、失败输出和 CI artifact 中没有临时凭证。
+
+上游合并后的原生实现完成上述验收前，不能宣称统一入口迁移已完成。
 
 ## 16. 上游落地步骤
 

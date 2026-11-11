@@ -1,6 +1,6 @@
 # AppHub OSS 分片上传适配层设计
 
-> **状态：本地实现和自动化测试已完成；真实 Beta STS multipart 权限及 >500 MB macOS zip 验证仍待完成。**
+> **状态：并行分片、实时进度和包登记已在 `1.6.0-beta.9` 真实验证；当前最大样本约 245 MiB。超过 500 MiB 的产物与 Abort 失败路径仍待验证。**
 >
 > 文档定位：在不修改会自更新的 `scripts/release/apphub.mjs` 的前提下，为大安装包增加 OSS multipart（分片上传）能力。
 >
@@ -111,9 +111,21 @@ OSS 错误只提取安全的 `Code` / `Message` 和 HTTP 状态，不回显请�
 - CanonicalizedResource 包含正确的 `uploads` / `partNumber` / `uploadId` 子资源；
 - 进度与错误输出不包含 STS 凭证、AccessKey、Authorization 或签名。
 
-真实 Beta 验收仍需确认，完成前不得把本适配层标记为已上线：
+`1.6.0-beta.9` 真实 Beta 已验证：
 
-- STS 对四个 multipart 操作的权限与凭证有效期；
-- 超过 500 MB 的 macOS universal zip 能完成、合并并通过大小校验（STS 无读取权限时记录降级警告）；
-- AppHub 包登记、发布和三平台 `verify` 不受影响；
-- 失败后重跑同一版本和 `replace` 流程符合现有规则。
+| 产物                |       大小（字节） | 分片数 | 并发度 |
+| ------------------- | -----------------: | -----: | -----: |
+| Windows EXE         |        134,913,737 |      9 |      4 |
+| macOS Universal ZIP |        257,061,588 |     16 |      4 |
+| Linux AppImage      |        169,526,561 |     11 |      4 |
+
+- 同一文件的不同 `partNumber` 可以并行上传，完成顺序无需一致；三个文件均由 Complete 正确合并。
+- 上传期间持续输出百分比、速度和 ETA，单次上传与 multipart 混合路径正常。
+- STS 已证明初始化、UploadPart 和 Complete 可用；HEAD 返回 403 后记录警告并跳过只读大小复核。
+- AppHub 包登记、替换、发布和三平台 `verify` 均成功，同版本重跑与 `replace` 流程可用。
+
+仍需继续验证的边界：
+
+- 超过 500 MiB 的产物；当前真实最大样本约 245 MiB；
+- Abort 权限及失败中止路径；目前只有自动化 mock 覆盖；
+- AppHub CLI 上游原生 multipart 合并与迁移。
