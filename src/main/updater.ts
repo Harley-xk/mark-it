@@ -17,7 +17,7 @@ import {
 } from './update-channel'
 import { registerHandle, registerOn } from './ipc-guard'
 import { isSettingsWindowSender } from './settings-window'
-import { activateWindow, resolveWindowPlacement } from './window-placement'
+import { activateWindow, applyWindowPlacement, resolveWindowPlacement } from './window-placement'
 
 /**
  * apphub 应用管理平台更新通道。
@@ -450,6 +450,9 @@ function openUpdateWindow(sourceWindow?: BrowserWindow | null): void {
       sandbox: false
     }
   })
+
+  // 混合缩放显示器下构造参数会被二次换算，创建后按 DIP 几何校正一次
+  applyWindowPlacement(updateWindow, placement)
 
   updateWindow.once('ready-to-show', () => activateWindow(updateWindow))
   updateWindow.on('closed', () => {

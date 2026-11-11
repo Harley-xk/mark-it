@@ -31,6 +31,7 @@ import {
   TAB_DRAG_PREVIEW_HEIGHT,
   TAB_DRAG_PREVIEW_WIDTH
 } from './tab-drag-preview'
+import { applyWindowPlacement } from './window-placement'
 import type { WindowState, WindowStateFile } from './window-state-store'
 import type { SessionData, SessionFile, SessionTab } from '../shared/session-types'
 import type { EditorHistoryFile } from '../shared/history-types'
@@ -147,6 +148,8 @@ const DEFAULT_WINDOW_STATE: WindowState = {
   isMaximized: false,
   zoomFactor: 1
 }
+const EDITOR_MIN_WIDTH = 800
+const EDITOR_MIN_HEIGHT = 600
 const MAX_RESTORED_WINDOWS = 8
 let sessionWriteTimer: ReturnType<typeof setTimeout> | null = null
 let windowStateWriteTimer: ReturnType<typeof setTimeout> | null = null
@@ -607,8 +610,8 @@ function createEditorWindow(options: CreateEditorWindowOptions = {}): EditorWind
     ...(windowState.x !== undefined && windowState.y !== undefined
       ? { x: windowState.x, y: windowState.y }
       : {}),
-    minWidth: 800,
-    minHeight: 600,
+    minWidth: EDITOR_MIN_WIDTH,
+    minHeight: EDITOR_MIN_HEIGHT,
     show: false,
     autoHideMenuBar: true,
     ...(isMac
@@ -632,6 +635,17 @@ function createEditorWindow(options: CreateEditorWindowOptions = {}): EditorWind
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false
     }
+  })
+
+  // 混合缩放显示器下构造参数会被二次换算，创建后按 DIP 几何校正一次
+  const initialBounds = win.getBounds()
+  applyWindowPlacement(win, {
+    width: windowState.width,
+    height: windowState.height,
+    minWidth: Math.min(EDITOR_MIN_WIDTH, windowState.width),
+    minHeight: Math.min(EDITOR_MIN_HEIGHT, windowState.height),
+    x: windowState.x ?? initialBounds.x,
+    y: windowState.y ?? initialBounds.y
   })
 
   const context: EditorWindowContext = {

@@ -8,7 +8,7 @@ import { BrowserWindow } from 'electron'
 import type { WebContents } from 'electron'
 import { join } from 'path'
 import { is } from '@electron-toolkit/utils'
-import { activateWindow, resolveWindowPlacement } from './window-placement'
+import { activateWindow, applyWindowPlacement, resolveWindowPlacement } from './window-placement'
 
 let settingsWindow: BrowserWindow | null = null
 
@@ -66,6 +66,9 @@ export function openSettingsWindow(sourceWindow?: BrowserWindow | null): void {
       sandbox: false
     }
   })
+
+  // 混合缩放显示器下构造参数会被二次换算，创建后按 DIP 几何校正一次
+  applyWindowPlacement(settingsWindow, placement)
 
   settingsWindow.once('ready-to-show', () => {
     if (!settingsWindow || settingsWindow.isDestroyed()) return

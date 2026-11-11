@@ -43,6 +43,24 @@ export function resolveWindowPlacement(
   }
 }
 
+/**
+ * 窗口创建后按目标显示器的 DIP 几何再应用一次尺寸与位置。
+ *
+ * Windows 混合缩放（触发屏与主屏 scaleFactor 不同）下，Electron 会对
+ * BrowserWindow 构造参数中的宽高做二次换算，使窗口实际尺寸成倍放大、
+ * 可能超过整块屏幕。构造完成后调用 setMinimumSize + setBounds 可绕过该问题。
+ */
+export function applyWindowPlacement(win: BrowserWindow, placement: WindowPlacement): void {
+  if (win.isDestroyed()) return
+  win.setMinimumSize(placement.minWidth, placement.minHeight)
+  win.setBounds({
+    x: placement.x,
+    y: placement.y,
+    width: placement.width,
+    height: placement.height
+  })
+}
+
 /** 恢复并聚焦已有单实例窗口，不改变窗口所在显示器或几何状态 */
 export function activateWindow(win: BrowserWindow | null | undefined): void {
   if (!win || win.isDestroyed()) return

@@ -498,6 +498,15 @@ test('用户可见工具窗口跟随触发显示器且重复打开不移动', as
         id: secondary.id,
         visible: true
       })
+    // 混合缩放显示器下构造参数会被二次放大，必须按目标显示器的 DIP 尺寸收敛
+    await expect
+      .poll(() => getWindowDisplay('MarkIt 设置'))
+      .toMatchObject({
+        bounds: {
+          width: Math.min(1040, secondary.workArea.width),
+          height: Math.min(720, secondary.workArea.height)
+        }
+      })
     const settingsBounds = (await getWindowDisplay('MarkIt 设置'))?.bounds
 
     await source.bringToFront()
@@ -516,12 +525,22 @@ test('用户可见工具窗口跟随触发显示器且重复打开不移动', as
     await settings.evaluate(() => window.api.createWindow())
     const newEditor = await newEditorPromise
     await expect(newEditor.locator('.app-layout')).toBeVisible()
-    const editorDisplays = await app.evaluate(({ BrowserWindow, screen }) =>
+    const editorWindows = await app.evaluate(({ BrowserWindow, screen }) =>
       BrowserWindow.getAllWindows()
         .filter((win) => win.getTitle() === 'MarkIt')
-        .map((win) => screen.getDisplayMatching(win.getBounds()).id)
+        .map((win) => ({
+          displayId: screen.getDisplayMatching(win.getBounds()).id,
+          bounds: win.getBounds()
+        }))
     )
-    expect(editorDisplays).toContain(secondary.id)
+    expect(editorWindows.map((win) => win.displayId)).toContain(secondary.id)
+    expect(editorWindows).toContainEqual({
+      displayId: secondary.id,
+      bounds: expect.objectContaining({
+        width: Math.min(1280, secondary.workArea.width),
+        height: Math.min(800, secondary.workArea.height)
+      })
+    })
 
     await settings.close()
     await expect.poll(() => app.windows().length).toBe(2)
@@ -537,6 +556,14 @@ test('用户可见工具窗口跟随触发显示器且重复打开不移动', as
       .toMatchObject({
         id: secondary.id,
         visible: true
+      })
+    await expect
+      .poll(() => getWindowDisplay('MarkIt 更新'))
+      .toMatchObject({
+        bounds: {
+          width: Math.min(560, secondary.workArea.width),
+          height: Math.min(680, secondary.workArea.height)
+        }
       })
     const updateBounds = (await getWindowDisplay('MarkIt 更新'))?.bounds
 
