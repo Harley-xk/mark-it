@@ -78,6 +78,14 @@ export const useUpdateStore = defineStore('update', () => {
     }
   }
 
+  /** 设置页手动检测：发现可处理的新版本后直接打开更新详情窗口 */
+  async function checkAndOpenIfAvailable(): Promise<void> {
+    await check()
+    if (hasUpdate.value) {
+      await openWindow()
+    }
+  }
+
   async function download(): Promise<void> {
     apply(await window.api.update.download())
   }
@@ -125,6 +133,7 @@ export const useUpdateStore = defineStore('update', () => {
     init,
     dispose,
     check,
+    checkAndOpenIfAvailable,
     download,
     setBetaEnabled,
     rollbackToStable,

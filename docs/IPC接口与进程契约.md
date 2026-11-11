@@ -117,7 +117,7 @@
 | --------------- | ---------- | ----------------- | ---- | ------------------ | ------------------------------------------- | ---------------------------------------------------------------------------------- |
 | `settings:open` | R→M invoke | `settings.open()` | 无   | `Promise<boolean>` | [`src/main/index.ts`](../src/main/index.ts) | 只接受编辑器窗口调用；首次创建应跟随发送方所在显示器，已有窗口只恢复并聚焦、不移动 |
 
-设置窗口是受控应用页面，可使用主题同步、VSCode 集成和更新回退通道。安装更新通过 `update:request-install` 发起，由主进程协调所有编辑窗口；设置窗口不能绕过保存确认。完整边界见[独立设置窗口](./独立设置窗口.md)。
+设置窗口是受控应用页面，可使用主题同步、VSCode 集成和更新回退通道。设置页的“检查更新”发现新版本后会打开更新详情窗口，不直接提供下载或安装入口；安装由更新详情窗口或编辑窗口发起，并由主进程协调所有编辑窗口完成保存确认。完整边界见[独立设置窗口](./独立设置窗口.md)。
 
 ### 3.4 会话
 
@@ -147,7 +147,7 @@
 | `update:install`            | R→M invoke | `update.install()`          | 无        | `Promise<boolean>`     | [`src/main/updater.ts`](../src/main/updater.ts)     | 与 `update:request-install` 共用统一协调；仅在 `downloaded` 状态执行；所有编辑窗口保存成功后才 `quitAndInstall`       |
 | `update:open-window`        | R→M invoke | `update.openWindow()`       | 无        | `Promise<void>`        | [`src/main/updater.ts:470`](../src/main/updater.ts) | 打开或聚焦单例「更新详情」窗口；首次创建应跟随 IPC 发送方所在显示器，已有窗口只恢复并聚焦、不移动                     |
 | `update:close-window`       | R→M send   | `update.closeWindow()`      | 无        | 无返回值               | [`src/main/updater.ts`](../src/main/updater.ts)     | 只关闭更新详情窗口自身；其他窗口调用被忽略                                                                            |
-| `update:request-install`    | R→M invoke | `update.requestInstall()`   | 无        | `Promise<boolean>`     | [`src/main/updater.ts`](../src/main/updater.ts)     | 接受编辑窗口、设置窗口或更新窗口请求；由主进程协调全部编辑窗口保存后安装                                              |
+| `update:request-install`    | R→M invoke | `update.requestInstall()`   | 无        | `Promise<boolean>`     | [`src/main/updater.ts`](../src/main/updater.ts)     | 产品入口为编辑窗口或更新详情窗口；由主进程协调全部编辑窗口保存后安装，设置页不提供安装入口                            |
 
 ### 3.7 VSCode 编辑器集成
 

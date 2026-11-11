@@ -237,8 +237,8 @@ Beta 开关下方的说明文案需要同步修改，明确「关闭开关不会
 
 沿用现有未保存内容确认与会话落盘流程，只把操作标签从「安装更新」改为「回退到正式版」：
 
-1. 设置页直接安装：`saveAllBeforeExit('回退到正式版')` → `flushSession()` → `update.install()`；
-2. 更新详情窗口请求安装：主进程协调所有编辑窗口执行同一保存流程；
+1. 设置页确认回退后自动打开更新详情窗口，不在此页展示下载进度或安装按钮；
+2. 更新详情窗口请求安装：主进程协调所有编辑窗口执行 `saveAllBeforeExit('回退到正式版')` → `flushSession()`，再统一安装；
 3. 主进程 `beforeInstall` 放行关闭守卫，`quitAndInstall(false, true)` 不变。
 
 ### 5.5 持久化与数据兼容
@@ -270,7 +270,7 @@ Beta 开关下方的说明文案需要同步修改，明确「关闭开关不会
 ### 5.7 安全约束
 
 1. `update:rollback-to-stable` **不接收目标版本或 URL**，feed 只使用固定的 `FEED_URLS.stable`。
-2. IPC 只接受编辑窗口或设置窗口的 `event.sender`；更新窗口通过 `update:request-install` 入口请求安装，不直接调用底层安装。
+2. 回退检测与下载由设置页发起；更新窗口通过 `update:request-install` 入口请求安装，不直接调用底层安装。
 3. 不通过渲染进程拼接下载地址，不读取任意本地文件。
 4. 回退包仍由 electron-updater 现有的 `sha512` 校验与 apphub 平台提供，安全边界与普通更新一致。
 5. 不新增持久化密钥或凭据。

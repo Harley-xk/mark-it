@@ -14,7 +14,7 @@ import type { ThemeMode } from '../types'
 import ConfirmDialog from '../components/common/ConfirmDialog.vue'
 import VSCodeIntegration from '../components/settings/VSCodeIntegration.vue'
 
-type SettingsTab = 'appearance' | 'editor' | 'integration' | 'updates' | 'about' | 'workspace'
+type SettingsTab = 'appearance' | 'editor' | 'integration' | 'updates' | 'about'
 
 interface SearchEntry {
   tab: SettingsTab
@@ -32,15 +32,13 @@ const searchQuery = ref('')
 const searchInput = ref<HTMLInputElement | null>(null)
 const showRollbackConfirm = ref(false)
 const searchShortcutLabel = platform === 'darwin' ? '⌘ K' : 'Ctrl K'
-const newWindowShortcutLabel = platform === 'darwin' ? '⌘ ⇧ N' : 'Ctrl Shift N'
 
 const tabs: { id: SettingsTab; label: string; icon: string }[] = [
   { id: 'appearance', label: '外观', icon: 'palette' },
   { id: 'editor', label: '编辑与预览', icon: 'layout' },
   { id: 'integration', label: '编辑器集成', icon: 'plug' },
   { id: 'updates', label: '更新', icon: 'refresh' },
-  { id: 'about', label: '关于', icon: 'info' },
-  { id: 'workspace', label: '窗口与标签', icon: 'window' }
+  { id: 'about', label: '关于', icon: 'info' }
 ]
 
 const pageCopy: Record<SettingsTab, { title: string; description: string }> = {
@@ -58,15 +56,11 @@ const pageCopy: Record<SettingsTab, { title: string; description: string }> = {
   },
   updates: {
     title: '更新',
-    description: '管理更新通道并检查新版本。安装前会先确认所有未保存的文档。'
+    description: '管理更新通道并检查新版本；更新详情会在独立窗口中打开。'
   },
   about: {
     title: '关于',
     description: '当前版本、运行通道和 MarkIt 的基本信息。'
-  },
-  workspace: {
-    title: '窗口与标签',
-    description: '每个编辑窗口拥有独立的标签与滚动状态；主题和预览样式等偏好全局同步。'
   }
 }
 
@@ -80,7 +74,7 @@ const searchEntries: SearchEntry[] = [
   {
     tab: 'editor',
     label: '预览样式',
-    hint: 'GitHub、Dark、Academic、Minimal',
+    hint: 'GitHub、Academic、Minimal',
     keywords: 'preview style css 预览 样式'
   },
   {
@@ -110,7 +104,7 @@ const searchEntries: SearchEntry[] = [
   {
     tab: 'updates',
     label: '检查更新',
-    hint: '查看版本与下载状态',
+    hint: '检测新版本并打开更新详情',
     keywords: 'check update version 检查 版本'
   },
   {
@@ -118,12 +112,6 @@ const searchEntries: SearchEntry[] = [
     label: '版本与项目信息',
     hint: '版本、许可证和项目主页',
     keywords: 'about version license github 关于 版本'
-  },
-  {
-    tab: 'workspace',
-    label: '新建编辑窗口',
-    hint: '在独立窗口打开另一组标签',
-    keywords: 'window tab new 窗口 标签 多窗口'
   }
 ]
 
@@ -148,29 +136,27 @@ const showRollbackButton = computed(
   () => update.state.currentChannel === 'beta' && platform !== 'darwin'
 )
 
-const updateStatusText = computed(() => {
+const updateCheckStatus = computed(() => {
   const state = update.state
   switch (state.status) {
     case 'disabled':
       return '开发模式，不检测更新'
     case 'idle':
-      return '尚未检测'
+      return '检查是否有新版本'
     case 'checking':
       return state.isRollback ? '正在查找可回退的正式版…' : '正在检查更新…'
     case 'not-available':
-      return '已是最新版本'
+      return '当前已是最新版本'
     case 'available':
       return state.isRollback
         ? `可回退到正式版 v${state.latestVersion}`
         : `发现新版本 v${state.latestVersion}${betaSuffix.value}`
     case 'downloading':
-      return state.isRollback
-        ? `正在下载回退版本 ${Math.floor(state.progress?.percent ?? 0)}%`
-        : `正在下载 ${Math.floor(state.progress?.percent ?? 0)}%`
+      return state.isRollback ? '回退版本正在更新窗口中下载' : '新版本正在更新窗口中下载'
     case 'downloaded':
       return state.isRollback
-        ? `v${state.latestVersion} 已下载，重启后回退`
-        : `v${state.latestVersion} 已下载，重启后安装${betaSuffix.value}`
+        ? '回退版本已下载，可在更新窗口中安装'
+        : '新版本已下载，可在更新窗口中安装'
     case 'error':
       return state.isRollback
         ? `回退失败：${state.error ?? '未知错误'}`
@@ -180,21 +166,10 @@ const updateStatusText = computed(() => {
   }
 })
 
-const updateActionText = computed(() => {
-  const rollback = update.state.isRollback === true
-  switch (update.state.status) {
-    case 'downloaded':
-      return rollback ? '重启回退' : '重启安装'
-    case 'available':
-      return rollback ? '下载回退版本' : '下载更新'
-    case 'error':
-      return rollback ? '重试回退' : '重试'
-    case 'checking':
-    case 'downloading':
-      return '处理中…'
-    default:
-      return '检查更新'
-  }
+const updateCheckButtonText = computed(() => {
+  if (update.state.status === 'checking') return '正在检查…'
+  if (update.state.status === 'error' && !update.state.isRollback) return '重试'
+  return '检查更新'
 })
 
 const rollbackActionText = computed(() => {
@@ -230,21 +205,9 @@ function handleWindowKeydown(event: KeyboardEvent): void {
   }
 }
 
-async function handleUpdateAction(): Promise<void> {
-  const status = update.state.status
-  if (status === 'downloaded') {
-    await update.requestInstall()
-    return
-  }
-  if (status === 'error' && update.state.isRollback) {
-    await update.rollbackToStable()
-    return
-  }
-  if (status === 'available') {
-    await update.download()
-    return
-  }
-  await update.check()
+async function handleCheckForUpdates(): Promise<void> {
+  if (update.isBusy || update.rollbackInProgress || update.state.status === 'disabled') return
+  await update.checkAndOpenIfAvailable()
 }
 
 async function handleBetaToggle(): Promise<void> {
@@ -256,6 +219,9 @@ async function requestRollback(): Promise<void> {
   if (!update.canRollback) return
   if (update.state.status === 'error' && update.state.isRollback) {
     await update.rollbackToStable()
+    if (update.hasUpdate) {
+      await update.openWindow()
+    }
     return
   }
   showRollbackConfirm.value = true
@@ -264,6 +230,9 @@ async function requestRollback(): Promise<void> {
 async function confirmRollback(): Promise<void> {
   showRollbackConfirm.value = false
   await update.rollbackToStable()
+  if (update.hasUpdate) {
+    await update.openWindow()
+  }
 }
 
 function handleFileImport(): void {
@@ -296,10 +265,6 @@ function removeStyle(event: MouseEvent, id: string): void {
 
 function openExternal(url: string): void {
   void window.api.openExternal(url)
-}
-
-function createEditorWindow(): void {
-  void window.api.createWindow()
 }
 
 watch(
@@ -446,48 +411,14 @@ onUnmounted(() => {
             <span>{{ tab.label }}</span>
           </button>
         </div>
-
-        <div class="nav-group">
-          <div class="nav-group-label">工作区</div>
-          <button
-            class="nav-item"
-            :class="{ active: activeTab === 'workspace' }"
-            @click="openSettingsTab('workspace')"
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7">
-              <rect x="3" y="4" width="18" height="16" rx="2"></rect>
-              <path d="M3 9h18M12 9v11"></path>
-            </svg>
-            <span>窗口与标签</span>
-          </button>
-        </div>
       </nav>
-
-      <div class="sidebar-footer">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-          <circle cx="12" cy="12" r="9"></circle>
-          <path d="m8 12 2.6 2.6L16 9"></path>
-        </svg>
-        <span>更改会自动保存</span>
-      </div>
     </aside>
 
     <main class="settings-main">
       <header class="main-header">
         <div>
-          <div class="scope-line">
-            <span class="scope-dot"></span>
-            <span>全局设置</span>
-          </div>
           <h1>{{ currentPage.title }}</h1>
           <p>{{ currentPage.description }}</p>
-        </div>
-        <div class="scope-pill">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7">
-            <circle cx="12" cy="12" r="9"></circle>
-            <path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"></path>
-          </svg>
-          <span>应用于所有窗口</span>
         </div>
       </header>
 
@@ -719,7 +650,7 @@ onUnmounted(() => {
             <div class="section-heading">
               <div>
                 <h2>版本状态</h2>
-                <p>安装更新前，MarkIt 会先逐个确认并保存所有未保存的文档。</p>
+                <p>检查到新版本后会打开更新详情窗口。</p>
               </div>
             </div>
 
@@ -734,7 +665,7 @@ onUnmounted(() => {
                 </span>
                 <div class="setting-copy">
                   <div class="setting-title-line">
-                    <h3>{{ updateStatusText }}</h3>
+                    <h3>{{ updateCheckStatus }}</h3>
                     <span
                       class="status-badge"
                       :class="{ success: update.state.currentChannel === 'stable' }"
@@ -749,10 +680,12 @@ onUnmounted(() => {
                 </div>
                 <button
                   class="primary-button"
-                  :disabled="update.isBusy || update.state.status === 'disabled'"
-                  @click="handleUpdateAction"
+                  :disabled="
+                    update.isBusy || update.rollbackInProgress || update.state.status === 'disabled'
+                  "
+                  @click="handleCheckForUpdates"
                 >
-                  {{ updateActionText }}
+                  {{ updateCheckButtonText }}
                 </button>
               </div>
               <div
@@ -772,57 +705,6 @@ onUnmounted(() => {
                   {{ rollbackActionText }}
                 </button>
               </div>
-            </div>
-
-            <div v-if="update.state.notes && update.hasUpdate" class="update-notes">
-              <div class="update-notes-title">更新内容</div>
-              <div class="update-notes-content">{{ update.state.notes }}</div>
-            </div>
-          </div>
-        </section>
-
-        <section v-else-if="activeTab === 'workspace'" class="panel">
-          <div class="section">
-            <div class="section-heading">
-              <div>
-                <h2>编辑窗口</h2>
-                <p>每个窗口拥有自己的标签页、布局、滚动位置和缩放比例。</p>
-              </div>
-              <button class="primary-button" @click="createEditorWindow">新建窗口</button>
-            </div>
-
-            <div class="setting-card about-rows">
-              <div class="setting-row">
-                <div class="setting-copy">
-                  <h3>迁移标签</h3>
-                  <p>
-                    右键标签可打开新窗口或移动到已有窗口；拖到其他窗口会直接迁入，拖到窗口外空白区域会创建新窗口。目标确认前源标签不会被删除。
-                  </p>
-                </div>
-                <span class="status-badge">{{ newWindowShortcutLabel }}</span>
-              </div>
-              <div class="setting-row">
-                <div class="setting-copy">
-                  <h3>窗口恢复</h3>
-                  <p>关闭应用后会恢复仍保留的编辑窗口及其标签、激活项、布局和窗口位置。</p>
-                </div>
-              </div>
-              <div class="setting-row">
-                <div class="setting-copy">
-                  <h3>全局与窗口状态</h3>
-                  <p>主题、预览样式和预览宽度全局同步；标签内容、布局与窗口几何按窗口独立保存。</p>
-                </div>
-              </div>
-            </div>
-
-            <div class="info-strip">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-                <circle cx="12" cy="12" r="9"></circle>
-                <path d="M12 11v5M12 8h.01"></path>
-              </svg>
-              <span>
-                设置窗口和更新详情窗口始终是全局单实例；关闭其中一个编辑窗口不会关闭其他编辑窗口。
-              </span>
             </div>
           </div>
         </section>
@@ -1233,22 +1115,6 @@ button {
   font-weight: 600;
 }
 
-.sidebar-footer {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 12px 8px 4px;
-  border-top: 1px solid var(--border);
-  color: var(--text-faint);
-  font-size: 10.5px;
-}
-
-.sidebar-footer svg {
-  width: 14px;
-  height: 14px;
-  color: var(--success);
-}
-
 .settings-main {
   grid-row: 2;
   min-width: 0;
@@ -1266,25 +1132,6 @@ button {
   border-bottom: 1px solid var(--border);
 }
 
-.scope-line {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  margin-bottom: 8px;
-  color: var(--text-muted);
-  font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-}
-
-.scope-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--success);
-  box-shadow: 0 0 0 4px var(--success-bg);
-}
-
 .main-header h1 {
   margin: 0;
   color: var(--text);
@@ -1298,26 +1145,6 @@ button {
   color: var(--text-muted);
   font-size: 12px;
   line-height: 1.6;
-}
-
-.scope-pill {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  margin-top: 3px;
-  padding: 7px 10px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--inset-bg);
-  color: var(--text-secondary);
-  font-size: 10.5px;
-  white-space: nowrap;
-}
-
-.scope-pill svg {
-  width: 13px;
-  height: 13px;
-  color: var(--accent);
 }
 
 .content-scroll {
@@ -1954,31 +1781,6 @@ input[type='range']:disabled {
   opacity: 0.65;
 }
 
-.update-notes {
-  margin-top: 12px;
-  padding: 13px 15px;
-  border: 1px solid var(--border);
-  border-radius: 11px;
-  background: var(--inset-bg);
-}
-
-.update-notes-title {
-  margin-bottom: 7px;
-  color: var(--text-muted);
-  font-size: 10px;
-  font-weight: 650;
-}
-
-.update-notes-content {
-  max-height: 120px;
-  overflow-y: auto;
-  color: var(--text-secondary);
-  font-size: 11px;
-  line-height: 1.65;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
 .about-hero {
   display: flex;
   align-items: center;
@@ -2065,7 +1867,6 @@ input[type='range']:disabled {
   }
 
   .search-box,
-  .sidebar-footer,
   .nav-group-label {
     display: none;
   }
@@ -2109,10 +1910,6 @@ input[type='range']:disabled {
     font-size: 20px;
   }
 
-  .scope-pill {
-    display: none;
-  }
-
   .content-scroll {
     padding: 22px 22px 38px;
   }
@@ -2139,10 +1936,6 @@ input[type='range']:disabled {
 
   .mode-segment button {
     flex: 1;
-  }
-
-  .update-summary .primary-button {
-    margin-left: 56px;
   }
 }
 </style>

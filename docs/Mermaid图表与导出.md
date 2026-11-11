@@ -167,7 +167,7 @@ Mermaid 的语法错误通常是「Parse error on line N: + 源码行 + 指示�
 - 主题变化重绘已有图表时，若重新渲染失败，旧图表保留并在其后显示“图表重新渲染失败”提示。
 - 错误提示的样式分两层：
   - 基础样式（[App.vue](../src/renderer/src/App.vue)）：`margin: 8px 0 1.2em`、`padding: 8px 12px`、`font-size: 12px`、`white-space: pre-wrap`、`word-break: break-word`；深色主题为琥珀色 `#d97706` + 8% 透明背景 + 25% 透明边框，浅色主题为 `#b45309` + 6% 背景 + 20% 边框。
-  - 预览主题覆盖：`github.css`、`github-light.css`、`dark.css`、`dark-light.css` 各自定义了 `.markdown-body .mermaid-error` 的前景色与底色（偏红色系），因此在其他预览主题下提示颜色会不同；`academic`、`minimal` 两套未覆盖，沿用基础样式。
+  - 预览主题覆盖：`github.css` 与 `github-light.css` 定义了 `.markdown-body .mermaid-error` 的前景色与底色（偏红色系），因此在其他预览主题下提示颜色会不同；`academic`、`minimal` 与自定义样式未覆盖，沿用基础样式。
 
 ## 5. 内联图表交互
 
@@ -288,7 +288,7 @@ Blob URL 在关闭、内容变化与组件卸载时 `revokeObjectURL`，避免�
 
 图表视图背景、PNG 铺底和弹窗背景都使用同一个 `background`。主题切换后已有图表按保存的源码自动重绘，不沿用旧颜色。弹窗遮罩仍由弹窗组件按深浅色控制。
 
-`resolvedTheme` 已经把「跟随系统」解析成具体的 `light` / `dark`，因此三种主题设置下都能得到确定的取值。预览区的容器背景由预览样式 CSS 决定（例如 `dark.css` 的 `.mermaid-diagram` 背景为 `#1c2128`），与导出铺底用的 `#1e1e24` 十分接近但并非同一色值——导出图不会带上预览主题的圆角与内边距。
+`resolvedTheme` 已经把「跟随系统」解析成具体的 `light` / `dark`，因此三种主题设置下都能得到确定的取值。预览区的容器背景由预览样式 CSS 决定（例如 `github.css` 的 `.mermaid-diagram` 背景），与导出铺底用的 `#1e1e24` 并非同一色值——导出图不会带上预览主题的圆角与内边距。
 
 ## 9. 失败与边界
 

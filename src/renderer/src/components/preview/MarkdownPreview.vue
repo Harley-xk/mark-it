@@ -783,6 +783,11 @@ onUnmounted(() => {
   z-index: 2;
 }
 
+/* 末列表头的热区向内收，避免越界触发预览容器的横向滚动条 */
+:deep(.markdown-body table.markit-table-resizable th:last-child > .markit-col-resizer) {
+  right: 0;
+}
+
 :deep(.markit-col-resizer::after) {
   content: '';
   position: absolute;
