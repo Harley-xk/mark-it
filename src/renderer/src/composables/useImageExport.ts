@@ -55,9 +55,15 @@ export function useImageExport(): UseImageExport {
     const canvasWidth = settings.contentWidth + 80
 
     exporting.value = true
-    app.showImageExportDialog = false
     app.setExportStatus('image', 'exporting')
+    app.setExportProgress('image', 2, '准备内容')
+    const requestId = `image-${crypto.randomUUID()}`
+    const stopProgress = window.api.onExportProgress((progress) => {
+      if (progress.requestId !== requestId || progress.kind !== 'image') return
+      app.setExportProgress('image', progress.percent, progress.stage)
+    })
     try {
+      app.setExportProgress('image', 4, '整理文档')
       const { entries, body } = parseFrontmatter(editor.content)
       const frontmatter =
         settings.includeFrontmatter && entries.length > 0 ? renderFrontmatterTable(entries) : ''
@@ -68,6 +74,7 @@ export function useImageExport(): UseImageExport {
           : "-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif"
 
       let htmlBody = frontmatter + md.render(body)
+      app.setExportProgress('image', 6, '渲染图表')
       htmlBody = await renderMermaidDiagramsForExport(htmlBody, {
         theme: getDiagramTheme(isDark),
         fontFamily,
@@ -94,7 +101,8 @@ export function useImageExport(): UseImageExport {
 </body>
 </html>`
 
-      const result = await window.api.exportImage(html, { ...options, ...settings })
+      app.setExportProgress('image', 8, '生成导出页面')
+      const result = await window.api.exportImage(html, { ...options, ...settings }, requestId)
       if (!result) {
         app.setExportStatus('image', 'idle')
         return
@@ -107,6 +115,7 @@ export function useImageExport(): UseImageExport {
       app.setExportStatus('image', 'error')
       throw err
     } finally {
+      stopProgress()
       exporting.value = false
     }
   }

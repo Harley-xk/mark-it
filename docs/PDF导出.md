@@ -25,12 +25,16 @@ PDF 选项对话框使用 `Teleport` 覆盖在当前编辑窗口内，不是独�
 
 导出期间：
 
-- 用户点击「导出」确认后，选项对话框**立即关闭**，不阻塞后续操作；导出进度改由**底部状态栏**展示：
-  - `exporting` → 转圈图标 +「导出中…」；
+- 用户点击「导出」确认后，选项对话框收束到状态栏的导出状态锚点，动画结束后再关闭；取消、关闭按钮和遮罩不播放收束动画。
+- 导出进度改由**底部状态栏**展示：
+  - `exporting` → 阶段文案、百分比和细进度条；
   - `success` → 「导出成功」，3 秒后自动消失；
   - `error` → 「导出失败」，3 秒后自动消失（错误详情仍输出到控制台）；
   - 用户在系统保存对话框点取消 → 直接回到空闲，不留残留提示。
+- 系统启用 `prefers-reduced-motion: reduce` 时跳过收束动画，直接关闭对话框。
 - `usePdfExport` 内部置 `exporting = true`，并在函数入口防重入；导出期间再次触发快捷键会被忽略。
+
+完整交互、进度阶段、IPC 隔离和验收要求见[导出反馈与进度](./导出反馈与进度.md)。
 
 对话框底部固定提示「PDF 使用独立的浅色打印样式，不随预览主题变化」，与第 6.1 节的产品约定一致。
 
@@ -118,26 +122,32 @@ sequenceDiagram
     C->>M: 逐块 render（theme=default, htmlLabels=false）
     M-->>C: SVG 或单块失败（跳过）
     C->>C: 拼接目录 + frontmatter（可选）+ 正文 + 内联 CSS
-    C->>API: exportPdf(html, options)
+    C->>API: exportPdf(html, options, requestId)
     API->>MAIN: invoke export:pdf
+    MAIN-->>API: export:progress(requestId, 10%, 准备导出)
+    API-->>C: 更新状态栏
     MAIN->>U: 系统保存对话框（defaultPath = 文档目录 + fileName）
     alt 用户取消
         MAIN-->>API: null
         API-->>C: null
         C->>C: exporting = false
-        C-->>D: 对话框保持打开（可重试）
+        C-->>D: 状态栏回到空闲
     else 已选择路径
         MAIN->>MAIN: 校验 HTML 体积（> 64MB 提示并中止）
+        MAIN-->>API: export:progress(requestId, 15%, 加载页面)
         MAIN->>MAIN: 写入临时 HTML
         MAIN->>W: 创建隐藏窗口并 loadFile
+        MAIN-->>API: export:progress(requestId, 30%, 等待图片与字体)
         MAIN->>W: 等待 img / fonts.ready / 两帧布局
         MAIN->>MAIN: 1500ms 兜底上限
+        MAIN-->>API: export:progress(requestId, 50%, 生成 PDF)
         MAIN->>W: printToPDF(pageSize, margins, 页码)
         W-->>MAIN: PDF Buffer
+        MAIN-->>API: export:progress(requestId, 85%, 写入文件)
         MAIN->>MAIN: writeFile
         MAIN->>W: finally destroy + 删除临时 HTML
         MAIN-->>API: 保存路径
-        C->>D: app.showPdfDialog = false
+        D->>D: 收束动画结束后关闭
         C->>C: exporting = false
     end
 ```
@@ -151,7 +161,7 @@ sequenceDiagram
 | frontmatter      | `parseFrontmatter` + `renderFrontmatterTable`，渲染为「文档信息」表格                                | 同左；默认输出，可由导出选项关闭                    | 一致（PDF 可关闭）                  |
 | 本地图片         | `installLocalImageRule` + `resolveImageSrc`，相对路径转 `markit-file://local/?p=<绝对路径>`          | 同左                                                | 一致                                |
 | Mermaid 识别     | `collectMermaidBlocks` / 白名单                                                                      | 同左，复用同一模块                                  | 一致                                |
-| 图表渲染器       | `renderDiagramSvg()`：Pele 首选、Mermaid 回退                                                         | 同一模块                                            | 一致                                |
+| 图表渲染器       | `renderDiagramSvg()`：Pele 首选、Mermaid 回退                                                        | 同一模块                                            | 一致                                |
 | 图表主题         | 跟随深 / 浅 token                                                                                    | 固定浅色 token                                      | 颜色体系一致，PDF 恒为浅色          |
 | 图表失败         | 保留代码块 + `mermaid-error` 提示                                                                    | 保留代码块 + `.mermaid-error` 提示并记录日志        | 一致（提示样式不同）                |
 | 标题锚点         | `installHeadingAnchors` 注入 `heading-0..N`                                                          | 同左                                                | 一致                                |
@@ -238,7 +248,7 @@ PDF 中链接的具体行为：markdown-it 输出的 `<a href>` 原样保留，�
 | 场景                            | 表现                                                                                                                                                                      |
 | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 用户在系统保存对话框点取消      | 主进程返回 `null`；状态栏回到空闲，不报错；用户可再次按 `Ctrl+P` 重新导出                                                                                                 |
-| `printToPDF` 或写文件抛错       | 异常经 IPC 传到渲染进程，状态栏显示「导出失败」3 秒，`AppLayout.onExport` 捕获后 `console.error('PDF export failed:', err)`；主进程 `finally` 销毁隐藏窗口并删除临时 HTML   |
+| `printToPDF` 或写文件抛错       | 异常经 IPC 传到渲染进程，状态栏显示「导出失败」3 秒，`AppLayout.onExport` 捕获后 `console.error('PDF export failed:', err)`；主进程 `finally` 销毁隐藏窗口并删除临时 HTML |
 | HTML 超过 64MB                  | 主进程 `dialog.showErrorBox('PDF 导出失败', ...)` 明确提示并抛错；隐藏窗口与临时文件均不残留                                                                              |
 | 单个 Mermaid 块渲染失败         | `console.error` 记录错误，该块在 PDF 中保留为原始代码块并追加「图表渲染失败：原因」，其余图表正常渲染                                                                     |
 | `mermaid` 动态导入失败          | `console.error` 记录错误，所有图表以代码块形式输出                                                                                                                        |
@@ -260,33 +270,37 @@ PDF 涉及隐藏窗口、系统保存对话框与打印引擎，仍以手工验�
 8. **页码**：勾选后每页页脚出现「当前页 / 总页数」，取消后无页脚；页脚不遮挡正文。
 9. **目录**：勾选后首屏出现目录并在目录后分页；目录条目点击可跳到对应标题；取消勾选后无目录。
 10. **默认文件名**：当前文档为 `示例.md` 时，保存对话框默认文件名为 `示例.pdf` 且定位到该文档所在目录；未保存的新建文档回退为 `untitled.pdf`；含非法字符的文档名会被清洗。
-11. **加载态 / 防重入**：点击「导出」后选项对话框立即关闭，状态栏出现转圈 +「导出中…」；导出完成后显示「导出成功」并在约 3 秒后消失；导出期间再次按 `Ctrl+P` 不会叠加导出任务。
+11. **加载态 / 防重入**：点击「导出」后选项对话框收束到状态栏；状态栏依次显示阶段、百分比和流动进度条；导出完成后显示「导出成功」并在约 3 秒后消失；导出期间再次按 `Ctrl+P` 不会叠加导出任务。
 12. **取消路径**：在系统保存对话框点取消，确认应用不崩溃、状态栏无残留提示；再次导出可正常完成。
 13. **主题**：分别用深色与浅色主题导出，确认两次结果一致（PDF 固定浅色），且对话框有对应提示。
 14. **异常恢复**：连续触发 3 次导出失败（例如临时改为无效打印参数），确认进程内不残留隐藏窗口，系统临时目录也不残留 `markit-pdf-*.html`。
-15. **单元测试**：改动 `usePdfExport` 共享的纯函数（标题、frontmatter、本地图片、Mermaid 识别）后执行 `npm test`，确认对应 `*.spec.ts` 通过。
+15. **减少动态效果**：开启系统减少动态效果后重复导出，确认对话框直接关闭、状态栏进度仍正常。
+16. **多窗口隔离**：两个窗口同时导出不同文档，确认各自只更新自己的状态栏。
+17. **单元测试**：改动 `usePdfExport` 共享的纯函数（标题、frontmatter、本地图片、Mermaid 识别）后执行 `npm test`，确认对应 `*.spec.ts` 通过。
 
 ## 9. 相关文件
 
-| 文件                                                                                                                | 职责                                                             |
-| ------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
-| [src/shared/pdf-types.ts](../src/shared/pdf-types.ts)                                                               | `PdfExportOptions` 等跨进程共享类型                              |
-| [src/renderer/src/components/export/PdfExportDialog.vue](../src/renderer/src/components/export/PdfExportDialog.vue) | 导出选项对话框（纸张 / 边距 / 页码 / 目录 / 文档信息）与加载态  |
-| [src/renderer/src/composables/usePdfExport.ts](../src/renderer/src/composables/usePdfExport.ts)                     | PDF 渲染管线、目录生成、共享图表渲染、内联打印 CSS 模板          |
-| [src/renderer/src/utils/headings.ts](../src/renderer/src/utils/headings.ts)                                         | 标题解析与 `heading-N` 锚点（预览 / 大纲 / PDF 共用）            |
-| [src/renderer/src/components/layout/AppLayout.vue](../src/renderer/src/components/layout/AppLayout.vue)             | 对话框挂载、`exporting` 绑定与 `exportPdf` 调用、异常兜底        |
-| [src/renderer/src/components/layout/Toolbar.vue](../src/renderer/src/components/layout/Toolbar.vue)                 | 工具栏导出入口                                                   |
-| [src/renderer/src/components/layout/StatusBar.vue](../src/renderer/src/components/layout/StatusBar.vue)             | 状态栏展示导出中 / 成功 / 失败                                   |
-| [src/renderer/src/composables/useKeyboardShortcuts.ts](../src/renderer/src/composables/useKeyboardShortcuts.ts)     | `Ctrl+P` 快捷键                                                  |
-| [src/preload/index.ts](../src/preload/index.ts)                                                                     | `exportPdf` / `saveImage` 的 IPC 暴露与参数类型                  |
-| [src/preload/index.d.ts](../src/preload/index.d.ts)                                                                 | `window.api` 类型契约                                            |
-| [src/main/index.ts](../src/main/index.ts)                                                                           | `export:pdf`：保存对话框、隐藏窗口、图片等待、`printToPDF`、写盘 |
-| [src/renderer/src/utils/frontmatter.ts](../src/renderer/src/utils/frontmatter.ts)                                   | frontmatter 解析与「文档信息」表格生成（预览、PDF 共用）         |
-| [src/renderer/src/utils/pdf-name.ts](../src/renderer/src/utils/pdf-name.ts)                                         | 按当前文档名派生非空 PDF 默认文件名（含单元测试）                |
-| [src/renderer/src/utils/local-image.ts](../src/renderer/src/utils/local-image.ts)                                   | 本地图片路径解析与 `markit-file://` 改写（预览、PDF 共用）       |
-| [src/renderer/src/utils/mermaid.ts](../src/renderer/src/utils/mermaid.ts)                                           | Mermaid 代码块识别（PDF 复用同一白名单）                         |
-| [src/renderer/src/utils/diagram-theme.ts](../src/renderer/src/utils/diagram-theme.ts)                               | 图表深浅 token、Mermaid 配置与 Pele CSS 变量                     |
-| [src/renderer/src/utils/diagram-renderer.ts](../src/renderer/src/utils/diagram-renderer.ts)                         | Pele 首选、Mermaid 回退与串行化渲染                              |
-| [docs/Mermaid图表与导出.md](Mermaid图表与导出.md)                                                                   | 图表识别、交互与导出细节                                         |
-| [docs/图表渲染升级方案.md](图表渲染升级方案.md)                                                                     | Pele + Mermaid 双渲染架构、主题与后续阶段设计                    |
-| [docs/窗口放置与单实例规则.md](窗口放置与单实例规则.md)                                                             | 导出选项窗口独立化时的显示器归属与重复打开规则                   |
+| 文件                                                                                                                  | 职责                                                             |
+| --------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| [src/shared/pdf-types.ts](../src/shared/pdf-types.ts)                                                                 | `PdfExportOptions` 等跨进程共享类型                              |
+| [src/renderer/src/components/export/PdfExportDialog.vue](../src/renderer/src/components/export/PdfExportDialog.vue)   | 导出选项对话框（纸张 / 边距 / 页码 / 目录 / 文档信息）与加载态   |
+| [src/renderer/src/composables/usePdfExport.ts](../src/renderer/src/composables/usePdfExport.ts)                       | PDF 渲染管线、目录生成、共享图表渲染、内联打印 CSS 模板          |
+| [src/renderer/src/utils/headings.ts](../src/renderer/src/utils/headings.ts)                                           | 标题解析与 `heading-N` 锚点（预览 / 大纲 / PDF 共用）            |
+| [src/renderer/src/components/layout/AppLayout.vue](../src/renderer/src/components/layout/AppLayout.vue)               | 对话框挂载、`exporting` 绑定与 `exportPdf` 调用、异常兜底        |
+| [src/renderer/src/components/layout/Toolbar.vue](../src/renderer/src/components/layout/Toolbar.vue)                   | 工具栏导出入口                                                   |
+| [src/renderer/src/components/layout/StatusBar.vue](../src/renderer/src/components/layout/StatusBar.vue)               | 状态栏展示导出中 / 成功 / 失败                                   |
+| [src/renderer/src/composables/useKeyboardShortcuts.ts](../src/renderer/src/composables/useKeyboardShortcuts.ts)       | `Ctrl+P` 快捷键                                                  |
+| [src/preload/index.ts](../src/preload/index.ts)                                                                       | `exportPdf` / `saveImage` 的 IPC 暴露、进度订阅与参数类型        |
+| [src/shared/export-types.ts](../src/shared/export-types.ts)                                                           | 跨进程导出类型、进度载荷与请求 ID 语义                           |
+| [src/preload/index.d.ts](../src/preload/index.d.ts)                                                                   | `window.api` 类型契约                                            |
+| [src/main/index.ts](../src/main/index.ts)                                                                             | `export:pdf`：保存对话框、隐藏窗口、图片等待、`printToPDF`、写盘 |
+| [src/renderer/src/composables/useExportDialogCollapse.ts](../src/renderer/src/composables/useExportDialogCollapse.ts) | 对话框到状态栏锚点的收束测量与动画                               |
+| [src/renderer/src/utils/frontmatter.ts](../src/renderer/src/utils/frontmatter.ts)                                     | frontmatter 解析与「文档信息」表格生成（预览、PDF 共用）         |
+| [src/renderer/src/utils/pdf-name.ts](../src/renderer/src/utils/pdf-name.ts)                                           | 按当前文档名派生非空 PDF 默认文件名（含单元测试）                |
+| [src/renderer/src/utils/local-image.ts](../src/renderer/src/utils/local-image.ts)                                     | 本地图片路径解析与 `markit-file://` 改写（预览、PDF 共用）       |
+| [src/renderer/src/utils/mermaid.ts](../src/renderer/src/utils/mermaid.ts)                                             | Mermaid 代码块识别（PDF 复用同一白名单）                         |
+| [src/renderer/src/utils/diagram-theme.ts](../src/renderer/src/utils/diagram-theme.ts)                                 | 图表深浅 token、Mermaid 配置与 Pele CSS 变量                     |
+| [src/renderer/src/utils/diagram-renderer.ts](../src/renderer/src/utils/diagram-renderer.ts)                           | Pele 首选、Mermaid 回退与串行化渲染                              |
+| [docs/Mermaid图表与导出.md](Mermaid图表与导出.md)                                                                     | 图表识别、交互与导出细节                                         |
+| [docs/图表渲染升级方案.md](图表渲染升级方案.md)                                                                       | Pele + Mermaid 双渲染架构、主题与后续阶段设计                    |
+| [docs/窗口放置与单实例规则.md](窗口放置与单实例规则.md)                                                               | 导出选项窗口独立化时的显示器归属与重复打开规则                   |

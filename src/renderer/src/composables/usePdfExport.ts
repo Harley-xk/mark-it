@@ -69,17 +69,23 @@ export function usePdfExport(): UsePdfExport {
     // 防重入：导出期间忽略再次触发（对话框同时会禁用按钮）
     if (exporting.value || app.exportStatus === 'exporting') return
     exporting.value = true
-    // 确认后立即关闭选项对话框，导出进度改由状态栏展示
-    app.showPdfDialog = false
     app.setExportStatus('pdf', 'exporting')
+    app.setExportProgress('pdf', 2, '准备内容')
+    const requestId = `pdf-${crypto.randomUUID()}`
+    const stopProgress = window.api.onExportProgress((progress) => {
+      if (progress.requestId !== requestId || progress.kind !== 'pdf') return
+      app.setExportProgress('pdf', progress.percent, progress.stage)
+    })
     try {
       // 与预览保持一致：frontmatter 渲染为文档信息表格，不输出原始 YAML；
       // 是否输出由导出选项控制（默认输出）
+      app.setExportProgress('pdf', 4, '整理文档')
       const { entries, body } = parseFrontmatter(editor.content)
       const frontmatter =
         options.showFrontmatter && entries.length > 0 ? renderFrontmatterTable(entries) : ''
       const toc = options.showToc ? renderToc(parseHeadings(body)) : ''
       let htmlBody = toc + frontmatter + md.render(body)
+      app.setExportProgress('pdf', 6, '渲染图表')
       htmlBody = await renderMermaidDiagramsForExport(htmlBody, {
         theme: getDiagramTheme(false),
         fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif",
@@ -142,13 +148,15 @@ export function usePdfExport(): UsePdfExport {
 <body>${htmlBody}</body>
 </html>`
 
-      const filePath = await window.api.exportPdf(html, options)
+      app.setExportProgress('pdf', 8, '生成导出页面')
+      const filePath = await window.api.exportPdf(html, options, requestId)
       // 用户在系统保存对话框取消时不算失败，直接回到空闲
       app.setExportStatus('pdf', filePath ? 'success' : 'idle')
     } catch (err) {
       app.setExportStatus('pdf', 'error')
       throw err
     } finally {
+      stopProgress()
       exporting.value = false
     }
   }

@@ -6,8 +6,7 @@ export type PreviewWidthMode = 'auto' | 'fixed'
 
 /** 文档导出在状态栏展示的生命周期：空闲 / 导出中 / 成功 / 失败 */
 export type ExportStatus = 'idle' | 'exporting' | 'success' | 'error'
-
-export type ExportKind = 'pdf' | 'image'
+export type { ExportKind, ExportProgress } from '../../../shared/export-types'
 
 export interface HeadingItem {
   id: string

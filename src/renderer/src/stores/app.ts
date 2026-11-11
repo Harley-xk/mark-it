@@ -64,6 +64,8 @@ export const useAppStore = defineStore('app', () => {
   /** PDF / 长图共用的导出任务状态，状态栏据此展示当前类型与进度 */
   const exportStatus = ref<ExportStatus>('idle')
   const exportKind = ref<ExportKind | null>(null)
+  const exportProgressPercent = ref(0)
+  const exportProgressStage = ref('')
   const exportStatusDetail = ref('')
   let exportStatusTimer: ReturnType<typeof setTimeout> | null = null
   /** 会话写盘失败（只读目录 / 磁盘已满等），状态栏据此给出可见提示 */
@@ -163,14 +165,35 @@ export const useAppStore = defineStore('app', () => {
     exportKind.value = kind
     exportStatus.value = status
     exportStatusDetail.value = detail
+    if (status === 'exporting') {
+      exportProgressPercent.value = 0
+      exportProgressStage.value = '准备导出'
+    } else if (status === 'success') {
+      exportProgressPercent.value = 100
+      exportProgressStage.value = '完成'
+    } else if (status === 'idle') {
+      exportProgressPercent.value = 0
+      exportProgressStage.value = ''
+    }
     if (status === 'success' || status === 'error') {
       exportStatusTimer = setTimeout(() => {
         exportStatusTimer = null
         exportStatus.value = 'idle'
         exportKind.value = null
+        exportProgressPercent.value = 0
+        exportProgressStage.value = ''
         exportStatusDetail.value = ''
       }, EXPORT_STATUS_VISIBLE_MS)
     }
+  }
+
+  /** 只接受当前运行中任务的进度，并保持百分比单调递增 */
+  function setExportProgress(kind: ExportKind, percent: number, stage: string): void {
+    if (exportStatus.value !== 'exporting' || exportKind.value !== kind) return
+    const safePercent = Math.min(100, Math.max(0, Math.round(percent)))
+    exportProgressPercent.value = Math.max(exportProgressPercent.value, safePercent)
+    const safeStage = stage.trim()
+    if (safeStage) exportProgressStage.value = safeStage
   }
 
   return {
@@ -189,6 +212,8 @@ export const useAppStore = defineStore('app', () => {
     showImageExportDialog,
     exportStatus,
     exportKind,
+    exportProgressPercent,
+    exportProgressStage,
     exportStatusDetail,
     sessionSaveFailed,
     zoomFactor,
@@ -203,6 +228,7 @@ export const useAppStore = defineStore('app', () => {
     cycleTheme,
     toggleOutline,
     setSessionSaveFailed,
-    setExportStatus
+    setExportStatus,
+    setExportProgress
   }
 })

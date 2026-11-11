@@ -404,9 +404,11 @@ test('导出 PDF 并生成有效产物', async () => {
     await expect(exportButton).toBeVisible()
     await exportButton.click()
 
-    // 确认导出后选项对话框立即关闭，进度改由状态栏展示
+    // 确认导出后选项对话框收束关闭，进度改由状态栏展示
     await expect(window.locator('.dialog')).toHaveCount(0)
-    await expect(window.locator('.status-export')).toBeVisible()
+    await expect(window.locator('[data-export-status-anchor]')).toHaveClass(
+      /is-(exporting|success)/
+    )
 
     await expect
       .poll(
@@ -493,7 +495,9 @@ test('导出当前文档为一张完整 PNG 长图', async () => {
     await imageDialog.locator('input[type="checkbox"]').uncheck()
     await imageDialog.locator('.btn-primary').click()
     await expect(imageDialog).toHaveCount(0)
-    await expect(window.locator('.status-export')).toBeVisible()
+    await expect(window.locator('[data-export-status-anchor]')).toHaveClass(
+      /is-(exporting|success)/
+    )
 
     await expect
       .poll(

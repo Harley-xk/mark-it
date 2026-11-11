@@ -9,6 +9,7 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import type { PdfExportOptions } from '../shared/pdf-types'
 import type { ImageExportFormat, ImageExportOptions } from '../shared/image-types'
+import type { ExportKind, ExportProgress } from '../shared/export-types'
 import {
   createImageExportResult,
   ensureImageFileExtension,
@@ -313,6 +314,25 @@ function isEditorWindowSender(contents: WebContents): boolean {
 
 function windowForSender(event: IpcMainInvokeEvent): BrowserWindow | null {
   return getEditorWindowBySender(event.sender)?.win ?? null
+}
+
+/** 只为发起导出的渲染进程创建阶段进度上报，避免多窗口串进度 */
+function createExportProgressReporter(
+  event: IpcMainInvokeEvent,
+  requestId: string,
+  kind: ExportKind
+): (percent: number, stage: string) => void {
+  const safeRequestId = typeof requestId === 'string' ? requestId.slice(0, 128) : ''
+  return (percent, stage) => {
+    if (!safeRequestId || event.sender.isDestroyed()) return
+    const progress: ExportProgress = {
+      requestId: safeRequestId,
+      kind,
+      percent: Math.min(100, Math.max(0, Math.round(percent))),
+      stage
+    }
+    event.sender.send('export:progress', progress)
+  }
 }
 
 /** 应用缩放比例（整个页面一起缩放）并通知渲染进程、持久化 */
@@ -1422,38 +1442,47 @@ function buildImageDefaultPath(
   return dir && dir !== '.' ? join(dir, base) : base
 }
 
-registerHandle('export:pdf', async (event, html: string, options: PdfExportOptions) => {
-  const parent = windowForSender(event)
-  if (!parent) return null
-  const result = await dialog.showSaveDialog(parent, {
-    defaultPath: buildPdfDefaultPath(options.fileName, options.sourcePath),
-    filters: [{ name: 'PDF', extensions: ['pdf'] }]
-  })
-  if (result.canceled || !result.filePath) return null
+registerHandle(
+  'export:pdf',
+  async (event, html: string, options: PdfExportOptions, requestId: string) => {
+    const parent = windowForSender(event)
+    if (!parent) return null
+    const reportProgress = createExportProgressReporter(event, requestId, 'pdf')
+    reportProgress(10, '准备导出')
+    const result = await dialog.showSaveDialog(parent, {
+      defaultPath: buildPdfDefaultPath(options.fileName, options.sourcePath),
+      filters: [{ name: 'PDF', extensions: ['pdf'] }]
+    })
+    if (result.canceled || !result.filePath) return null
 
-  const htmlBytes = Buffer.byteLength(html, 'utf8')
-  if (htmlBytes > PDF_HTML_MAX_BYTES) {
-    const message = `PDF 内容过大（${(htmlBytes / 1024 / 1024).toFixed(1)} MB），请减少内嵌图片后重试`
-    dialog.showErrorBox('PDF 导出失败', message)
-    throw new Error(message)
-  }
+    const htmlBytes = Buffer.byteLength(html, 'utf8')
+    if (htmlBytes > PDF_HTML_MAX_BYTES) {
+      const message = `PDF 内容过大（${(htmlBytes / 1024 / 1024).toFixed(1)} MB），请减少内嵌图片后重试`
+      dialog.showErrorBox('PDF 导出失败', message)
+      throw new Error(message)
+    }
 
-  const pdfWin = new BrowserWindow({
-    width: 800,
-    height: 1100,
-    show: false,
-    webPreferences: { sandbox: false }
-  })
-  // 写入临时文件后 loadFile，避免超大内容塞进 data: URL 触发长度 / 内存问题
-  const tempHtmlPath = join(app.getPath('temp'), `markit-pdf-${randomUUID()}.html`)
+    const pdfWin = new BrowserWindow({
+      width: 800,
+      height: 1100,
+      show: false,
+      webPreferences: {
+        sandbox: false,
+        backgroundThrottling: false
+      }
+    })
+    // 写入临时文件后 loadFile，避免超大内容塞进 data: URL 触发长度 / 内存问题
+    const tempHtmlPath = join(app.getPath('temp'), `markit-pdf-${randomUUID()}.html`)
 
-  try {
-    await writeFile(tempHtmlPath, html, 'utf-8')
-    await pdfWin.loadFile(tempHtmlPath)
-    // 等待图片、字体与两帧布局稳定；固定延时只作为兜底上限
-    const layoutReady = pdfWin.webContents
-      .executeJavaScript(
-        `(async () => {
+    try {
+      await writeFile(tempHtmlPath, html, 'utf-8')
+      reportProgress(15, '加载页面')
+      await pdfWin.loadFile(tempHtmlPath)
+      reportProgress(30, '等待图片与字体')
+      // 等待图片、字体与两帧布局稳定；固定延时只作为兜底上限
+      const layoutReady = pdfWin.webContents
+        .executeJavaScript(
+          `(async () => {
           await Promise.all(Array.from(document.images).map((img) =>
             img.complete
               ? null
@@ -1469,101 +1498,112 @@ registerHandle('export:pdf', async (event, html: string, options: PdfExportOptio
             requestAnimationFrame(() => requestAnimationFrame(resolve))
           )
         })()`
-      )
-      .catch((err) => {
-        console.error('Failed to wait for PDF layout:', err)
+        )
+        .catch((err) => {
+          console.error('Failed to wait for PDF layout:', err)
+        })
+      await Promise.race([
+        layoutReady,
+        new Promise((resolve) => setTimeout(resolve, PDF_LAYOUT_TIMEOUT_MS))
+      ])
+
+      const margin = PDF_MARGIN_INCH[options.margin] ?? PDF_MARGIN_INCH.standard
+      reportProgress(50, '生成 PDF')
+      const pdf = await pdfWin.webContents.printToPDF({
+        pageSize: options.pageSize === 'Letter' ? 'Letter' : 'A4',
+        printBackground: true,
+        margins: {
+          marginType: 'custom',
+          top: margin,
+          bottom: margin + (options.showPageNumbers ? PDF_FOOTER_HEIGHT_INCH : 0),
+          left: margin,
+          right: margin
+        },
+        displayHeaderFooter: options.showPageNumbers,
+        headerTemplate: '<span></span>',
+        footerTemplate:
+          '<div style="width:100%;font-size:9px;color:#888;text-align:center;' +
+          "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;\">" +
+          '<span class="pageNumber"></span> / <span class="totalPages"></span></div>'
       })
-    await Promise.race([
-      layoutReady,
-      new Promise((resolve) => setTimeout(resolve, PDF_LAYOUT_TIMEOUT_MS))
-    ])
 
-    const margin = PDF_MARGIN_INCH[options.margin] ?? PDF_MARGIN_INCH.standard
-    const pdf = await pdfWin.webContents.printToPDF({
-      pageSize: options.pageSize === 'Letter' ? 'Letter' : 'A4',
-      printBackground: true,
-      margins: {
-        marginType: 'custom',
-        top: margin,
-        bottom: margin + (options.showPageNumbers ? PDF_FOOTER_HEIGHT_INCH : 0),
-        left: margin,
-        right: margin
-      },
-      displayHeaderFooter: options.showPageNumbers,
-      headerTemplate: '<span></span>',
-      footerTemplate:
-        '<div style="width:100%;font-size:9px;color:#888;text-align:center;' +
-        "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;\">" +
-        '<span class="pageNumber"></span> / <span class="totalPages"></span></div>'
-    })
-
-    await writeFile(result.filePath, pdf)
-    return result.filePath
-  } finally {
-    // 无论成功、取消还是打印异常，都不能残留隐藏窗口与临时文件
-    if (!pdfWin.isDestroyed()) pdfWin.destroy()
-    await rm(tempHtmlPath, { force: true }).catch((err) => {
-      console.error('Failed to remove PDF temp file:', tempHtmlPath, err)
-    })
-  }
-})
-
-registerHandle('export:image', async (event, html: string, options: ImageExportOptions) => {
-  const parent = windowForSender(event)
-  if (!parent) return null
-  if (typeof html !== 'string' || !options || typeof options !== 'object') {
-    throw new Error('图片导出参数无效')
-  }
-  if (options.format !== 'png' && options.format !== 'jpeg') {
-    throw new Error('不支持的图片导出格式')
-  }
-
-  const format: ImageExportFormat = options.format
-  const contentWidth = [640, 800, 1000, 1200].includes(options.contentWidth)
-    ? options.contentWidth
-    : 800
-  const requestedScale = options.scale === 1 ? 1 : 2
-
-  const result = await dialog.showSaveDialog(parent, {
-    defaultPath: buildImageDefaultPath(options.fileName, options.sourcePath, format),
-    filters: [
-      format === 'jpeg'
-        ? { name: 'JPEG', extensions: ['jpg', 'jpeg'] }
-        : { name: 'PNG', extensions: ['png'] }
-    ]
-  })
-  if (result.canceled || !result.filePath) return null
-  const outputPath = ensureImageFileExtension(result.filePath, format)
-
-  const htmlBytes = Buffer.byteLength(html, 'utf8')
-  if (htmlBytes > IMAGE_HTML_MAX_BYTES) {
-    const message = `图片内容过大（${(htmlBytes / 1024 / 1024).toFixed(
-      1
-    )} MB），请减少内嵌图片后重试`
-    dialog.showErrorBox('图片导出失败', message)
-    throw new Error(message)
-  }
-
-  const imageWin = new BrowserWindow({
-    width: Math.max(900, contentWidth + 120),
-    height: 1100,
-    show: false,
-    webPreferences: {
-      nodeIntegration: false,
-      contextIsolation: true,
-      sandbox: true
+      reportProgress(85, '写入文件')
+      await writeFile(result.filePath, pdf)
+      reportProgress(100, '完成')
+      return result.filePath
+    } finally {
+      // 无论成功、取消还是打印异常，都不能残留隐藏窗口与临时文件
+      if (!pdfWin.isDestroyed()) pdfWin.destroy()
+      await rm(tempHtmlPath, { force: true }).catch((err) => {
+        console.error('Failed to remove PDF temp file:', tempHtmlPath, err)
+      })
     }
-  })
-  const tempHtmlPath = join(app.getPath('temp'), `markit-image-${randomUUID()}.html`)
-  let debuggerAttached = false
+  }
+)
 
-  try {
-    await writeFile(tempHtmlPath, html, 'utf-8')
-    await imageWin.loadFile(tempHtmlPath)
+registerHandle(
+  'export:image',
+  async (event, html: string, options: ImageExportOptions, requestId: string) => {
+    const parent = windowForSender(event)
+    if (!parent) return null
+    const reportProgress = createExportProgressReporter(event, requestId, 'image')
+    reportProgress(10, '准备导出')
+    if (typeof html !== 'string' || !options || typeof options !== 'object') {
+      throw new Error('图片导出参数无效')
+    }
+    if (options.format !== 'png' && options.format !== 'jpeg') {
+      throw new Error('不支持的图片导出格式')
+    }
 
-    const layoutReady = imageWin.webContents
-      .executeJavaScript(
-        `(async () => {
+    const format: ImageExportFormat = options.format
+    const contentWidth = [640, 800, 1000, 1200].includes(options.contentWidth)
+      ? options.contentWidth
+      : 800
+    const requestedScale = options.scale === 1 ? 1 : 2
+
+    const result = await dialog.showSaveDialog(parent, {
+      defaultPath: buildImageDefaultPath(options.fileName, options.sourcePath, format),
+      filters: [
+        format === 'jpeg'
+          ? { name: 'JPEG', extensions: ['jpg', 'jpeg'] }
+          : { name: 'PNG', extensions: ['png'] }
+      ]
+    })
+    if (result.canceled || !result.filePath) return null
+    const outputPath = ensureImageFileExtension(result.filePath, format)
+
+    const htmlBytes = Buffer.byteLength(html, 'utf8')
+    if (htmlBytes > IMAGE_HTML_MAX_BYTES) {
+      const message = `图片内容过大（${(htmlBytes / 1024 / 1024).toFixed(
+        1
+      )} MB），请减少内嵌图片后重试`
+      dialog.showErrorBox('图片导出失败', message)
+      throw new Error(message)
+    }
+
+    const imageWin = new BrowserWindow({
+      width: Math.max(900, contentWidth + 120),
+      height: 1100,
+      show: false,
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+        sandbox: true,
+        backgroundThrottling: false
+      }
+    })
+    const tempHtmlPath = join(app.getPath('temp'), `markit-image-${randomUUID()}.html`)
+    let debuggerAttached = false
+
+    try {
+      await writeFile(tempHtmlPath, html, 'utf-8')
+      reportProgress(15, '加载页面')
+      await imageWin.loadFile(tempHtmlPath)
+      reportProgress(30, '等待图片与字体')
+
+      const layoutReady = imageWin.webContents
+        .executeJavaScript(
+          `(async () => {
             await Promise.all(Array.from(document.images).map((img) =>
               img.complete
                 ? null
@@ -1579,17 +1619,18 @@ registerHandle('export:image', async (event, html: string, options: ImageExportO
               requestAnimationFrame(() => requestAnimationFrame(resolve))
             )
           })()`
-      )
-      .catch((err) => {
-        console.error('Failed to wait for image export layout:', err)
-      })
-    await Promise.race([
-      layoutReady,
-      new Promise((resolve) => setTimeout(resolve, IMAGE_LAYOUT_TIMEOUT_MS))
-    ])
+        )
+        .catch((err) => {
+          console.error('Failed to wait for image export layout:', err)
+        })
+      await Promise.race([
+        layoutReady,
+        new Promise((resolve) => setTimeout(resolve, IMAGE_LAYOUT_TIMEOUT_MS))
+      ])
 
-    const size = (await imageWin.webContents.executeJavaScript(
-      `(() => {
+      reportProgress(45, '测量版面')
+      const size = (await imageWin.webContents.executeJavaScript(
+        `(() => {
           const page = document.querySelector('.image-export-page')
           const rect = page ? page.getBoundingClientRect() : null
           return {
@@ -1601,75 +1642,79 @@ registerHandle('export:image', async (event, html: string, options: ImageExportO
             ))
           }
         })()`
-    )) as { width: number; height: number }
+      )) as { width: number; height: number }
 
-    const scale = resolveImageCaptureScale(size.width, size.height, requestedScale)
-    const debuggerClient = imageWin.webContents.debugger
-    if (!debuggerClient.isAttached()) {
-      debuggerClient.attach('1.3')
-      debuggerAttached = true
-    }
-    await debuggerClient.sendCommand('Page.enable')
-    const screenshot = (await debuggerClient.sendCommand(
-      'Page.captureScreenshot',
-      format === 'jpeg'
-        ? {
-            format: 'jpeg',
-            quality: 92,
-            fromSurface: true,
-            captureBeyondViewport: true,
-            clip: {
-              x: 0,
-              y: 0,
-              width: size.width,
-              height: size.height,
-              scale
-            }
-          }
-        : {
-            format: 'png',
-            fromSurface: true,
-            captureBeyondViewport: true,
-            clip: {
-              x: 0,
-              y: 0,
-              width: size.width,
-              height: size.height,
-              scale
-            }
-          }
-    )) as { data?: string }
-
-    if (!screenshot.data) {
-      throw new Error('Chromium 未返回图片数据')
-    }
-    await writeFile(outputPath, Buffer.from(screenshot.data, 'base64'))
-    return createImageExportResult(
-      outputPath,
-      format,
-      requestedScale,
-      scale,
-      size.width,
-      size.height
-    )
-  } catch (err) {
-    const message = err instanceof Error ? err.message : '未知错误'
-    dialog.showErrorBox('图片导出失败', message)
-    throw err
-  } finally {
-    if (debuggerAttached && imageWin.webContents.debugger.isAttached()) {
-      try {
-        imageWin.webContents.debugger.detach()
-      } catch (err) {
-        console.warn('Failed to detach image export debugger:', err)
+      const scale = resolveImageCaptureScale(size.width, size.height, requestedScale)
+      reportProgress(60, '生成图片')
+      const debuggerClient = imageWin.webContents.debugger
+      if (!debuggerClient.isAttached()) {
+        debuggerClient.attach('1.3')
+        debuggerAttached = true
       }
+      await debuggerClient.sendCommand('Page.enable')
+      const screenshot = (await debuggerClient.sendCommand(
+        'Page.captureScreenshot',
+        format === 'jpeg'
+          ? {
+              format: 'jpeg',
+              quality: 92,
+              fromSurface: true,
+              captureBeyondViewport: true,
+              clip: {
+                x: 0,
+                y: 0,
+                width: size.width,
+                height: size.height,
+                scale
+              }
+            }
+          : {
+              format: 'png',
+              fromSurface: true,
+              captureBeyondViewport: true,
+              clip: {
+                x: 0,
+                y: 0,
+                width: size.width,
+                height: size.height,
+                scale
+              }
+            }
+      )) as { data?: string }
+
+      if (!screenshot.data) {
+        throw new Error('Chromium 未返回图片数据')
+      }
+      reportProgress(85, '写入文件')
+      await writeFile(outputPath, Buffer.from(screenshot.data, 'base64'))
+      reportProgress(100, '完成')
+      return createImageExportResult(
+        outputPath,
+        format,
+        requestedScale,
+        scale,
+        size.width,
+        size.height
+      )
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '未知错误'
+      dialog.showErrorBox('图片导出失败', message)
+      throw err
+    } finally {
+      if (debuggerAttached && imageWin.webContents.debugger.isAttached()) {
+        try {
+          imageWin.webContents.debugger.detach()
+        } catch (err) {
+          console.warn('Failed to detach image export debugger:', err)
+        }
+      }
+      if (!imageWin.isDestroyed()) imageWin.destroy()
+      await rm(tempHtmlPath, { force: true }).catch((err) => {
+        console.error('Failed to remove image export temp file:', tempHtmlPath, err)
+      })
     }
-    if (!imageWin.isDestroyed()) imageWin.destroy()
-    await rm(tempHtmlPath, { force: true }).catch((err) => {
-      console.error('Failed to remove image export temp file:', tempHtmlPath, err)
-    })
   }
-})
+)
 
 registerHandle('window:is-fullscreen', (event) => {
   const context = getEditorWindowBySender(event.sender)

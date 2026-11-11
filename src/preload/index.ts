@@ -5,6 +5,7 @@ import type { EditorHistoryEntries } from '../shared/history-types'
 import type { FileReadResult } from '../shared/file-types'
 import type { PdfExportOptions } from '../shared/pdf-types'
 import type { ImageExportOptions, ImageExportResult } from '../shared/image-types'
+import type { ExportProgress } from '../shared/export-types'
 import type {
   EditorWindowContext,
   EditorWindowSummary,
@@ -127,10 +128,17 @@ const api = {
     data: Uint8Array,
     extension: 'svg' | 'png'
   ): Promise<string | null> => ipcRenderer.invoke('dialog:saveImage', fileName, data, extension),
-  exportPdf: (html: string, options: PdfExportOptions): Promise<string | null> =>
-    ipcRenderer.invoke('export:pdf', html, options),
-  exportImage: (html: string, options: ImageExportOptions): Promise<ImageExportResult | null> =>
-    ipcRenderer.invoke('export:image', html, options),
+  exportPdf: (html: string, options: PdfExportOptions, requestId: string): Promise<string | null> =>
+    ipcRenderer.invoke('export:pdf', html, options, requestId),
+  exportImage: (
+    html: string,
+    options: ImageExportOptions,
+    requestId: string
+  ): Promise<ImageExportResult | null> =>
+    ipcRenderer.invoke('export:image', html, options, requestId),
+  /** 订阅当前编辑窗口的导出阶段进度；调用方按 requestId 过滤自己的任务 */
+  onExportProgress: (callback: (progress: ExportProgress) => void): (() => void) =>
+    subscribe('export:progress', callback),
   /** 关闭当前编辑窗口；兼容保留 quit 参数 */
   close: (quit = false): Promise<boolean> => ipcRenderer.invoke('window:close', quit),
   isFullscreen: (): Promise<boolean> => ipcRenderer.invoke('window:is-fullscreen'),

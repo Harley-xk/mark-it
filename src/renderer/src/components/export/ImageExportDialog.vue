@@ -4,8 +4,9 @@
   描述: 长图导出设置对话框，收集格式、宽度、倍率、主题与文档信息选项
 -->
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import type { ImageExportOptions, ImageExportSettings } from '../../types'
+import { collapseExportDialog } from '../../composables/useExportDialogCollapse'
 import { useAppStore } from '../../stores/app'
 import { useDocumentsStore } from '../../stores/documents'
 import { useExportSettingsStore } from '../../stores/export-settings'
@@ -22,6 +23,10 @@ const app = useAppStore()
 const documents = useDocumentsStore()
 const exportSettings = useExportSettingsStore()
 const draft = ref<ImageExportSettings>({ ...DEFAULT_IMAGE_EXPORT_SETTINGS })
+const overlayElement = ref<HTMLElement | null>(null)
+const dialogElement = ref<HTMLElement | null>(null)
+const collapsing = ref(false)
+const busy = computed(() => props.exporting || collapsing.value)
 
 const emit = defineEmits<{
   close: []
@@ -31,7 +36,10 @@ const emit = defineEmits<{
 watch(
   () => app.showImageExportDialog,
   (visible) => {
-    if (visible) draft.value = { ...exportSettings.image }
+    if (visible) {
+      draft.value = { ...exportSettings.image }
+      collapsing.value = false
+    }
   }
 )
 
@@ -43,17 +51,26 @@ function resetDefaults(): void {
   draft.value = { ...DEFAULT_IMAGE_EXPORT_SETTINGS }
 }
 
-function handleExport(): void {
-  if (props.exporting) return
+async function handleExport(): Promise<void> {
+  if (busy.value) return
 
   const settings = normalizeImageExportSettings(draft.value)
   exportSettings.saveImage(settings)
   const doc = documents.activeDoc
+  collapsing.value = true
   emit('export', {
     ...settings,
     fileName: deriveImageFileName(doc?.name, settings.format),
     sourcePath: doc?.path ?? null
   })
+  await nextTick()
+  try {
+    if (overlayElement.value && dialogElement.value) {
+      await collapseExportDialog(dialogElement.value, overlayElement.value)
+    }
+  } finally {
+    emit('close')
+  }
 }
 </script>
 
@@ -61,10 +78,12 @@ function handleExport(): void {
   <Teleport to="body">
     <div
       v-if="app.showImageExportDialog"
+      ref="overlayElement"
       class="image-export-dialog-overlay"
-      @click.self="!exporting && emit('close')"
+      @click.self="!busy && emit('close')"
     >
       <div
+        ref="dialogElement"
         class="image-export-dialog"
         :class="app.resolvedTheme"
         role="dialog"
@@ -77,7 +96,7 @@ function handleExport(): void {
             class="dialog-close"
             type="button"
             aria-label="关闭导出设置"
-            :disabled="exporting"
+            :disabled="busy"
             @click="emit('close')"
           >
             <svg
@@ -184,24 +203,14 @@ function handleExport(): void {
         </div>
 
         <div class="dialog-footer">
-          <button class="btn btn-reset" type="button" :disabled="exporting" @click="resetDefaults">
+          <button class="btn btn-reset" type="button" :disabled="busy" @click="resetDefaults">
             恢复默认
           </button>
           <div class="footer-actions">
-            <button
-              class="btn btn-secondary"
-              type="button"
-              :disabled="exporting"
-              @click="emit('close')"
-            >
+            <button class="btn btn-secondary" type="button" :disabled="busy" @click="emit('close')">
               取消
             </button>
-            <button
-              class="btn btn-primary"
-              type="button"
-              :disabled="exporting"
-              @click="handleExport"
-            >
+            <button class="btn btn-primary" type="button" :disabled="busy" @click="handleExport">
               导出
             </button>
           </div>

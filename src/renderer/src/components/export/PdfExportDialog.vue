@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useAppStore } from '../../stores/app'
 import { useDocumentsStore } from '../../stores/documents'
+import { collapseExportDialog } from '../../composables/useExportDialogCollapse'
 import { derivePdfFileName } from '../../utils/pdf-name'
 import type { PdfExportOptions } from '../../types'
 
@@ -20,10 +21,22 @@ const margin = ref<'narrow' | 'standard' | 'wide'>('standard')
 const showPageNumbers = ref(true)
 const showToc = ref(false)
 const showFrontmatter = ref(true)
+const overlayElement = ref<HTMLElement | null>(null)
+const dialogElement = ref<HTMLElement | null>(null)
+const collapsing = ref(false)
+const busy = computed(() => props.exporting || collapsing.value)
 
-function handleExport(): void {
-  if (props.exporting) return
+watch(
+  () => app.showPdfDialog,
+  (visible) => {
+    if (visible) collapsing.value = false
+  }
+)
+
+async function handleExport(): Promise<void> {
+  if (busy.value) return
   const doc = documents.activeDoc
+  collapsing.value = true
   emit('export', {
     pageSize: pageSize.value,
     margin: margin.value,
@@ -35,16 +48,29 @@ function handleExport(): void {
     // 有磁盘路径时让对话框默认打开文档所在目录
     sourcePath: doc?.path ?? null
   })
+  await nextTick()
+  try {
+    if (overlayElement.value && dialogElement.value) {
+      await collapseExportDialog(dialogElement.value, overlayElement.value)
+    }
+  } finally {
+    emit('close')
+  }
 }
 </script>
 
 <template>
   <Teleport to="body">
-    <div v-if="app.showPdfDialog" class="dialog-overlay" @click.self="!exporting && emit('close')">
-      <div class="dialog" :class="app.resolvedTheme">
+    <div
+      v-if="app.showPdfDialog"
+      ref="overlayElement"
+      class="dialog-overlay"
+      @click.self="!busy && emit('close')"
+    >
+      <div ref="dialogElement" class="dialog" :class="app.resolvedTheme">
         <div class="dialog-header">
           <h3>导出 PDF</h3>
-          <button class="dialog-close" :disabled="exporting" @click="emit('close')">
+          <button class="dialog-close" :disabled="busy" @click="emit('close')">
             <svg
               width="14"
               height="14"
@@ -89,11 +115,9 @@ function handleExport(): void {
           <p class="export-hint">PDF 使用独立的浅色打印样式，不随预览主题变化。</p>
         </div>
         <div class="dialog-footer">
-          <button class="btn btn-secondary" :disabled="exporting" @click="emit('close')">
-            取消
-          </button>
-          <button class="btn btn-primary" :disabled="exporting" @click="handleExport">
-            {{ exporting ? '导出中…' : '导出' }}
+          <button class="btn btn-secondary" :disabled="busy" @click="emit('close')">取消</button>
+          <button class="btn btn-primary" :disabled="busy" @click="handleExport">
+            {{ busy ? '导出中…' : '导出' }}
           </button>
         </div>
       </div>
