@@ -177,7 +177,7 @@ npm run build:linux
 
 ### 多平台自动发版（GitHub Actions）
 
-[.github/workflows/release.yml](.github/workflows/release.yml) 会在 Windows / macOS / Linux 三个原生 runner 上并行构建，把三个平台的产物上传到 apphub 的同一个草稿版本，随后自动发布并验证。
+[.github/workflows/release.yml](.github/workflows/release.yml) 会在 Windows / macOS / Linux 三个原生 runner 上并行构建，再由三个独立上传任务并行把产物写入 apphub 的同一个草稿版本；全部上传成功后自动发布并验证。
 
 触发方式：
 

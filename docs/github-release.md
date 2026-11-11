@@ -1,6 +1,6 @@
 # GitHub Actions 发版说明
 
-本文档说明 Mark It 如何通过 GitHub Actions 完成 Windows / macOS / Linux 三平台并行打包、上传 apphub 自动发布，并把同一批产物同步到对应版本的 GitHub Release。
+本文档说明 Mark It 如何通过 GitHub Actions 完成 Windows / macOS / Linux 三平台并行打包与并行上传 apphub、自动发布验证，并把同一批产物同步到对应版本的 GitHub Release。
 
 适用仓库：[Harley-xk/mark-it](https://github.com/Harley-xk/mark-it)
 
@@ -9,21 +9,25 @@
 ```mermaid
 flowchart TD
     T["推送 v* 标签（或手动触发）"] --> V["validate<br/>校验 semver 与严格单序列<br/>推断 stable / beta 通道"]
-    V --> B["build<br/>matrix 三平台并行构建"]
+    V --> UT["test<br/>单元测试"]
+    UT --> B["build<br/>matrix 三平台并行构建"]
     B --> W["windows-latest<br/>NSIS exe + blockmap"]
     B --> M["macos-latest<br/>dmg + universal zip"]
     B --> L["ubuntu-latest<br/>AppImage + deb"]
-    W --> D["draft<br/>下载全部产物"]
-    M --> D
-    L --> D
-    D --> D1["create-version<br/>同一版本草稿，已存在则复用"]
-    D --> D2["逐平台 upload 到 apphub"]
-    D1 --> P["publish<br/>自动发布 → 逐平台 verify"]
-    D2 --> P
+    B --> PR["prepare<br/>生成更新说明<br/>create-version 建草稿"]
+    PR --> UW["upload windows-x64<br/>仅下载本平台 artifact"]
+    PR --> UM["upload macos-universal<br/>仅下载本平台 artifact"]
+    PR --> UL["upload linux-x64<br/>仅下载本平台 artifact"]
+    W --> UW
+    M --> UM
+    L --> UL
+    UW --> P["publish<br/>三平台上传全部成功后<br/>自动发布 → 逐平台 verify"]
+    UM --> P
+    UL --> P
     P --> G["github-release<br/>创建 / 更新 vX.Y.Z 的 GitHub Release<br/>并把同一批产物作为 Release 附件上传"]
 ```
 
-发布没有人工审批环节：草稿上传完成后立即对客户端可见；GitHub Release 在 apphub 发布并验证通过后生成。
+发布没有人工审批环节：草稿上传完成后立即对客户端可见；GitHub Release 在 apphub 发布并验证通过后生成。`prepare` 只执行一次且不下载产物；三个 `upload` job 使用 `fail-fast: false` 并行运行，某个平台失败不会取消其他平台，但 `publish` 仍要求三个平台全部成功。
 
 ## 2. 前置条件
 
@@ -162,7 +166,8 @@ gh workflow run release.yml --ref master \
 - macOS 自动更新（Squirrel.Mac）只接受 zip，dmg 仅用于首次安装。
 - Linux 只有 AppImage 支持自动更新，deb 供手动安装。
 - `snap` 已从默认 target 移除（GitHub 托管 runner 无 snapcraft）。
-- GitHub Release 的正文复用 `draft` 阶段生成的更新说明；`1.4.0-beta.1` 这类带后缀的版本会标记为 prerelease，不会被当作 latest。
+- GitHub Release 的正文复用 `prepare` 阶段生成的更新说明；`1.4.0-beta.1` 这类带后缀的版本会标记为 prerelease，不会被当作 latest。
+- 三个平台的安装包由独立 `upload` job 并行上传；每个 job 只下载并处理对应平台的 workflow artifact。
 - beta 版本的产物路径、上传平台与命名规则与正式版完全一致，只是写入 `beta` 通道；客户端是否接收由用户开关决定（见 [发版通道与 Beta 更新](./发版通道.md)）。
 
 ## 6. 安全约束
@@ -343,13 +348,13 @@ gh secret set APPHUB_SIGN_SECRET --repo Harley-xk/mark-it
 
 ## 12. 相关文件
 
-| 文件                                                                      | 作用                                                               |
-| ------------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| [.github/workflows/release.yml](../.github/workflows/release.yml)         | 三平台构建、上传 apphub、发布验证、同步 GitHub Release 的 workflow |
-| [scripts/release/apphub.mjs](../scripts/release/apphub.mjs)               | apphub 发版 CLI（零依赖）                                          |
-| [scripts/release/channel-state.mjs](../scripts/release/channel-state.mjs) | 双通道发版节点查询、版本校验与建议                                 |
-| [.apphub-release.ci.json](../.apphub-release.ci.json)                     | CI 使用的 stable 无凭据配置（baseUrl / appKey / channel）          |
-| [.apphub-release.beta.ci.json](../.apphub-release.beta.ci.json)           | CI 使用的 beta 无凭据配置                                          |
-| [docs/发版通道.md](./发版通道.md)                                         | 双通道模型、版本号规则、发版节点与 Beta 开关语义                   |
-| [electron-builder.yml](../electron-builder.yml)                           | 三平台打包配置与凭据文件排除                                       |
-| `.apphub-release.json`                                                    | 本地发版凭据（gitignore，不提交）                                  |
+| 文件                                                                      | 作用                                                                   |
+| ------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| [.github/workflows/release.yml](../.github/workflows/release.yml)         | 三平台构建与并行上传 apphub、发布验证、同步 GitHub Release 的 workflow |
+| [scripts/release/apphub.mjs](../scripts/release/apphub.mjs)               | apphub 发版 CLI（零依赖）                                              |
+| [scripts/release/channel-state.mjs](../scripts/release/channel-state.mjs) | 双通道发版节点查询、版本校验与建议                                     |
+| [.apphub-release.ci.json](../.apphub-release.ci.json)                     | CI 使用的 stable 无凭据配置（baseUrl / appKey / channel）              |
+| [.apphub-release.beta.ci.json](../.apphub-release.beta.ci.json)           | CI 使用的 beta 无凭据配置                                              |
+| [docs/发版通道.md](./发版通道.md)                                         | 双通道模型、版本号规则、发版节点与 Beta 开关语义                       |
+| [electron-builder.yml](../electron-builder.yml)                           | 三平台打包配置与凭据文件排除                                           |
+| `.apphub-release.json`                                                    | 本地发版凭据（gitignore，不提交）                                      |

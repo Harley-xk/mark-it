@@ -1,7 +1,7 @@
 name: Release
 
-# 三平台并行构建 → 统一上传到 apphub 同一草稿版本 → 自动发布并验证
-#            → 同步产物到同版本 GitHub Release
+# 三平台并行构建 → prepare 创建 apphub 草稿 → 三平台并行上传（OSS multipart 自适应）
+#            → 自动发布并验证 → 同步产物到同版本 GitHub Release
 #
 # 触发方式：
 #   1. 推送 v* 标签（推荐，版本号来自标签）
@@ -35,6 +35,14 @@ on:
         required: false
         default: false
         type: boolean
+      multipart:
+        description: 'OSS 上传模式（auto：大文件分片；off：全部回退单次 PUT）'
+        required: false
+        default: auto
+        type: choice
+        options:
+          - auto
+          - off
 
 permissions:
   contents: read
@@ -185,13 +193,16 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  draft:
-    name: Upload to apphub draft
+  prepare:
+    name: Prepare apphub draft
     needs: [validate, build]
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
     outputs:
       # 复用自动生成的更新说明作为 GitHub Release 正文，避免两处口径不一致
+      version: ${{ steps.metadata.outputs.version }}
+      channel: ${{ steps.metadata.outputs.channel }}
+      config: ${{ steps.metadata.outputs.config }}
       notes: ${{ steps.notes.outputs.notes }}
     env:
       APPHUB_USERNAME: ${{ secrets.APPHUB_USERNAME }}
@@ -210,14 +221,14 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
 
-      - name: Download build artifacts
-        uses: actions/download-artifact@v8
-        with:
-          path: dist
-          merge-multiple: true
-
-      - name: List artifacts
-        run: ls -lh dist
+      - name: Export release metadata
+        id: metadata
+        run: |
+          {
+            echo "version=$VERSION"
+            echo "channel=$CHANNEL"
+            echo "config=$CONFIG"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Resolve release notes
         id: notes
@@ -265,48 +276,98 @@ jobs:
           fi
           node scripts/release/apphub.mjs "${args[@]}"
 
-      - name: Upload Windows
-        run: |
-          set -euo pipefail
-          file=$(ls dist/*-setup.exe | head -n1)
-          map=$(ls dist/*-setup.exe.blockmap 2>/dev/null | head -n1 || true)
-          args=(upload --config "$CONFIG" --version "$VERSION" --platform windows --arch x64 --file "$file")
-          if [ -n "$map" ]; then args+=(--blockmap "$map"); fi
-          if [ "$REPLACE" = "true" ]; then args+=(--replace); fi
-          node scripts/release/apphub.mjs "${args[@]}"
+  upload:
+    name: Upload ${{ matrix.name }}
+    needs: [prepare]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        include:
+          - name: windows-x64
+            platform: windows
+            arch: x64
+            artifact: windows-x64
+          - name: macos-universal
+            platform: macos
+            arch: universal
+            artifact: macos-universal
+          - name: linux-x64
+            platform: linux
+            arch: x64
+            artifact: linux-x64
+    env:
+      APPHUB_USERNAME: ${{ secrets.APPHUB_USERNAME }}
+      APPHUB_PASSWORD: ${{ secrets.APPHUB_PASSWORD }}
+      APPHUB_SIGN_SECRET: ${{ secrets.APPHUB_SIGN_SECRET }}
+      VERSION: ${{ needs.prepare.outputs.version }}
+      CONFIG: ${{ needs.prepare.outputs.config }}
+      REPLACE: ${{ inputs.replace }}
+      MULTIPART: ${{ inputs.multipart || 'auto' }}
+    steps:
+      - uses: actions/checkout@v7
 
-      - name: Upload macOS
-        run: |
-          set -euo pipefail
-          # macOS 自动更新（electron-updater/Squirrel.Mac）只认 zip，dmg 仅保留为构建产物
-          file=$(ls dist/*-universal.zip | head -n1)
-          map=$(ls dist/*-universal.zip.blockmap 2>/dev/null | head -n1 || true)
-          args=(upload --config "$CONFIG" --version "$VERSION" --platform macos --arch universal --file "$file")
-          if [ -n "$map" ]; then args+=(--blockmap "$map"); fi
-          if [ "$REPLACE" = "true" ]; then args+=(--replace); fi
-          node scripts/release/apphub.mjs "${args[@]}"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
 
-      - name: Upload Linux
+      - name: Download ${{ matrix.name }} artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist
+
+      - name: List artifact
+        run: ls -lh dist
+
+      - name: Upload package
+        env:
+          PLATFORM: ${{ matrix.platform }}
+          ARCH: ${{ matrix.arch }}
         run: |
           set -euo pipefail
-          file=$(ls dist/*.AppImage | head -n1)
-          map=$(ls dist/*.AppImage.blockmap 2>/dev/null | head -n1 || true)
-          args=(upload --config "$CONFIG" --version "$VERSION" --platform linux --arch x64 --file "$file")
+          case "$PLATFORM" in
+            windows)
+              file=$(find dist -type f -name '*-setup.exe' -print -quit)
+              map=$(find dist -type f -name '*-setup.exe.blockmap' -print -quit)
+              ;;
+            macos)
+              # macOS 自动更新（electron-updater/Squirrel.Mac）只认 zip，dmg 仅保留为构建产物
+              file=$(find dist -type f -name '*-universal.zip' -print -quit)
+              map=$(find dist -type f -name '*-universal.zip.blockmap' -print -quit)
+              ;;
+            linux)
+              file=$(find dist -type f -name '*.AppImage' -print -quit)
+              map=$(find dist -type f -name '*.AppImage.blockmap' -print -quit)
+              ;;
+            *)
+              echo "::error::Unsupported platform: $PLATFORM"
+              exit 1
+              ;;
+          esac
+          if [ -z "$file" ]; then
+            echo "::error::No upload package found for $PLATFORM/$ARCH"
+            exit 1
+          fi
+          args=(upload --config "$CONFIG" --version "$VERSION" --platform "$PLATFORM" --arch "$ARCH" --file "$file")
           if [ -n "$map" ]; then args+=(--blockmap "$map"); fi
           if [ "$REPLACE" = "true" ]; then args+=(--replace); fi
-          node scripts/release/apphub.mjs "${args[@]}"
+          args+=(--multipart "$MULTIPART")
+          node scripts/release/apphub-upload.mjs "${args[@]}"
 
   publish:
     name: Publish
-    needs: [validate, draft]
+    needs: [validate, prepare, upload]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
       APPHUB_USERNAME: ${{ secrets.APPHUB_USERNAME }}
       APPHUB_PASSWORD: ${{ secrets.APPHUB_PASSWORD }}
       APPHUB_SIGN_SECRET: ${{ secrets.APPHUB_SIGN_SECRET }}
-      VERSION: ${{ needs.validate.outputs.version }}
-      CONFIG: ${{ needs.validate.outputs.config }}
+      VERSION: ${{ needs.prepare.outputs.version }}
+      CONFIG: ${{ needs.prepare.outputs.config }}
     steps:
       - uses: actions/checkout@v7
 
@@ -328,7 +389,7 @@ jobs:
 
   github-release:
     name: Publish to GitHub Release
-    needs: [validate, draft, publish]
+    needs: [validate, prepare, publish]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     # 仅在 GITHUB_TOKEN 作用域内生效，用于创建 tag / Release 并上传产物
@@ -354,7 +415,7 @@ jobs:
 
       - name: Create or update GitHub Release
         env:
-          NOTES: ${{ needs.draft.outputs.notes }}
+          NOTES: ${{ needs.prepare.outputs.notes }}
         run: |
           set -euo pipefail
           # 预发布版本（1.4.0-beta.1）标记为 prerelease，不会被当成 latest
