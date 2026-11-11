@@ -61,6 +61,8 @@ export function normalizeSessionTab(value: unknown): SessionTab | null {
     bom: tab.bom === true,
     // 非法 / 缺失时保持 undefined，由渲染进程按 markit-layout 兜底
     layoutMode: isLayoutMode(tab.layoutMode) ? tab.layoutMode : undefined,
+    // 非法 / 缺失时保持 undefined，由渲染进程按 markit-show-outline 兜底
+    outlineVisible: typeof tab.outlineVisible === 'boolean' ? tab.outlineVisible : undefined,
     scrollAnchor: scrollAmount(tab.scrollAnchor),
     scrollTop: scrollAmount(tab.scrollTop),
     previewScrollTop: scrollAmount(tab.previewScrollTop),

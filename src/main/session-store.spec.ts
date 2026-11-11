@@ -83,6 +83,29 @@ describe('会话布局字段校验', () => {
   })
 })
 
+describe('会话大纲显隐字段校验', () => {
+  it('应保留布尔类型的大纲显隐', () => {
+    expect(parseSessionData(sessionWith({ outlineVisible: false }))?.tabs[0].outlineVisible).toBe(
+      false
+    )
+    expect(parseSessionData(sessionWith({ outlineVisible: true }))?.tabs[0].outlineVisible).toBe(
+      true
+    )
+  })
+
+  it('非法大纲显隐应归一为 undefined', () => {
+    for (const value of ['0', 'false', 0, 1, null]) {
+      expect(parseSessionData(sessionWith({ outlineVisible: value }))?.tabs[0].outlineVisible).toBe(
+        undefined
+      )
+    }
+  })
+
+  it('缺失大纲显隐时应保持 undefined，交由渲染进程兜底', () => {
+    expect(parseSessionData(sessionWith({}))?.tabs[0].outlineVisible).toBeUndefined()
+  })
+})
+
 describe('多窗口会话迁移', () => {
   it('应保留标签的稳定编辑历史 ID', () => {
     const data = parseSessionData(sessionWith({ historyId: 'history-a' }))

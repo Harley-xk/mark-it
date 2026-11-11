@@ -80,9 +80,9 @@ const api = {
   /** 已有编辑窗口接收实时标签迁移 */
   onReceiveTabTransfer: (callback: (payload: TabTransferPayload) => void): (() => void) =>
     subscribe('window:receive-tab-transfer', callback),
-  /** 开始跨窗口拖拽目标命中与高亮 */
-  startTabDrag: (tabName: string): void => {
-    ipcRenderer.send('window:tab-drag-start', tabName)
+  /** 开始跨窗口拖拽悬浮提示、目标命中与高亮 */
+  startTabDrag: (tabName: string, theme: 'light' | 'dark'): void => {
+    ipcRenderer.send('window:tab-drag-start', tabName, theme)
   },
   /** 结束拖拽并清除目标高亮 */
   endTabDrag: (): void => {

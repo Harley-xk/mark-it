@@ -207,6 +207,7 @@ export function useFile(): FileActions {
         eol: doc.eol,
         bom: doc.bom,
         layoutMode: doc.layoutMode,
+        outlineVisible: doc.outlineVisible,
         scrollAnchor: scroll.anchor,
         scrollTop: scroll.top,
         previewScrollTop: previewScroll.top,

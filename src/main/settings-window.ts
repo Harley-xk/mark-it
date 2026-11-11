@@ -8,6 +8,7 @@ import { BrowserWindow } from 'electron'
 import type { WebContents } from 'electron'
 import { join } from 'path'
 import { is } from '@electron-toolkit/utils'
+import { activateWindow, resolveWindowPlacement } from './window-placement'
 
 let settingsWindow: BrowserWindow | null = null
 
@@ -24,23 +25,23 @@ export function isSettingsWindowSender(contents: WebContents): boolean {
  * 打开或聚焦全局设置窗口。
  * 设置窗口不属于编辑器窗口注册表，也不参与会话恢复。
  */
-export function openSettingsWindow(): void {
+export function openSettingsWindow(sourceWindow?: BrowserWindow | null): void {
   const existing = getSettingsWindow()
   if (existing) {
-    if (existing.isMinimized()) existing.restore()
-    existing.show()
-    existing.focus()
+    activateWindow(existing)
     return
   }
 
   const isMac = process.platform === 'darwin'
-  settingsWindow = new BrowserWindow({
+  const placement = resolveWindowPlacement(sourceWindow, {
     width: 1040,
     height: 720,
     minWidth: 720,
-    minHeight: 560,
+    minHeight: 560
+  })
+  settingsWindow = new BrowserWindow({
+    ...placement,
     show: false,
-    center: true,
     autoHideMenuBar: true,
     title: 'MarkIt 设置',
     backgroundColor: '#151922',
@@ -68,8 +69,7 @@ export function openSettingsWindow(): void {
 
   settingsWindow.once('ready-to-show', () => {
     if (!settingsWindow || settingsWindow.isDestroyed()) return
-    settingsWindow.show()
-    settingsWindow.focus()
+    activateWindow(settingsWindow)
   })
 
   settingsWindow.on('closed', () => {

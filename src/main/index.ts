@@ -20,6 +20,12 @@ import {
   parseWindowStateFile,
   placeWindowOnWorkArea
 } from './window-state-store'
+import {
+  buildTabDragPreviewHtml,
+  placeTabDragPreview,
+  TAB_DRAG_PREVIEW_HEIGHT,
+  TAB_DRAG_PREVIEW_WIDTH
+} from './tab-drag-preview'
 import type { WindowState, WindowStateFile } from './window-state-store'
 import type { SessionData, SessionFile, SessionTab } from '../shared/session-types'
 import type { EditorHistoryFile } from '../shared/history-types'
@@ -101,14 +107,21 @@ interface PendingTabTransfer {
   resolve: (result: TabTransferResult | null) => void
 }
 
+interface ActiveTabDrag {
+  source: EditorWindowContext
+  tabName: string
+  theme: 'light' | 'dark'
+}
+
 const editorWindows = new Map<number, EditorWindowContext>()
 const editorWindowIds = new Map<string, number>()
 const pendingTabTransfers = new Map<string, PendingTabTransfer>()
 let lastFocusedWindowId: string | null = null
 const preReadyFilePaths: string[] = []
-let activeTabDrag: { source: EditorWindowContext; tabName: string } | null = null
+let activeTabDrag: ActiveTabDrag | null = null
 let tabDragHighlightTimer: ReturnType<typeof setInterval> | null = null
 let highlightedTabDragWindowId: string | null = null
+let tabDragPreviewWindow: BrowserWindow | null = null
 
 const sessionWindows = new Map<string, SessionData>()
 let sessionFileData: SessionFile = { version: 2, windows: [] }
@@ -506,16 +519,17 @@ interface ScreenPoint {
 
 function resolveWindowState(
   windowId: string,
-  source?: EditorWindowContext | null,
+  source?: BrowserWindow | null,
   anchorPoint?: ScreenPoint | null
 ): WindowState {
   const saved = windowStateFileData.windows[windowId]
   if (saved && isValidWindowBounds(saved)) return { ...saved }
 
+  const sourceBounds = source && !source.isDestroyed() ? source.getBounds() : null
   const display = anchorPoint
     ? screen.getDisplayNearestPoint(anchorPoint)
-    : source
-      ? screen.getDisplayMatching(source.win.getBounds())
+    : sourceBounds
+      ? screen.getDisplayMatching(sourceBounds)
       : screen.getPrimaryDisplay()
   const workArea = display.workArea
   if (anchorPoint) {
@@ -531,18 +545,12 @@ function resolveWindowState(
   }
   const width = Math.min(DEFAULT_WINDOW_STATE.width, workArea.width)
   const height = Math.min(DEFAULT_WINDOW_STATE.height, workArea.height)
-  const offset = source ? 32 : 0
-  const x = source
-    ? Math.min(
-        Math.max(source.win.getBounds().x + offset, workArea.x),
-        workArea.x + workArea.width - width
-      )
+  const offset = sourceBounds ? 32 : 0
+  const x = sourceBounds
+    ? Math.min(Math.max(sourceBounds.x + offset, workArea.x), workArea.x + workArea.width - width)
     : undefined
-  const y = source
-    ? Math.min(
-        Math.max(source.win.getBounds().y + offset, workArea.y),
-        workArea.y + workArea.height - height
-      )
+  const y = sourceBounds
+    ? Math.min(Math.max(sourceBounds.y + offset, workArea.y), workArea.y + workArea.height - height)
     : undefined
   return {
     ...DEFAULT_WINDOW_STATE,
@@ -576,7 +584,7 @@ function queueSaveWindowState(context: EditorWindowContext): void {
 
 interface CreateEditorWindowOptions {
   id?: string
-  source?: EditorWindowContext | null
+  source?: BrowserWindow | null
   initialSession?: SessionData
   pendingTransfer?: TabTransferPayload | null
   anchorPoint?: ScreenPoint | null
@@ -911,6 +919,84 @@ function broadcastTabDragTarget(state: TabDragTargetState): void {
   }
 }
 
+function closeTabDragPreview(): void {
+  const preview = tabDragPreviewWindow
+  tabDragPreviewWindow = null
+  if (preview && !preview.isDestroyed()) preview.destroy()
+}
+
+function createTabDragPreview(tabName: string, theme: 'light' | 'dark'): void {
+  if (tabDragPreviewWindow && !tabDragPreviewWindow.isDestroyed()) return
+
+  const preview = new BrowserWindow({
+    width: TAB_DRAG_PREVIEW_WIDTH,
+    height: TAB_DRAG_PREVIEW_HEIGHT,
+    frame: false,
+    transparent: true,
+    resizable: false,
+    movable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    focusable: false,
+    hasShadow: false,
+    skipTaskbar: true,
+    show: false,
+    alwaysOnTop: true,
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true
+    }
+  })
+  tabDragPreviewWindow = preview
+  preview.setIgnoreMouseEvents(true)
+  preview.setAlwaysOnTop(true, 'screen-saver')
+  preview.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  preview.on('closed', () => {
+    if (tabDragPreviewWindow === preview) tabDragPreviewWindow = null
+  })
+
+  const html = buildTabDragPreviewHtml(tabName, theme)
+  void preview
+    .loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
+    .then(() => {
+      if (tabDragPreviewWindow !== preview || !activeTabDrag) {
+        if (!preview.isDestroyed()) preview.destroy()
+        return
+      }
+      updateTabDragPreviewPosition(screen.getCursorScreenPoint())
+    })
+    .catch((err) => {
+      if (preview.isDestroyed()) return
+      console.error('Failed to load tab drag preview:', err)
+      closeTabDragPreview()
+    })
+}
+
+function updateTabDragPreviewPosition(cursor: ScreenPoint): void {
+  if (!activeTabDrag || activeTabDrag.source.win.isDestroyed()) return
+  createTabDragPreview(activeTabDrag.tabName, activeTabDrag.theme)
+  const preview = tabDragPreviewWindow
+  if (!preview || preview.isDestroyed()) return
+
+  const display = screen.getDisplayNearestPoint(cursor)
+  const position = placeTabDragPreview(
+    cursor,
+    { width: TAB_DRAG_PREVIEW_WIDTH, height: TAB_DRAG_PREVIEW_HEIGHT },
+    display.workArea
+  )
+  preview.setBounds(
+    {
+      ...position,
+      width: TAB_DRAG_PREVIEW_WIDTH,
+      height: TAB_DRAG_PREVIEW_HEIGHT
+    },
+    false
+  )
+  if (!preview.isVisible()) preview.showInactive()
+}
+
 function clearTabDragHighlight(): void {
   if (tabDragHighlightTimer) clearInterval(tabDragHighlightTimer)
   tabDragHighlightTimer = null
@@ -919,6 +1005,7 @@ function clearTabDragHighlight(): void {
   const tabName = activeTabDrag?.tabName ?? ''
   activeTabDrag = null
   highlightedTabDragWindowId = null
+  closeTabDragPreview()
   if (hadHighlight) {
     broadcastTabDragTarget({ active: false, tabName, sourceWindowId })
   }
@@ -929,7 +1016,9 @@ function updateTabDragHighlight(): void {
     clearTabDragHighlight()
     return
   }
-  const target = findEditorWindowAtCursor(activeTabDrag.source)
+  const cursor = screen.getCursorScreenPoint()
+  updateTabDragPreviewPosition(cursor)
+  const target = findEditorWindowAtCursor(activeTabDrag.source, cursor)
   const nextWindowId = target?.id ?? null
   if (nextWindowId === highlightedTabDragWindowId) return
 
@@ -944,9 +1033,10 @@ function updateTabDragHighlight(): void {
   }
 }
 
-function startTabDrag(source: EditorWindowContext, tabName: string): void {
+function startTabDrag(source: EditorWindowContext, tabName: string, theme: 'light' | 'dark'): void {
   clearTabDragHighlight()
-  activeTabDrag = { source, tabName: tabName.slice(0, 200) }
+  activeTabDrag = { source, tabName: tabName.slice(0, 200), theme }
+  createTabDragPreview(activeTabDrag.tabName, theme)
   updateTabDragHighlight()
   tabDragHighlightTimer = setInterval(updateTabDragHighlight, 60)
 }
@@ -961,7 +1051,7 @@ function startTabTransfer(
   const transferTarget =
     target ??
     createEditorWindow({
-      source,
+      source: source.win,
       initialSession: { tabs: [payload.tab], activeIndex: 0 },
       pendingTransfer: payload,
       anchorPoint
@@ -1545,8 +1635,9 @@ registerHandle('window:set-native-theme', (event, theme: 'light' | 'dark' | 'sys
   nativeTheme.themeSource = theme
 })
 registerHandle('settings:open', (event) => {
-  if (!isEditorWindowSender(event.sender)) return false
-  openSettingsWindow()
+  const source = getEditorWindowBySender(event.sender)
+  if (!source) return false
+  openSettingsWindow(source.win)
   return true
 })
 registerHandle('window:get-context', (event): RendererWindowContext | null => {
@@ -1555,8 +1646,10 @@ registerHandle('window:get-context', (event): RendererWindowContext | null => {
   return { id: context.id, pendingTransferId: context.pendingTransferId }
 })
 registerHandle('window:create', (event) => {
-  const source = getEditorWindowBySender(event.sender)
-  if (!source) return false
+  const source = BrowserWindow.fromWebContents(event.sender)
+  if (!source || (!isEditorWindowSender(event.sender) && !isSettingsWindowSender(event.sender))) {
+    return false
+  }
   return !!createEditorWindow({ source, initialSession: createBlankSession() })
 })
 registerHandle('window:move-tab-to-new', (event, payload: unknown) => {
@@ -1614,10 +1707,10 @@ registerOn('window:reject-tab-transfer', (event, transferId: unknown) => {
   if (!transfer || transfer.targetWindowId !== context.id) return
   notifyTabTransferFailure(transferId)
 })
-registerOn('window:tab-drag-start', (event, tabName: unknown) => {
+registerOn('window:tab-drag-start', (event, tabName: unknown, theme: unknown) => {
   const source = getEditorWindowBySender(event.sender)
   if (!source || typeof tabName !== 'string') return
-  startTabDrag(source, tabName)
+  startTabDrag(source, tabName, theme === 'light' ? 'light' : 'dark')
 })
 registerOn('window:tab-drag-end', (event) => {
   if (!getEditorWindowBySender(event.sender)) return
@@ -1753,6 +1846,7 @@ if (!gotTheLock) {
 
 // 退出应用时协调所有编辑窗口，而不是假定只有一个主窗口。
 app.on('before-quit', (event) => {
+  if (activeTabDrag) clearTabDragHighlight()
   if (appQuitAllowed || editorWindows.size === 0) return
   event.preventDefault()
   if (quitPreparationInProgress) return

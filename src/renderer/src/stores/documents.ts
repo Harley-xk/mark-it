@@ -5,6 +5,7 @@ import type { HeadingItem, LayoutMode } from '../types'
 import type { SessionTab } from '../../../shared/session-types'
 import { normalizePath } from '../utils/path'
 import { isLayoutMode, loadSavedLayoutMode } from '../utils/layout-mode'
+import { loadSavedOutlineVisible } from '../utils/outline-visibility'
 import { moveItem } from '../utils/tab-order'
 import { decodeText, normalizeToLf, type LineEnding } from '../utils/text-encoding'
 import WELCOME_CONTENT from '../assets/welcome.md?raw'
@@ -30,6 +31,8 @@ export interface DocumentTab {
   bom: boolean
   /** 当前标签的布局模式；切换标签时由 app.layoutMode 读取 */
   layoutMode: LayoutMode
+  /** 当前标签的大纲显隐；切换标签时由 app.showOutline 读取 */
+  outlineVisible: boolean
 }
 
 export interface ScrollPosition {
@@ -109,6 +112,12 @@ export const useDocumentsStore = defineStore('documents', () => {
     return active?.layoutMode ?? loadSavedLayoutMode()
   }
 
+  /** 新标签默认继承当前激活标签的大纲显隐；没有激活标签时回退到最近一次使用的值 */
+  function defaultTabOutlineVisible(): boolean {
+    const active = docs.value.find((d) => d.id === activeId.value)
+    return active?.outlineVisible ?? loadSavedOutlineVisible()
+  }
+
   function createTab(
     path: string | null,
     content: string,
@@ -118,6 +127,7 @@ export const useDocumentsStore = defineStore('documents', () => {
       eol?: LineEnding
       bom?: boolean
       layoutMode?: LayoutMode
+      outlineVisible?: boolean
     }
   ): DocumentTab {
     // 编辑器内部统一使用 LF；原文件的换行符与 BOM 记在标签上，保存时还原
@@ -137,7 +147,8 @@ export const useDocumentsStore = defineStore('documents', () => {
       headings: [],
       eol: meta?.eol ?? decoded.eol,
       bom: meta?.bom ?? decoded.bom,
-      layoutMode: meta?.layoutMode ?? defaultTabLayoutMode()
+      layoutMode: meta?.layoutMode ?? defaultTabLayoutMode(),
+      outlineVisible: meta?.outlineVisible ?? defaultTabOutlineVisible()
     }
   }
 
@@ -182,11 +193,15 @@ export const useDocumentsStore = defineStore('documents', () => {
     const name = typeof tab.name === 'string' && tab.name.length > 0 ? tab.name : undefined
     // 旧会话没有 layoutMode，按最近一次使用的布局兜底
     const layoutMode = isLayoutMode(tab.layoutMode) ? tab.layoutMode : loadSavedLayoutMode()
+    // 旧会话没有 outlineVisible，按最近一次使用的大纲显隐兜底
+    const outlineVisible =
+      typeof tab.outlineVisible === 'boolean' ? tab.outlineVisible : loadSavedOutlineVisible()
     const doc = createTab(path, content, name, {
       historyId: tab.historyId,
       eol: tab.eol,
       bom: tab.bom,
-      layoutMode
+      layoutMode,
+      outlineVisible
     })
     doc.isModified = tab.isModified === true
     doc.cursorLine = typeof tab.cursorLine === 'number' && tab.cursorLine > 0 ? tab.cursorLine : 1
@@ -348,6 +363,12 @@ export const useDocumentsStore = defineStore('documents', () => {
     if (doc) doc.layoutMode = mode
   }
 
+  /** 设置某个标签的大纲显隐；不影响其他标签 */
+  function setOutlineVisible(id: string, visible: boolean): void {
+    const doc = getDoc(id)
+    if (doc) doc.outlineVisible = visible
+  }
+
   /** 保存成功后调用；传入路径表示另存为 */
   function markSaved(id: string, filePath?: string): void {
     const doc = getDoc(id)
@@ -417,6 +438,7 @@ export const useDocumentsStore = defineStore('documents', () => {
     setCursor,
     setHeadings,
     setLayoutMode,
+    setOutlineVisible,
     markSaved,
     setEditorState,
     getEditorState,

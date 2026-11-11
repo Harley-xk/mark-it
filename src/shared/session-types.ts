@@ -20,6 +20,8 @@ export interface SessionTab {
   bom?: boolean
   /** 标签自己的布局模式；缺失时按 markit-layout 回退（兼容旧会话） */
   layoutMode?: LayoutMode
+  /** 标签自己的大纲显隐；缺失时按 markit-show-outline 回退（兼容旧会话） */
+  outlineVisible?: boolean
   /** 编辑区顶部可见行在文档中的偏移；缺失或 0 时从顶部开始（兼容旧会话） */
   scrollAnchor?: number
   /** 编辑区像素滚动位置，anchor 不可用时的兜底；缺失或 0 时从顶部开始（兼容旧会话） */

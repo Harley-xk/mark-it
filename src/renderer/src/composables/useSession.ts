@@ -52,6 +52,7 @@ export function useSession(): { flush: () => Promise<void> } {
           eol: doc.eol,
           bom: doc.bom,
           layoutMode: doc.layoutMode,
+          outlineVisible: doc.outlineVisible,
           scrollAnchor: scroll.anchor,
           scrollTop: scroll.top,
           previewScrollTop: previewScroll.top,
@@ -195,7 +196,8 @@ export function useSession(): { flush: () => Promise<void> } {
           doc.isModified,
           doc.cursorLine,
           doc.cursorCol,
-          doc.layoutMode
+          doc.layoutMode,
+          doc.outlineVisible
         ]),
       queueSave
     )

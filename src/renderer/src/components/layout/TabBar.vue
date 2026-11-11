@@ -45,7 +45,6 @@ function revealActiveTab(): void {
 
 const dragTabId = ref<string | null>(null)
 const dropBefore = ref<number | null>(null)
-const dragGhost = ref<{ name: string; x: number; y: number } | null>(null)
 let dragging = false
 let suppressClickUntil = 0
 let autoScrollFrame: number | null = null
@@ -142,15 +141,13 @@ function beginPointerDrag(session: NonNullable<typeof pointerSession>, e: Pointe
   dragTabId.value = session.docId
   dropBefore.value = null
   dragClientX = e.clientX
-  dragGhost.value = { name: doc.name, x: e.clientX + 12, y: e.clientY + 12 }
-  window.api.startTabDrag(doc.name)
+  window.api.startTabDrag(doc.name, app.resolvedTheme)
 }
 
 function resetPointerDrag(): void {
   dragging = false
   dragTabId.value = null
   dropBefore.value = null
-  dragGhost.value = null
   pointerSession = null
   stopAutoScroll()
 }
@@ -197,12 +194,6 @@ function onPointerMove(e: PointerEvent): void {
   e.preventDefault()
   dragClientX = e.clientX
   const inTitlebarZone = pointerInTabStrip(e)
-  const titlebarTop = scrollRef.value?.getBoundingClientRect().top ?? 0
-  dragGhost.value = {
-    name: docs.getDoc(session.docId)?.name ?? '',
-    x: e.clientX + 12,
-    y: inTitlebarZone ? titlebarTop + 3 : e.clientY + 12
-  }
   if (inTitlebarZone) {
     updateDropBefore(e.clientX)
     updateAutoScroll()
@@ -452,16 +443,6 @@ onBeforeUnmount(() => {
     <div class="drag-space"></div>
   </div>
 
-  <Teleport to="body">
-    <div
-      v-if="dragGhost"
-      class="tab-drag-ghost"
-      :style="{ left: `${dragGhost.x}px`, top: `${dragGhost.y}px` }"
-    >
-      <span>{{ dragGhost.name }}</span>
-    </div>
-  </Teleport>
-
   <!-- 右键菜单挂到 body：标题栏处于可拖动区域，菜单需要独立定位 -->
   <Teleport to="body">
     <div
@@ -693,38 +674,6 @@ onBeforeUnmount(() => {
 .tab-new:hover {
   background: rgba(255, 255, 255, 0.08);
   color: rgba(255, 255, 255, 0.9);
-}
-
-.tab-drag-ghost {
-  position: fixed;
-  z-index: 3500;
-  display: flex;
-  align-items: center;
-  max-width: 220px;
-  height: 30px;
-  padding: 0 12px;
-  border: 1px solid rgba(108, 155, 255, 0.36);
-  border-radius: 8px;
-  background: rgba(30, 38, 56, 0.94);
-  color: rgba(255, 255, 255, 0.9);
-  font-size: 12px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.32);
-  pointer-events: none;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.tab-drag-ghost span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-:global(.light) .tab-drag-ghost {
-  border-color: rgba(59, 130, 246, 0.28);
-  background: rgba(255, 255, 255, 0.96);
-  color: #253047;
-  box-shadow: 0 8px 24px rgba(48, 60, 86, 0.16);
 }
 
 /* ── 标签右键菜单 ── */

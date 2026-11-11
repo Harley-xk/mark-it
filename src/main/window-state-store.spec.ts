@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { parseWindowStateFile, placeWindowOnWorkArea } from './window-state-store'
+import {
+  centerWindowOnWorkArea,
+  parseWindowStateFile,
+  placeWindowOnWorkArea
+} from './window-state-store'
 
 describe('多窗口几何状态', () => {
   it('应按释放点所在显示器放置新窗口并夹取到可用区域', () => {
@@ -8,6 +12,23 @@ describe('多窗口几何状态', () => {
       y: 500
     })
     expect(placed).toEqual({ width: 1280, height: 800, x: 1920, y: 100 })
+  })
+
+  it('应将新窗口居中放在触发窗口所在显示器', () => {
+    const placed = centerWindowOnWorkArea({ x: 1920, y: 0, width: 2560, height: 1440 }, 1040, 720)
+    expect(placed).toEqual({ width: 1040, height: 720, x: 2680, y: 360 })
+  })
+
+  it('应支持负坐标显示器并夹取到小尺寸工作区', () => {
+    expect(
+      centerWindowOnWorkArea({ x: -1600, y: -200, width: 1600, height: 900 }, 1040, 720)
+    ).toEqual({ width: 1040, height: 720, x: -1320, y: -110 })
+    expect(centerWindowOnWorkArea({ x: 0, y: 0, width: 640, height: 480 }, 1040, 720)).toEqual({
+      width: 640,
+      height: 480,
+      x: 0,
+      y: 0
+    })
   })
 
   it('应将旧版单窗口状态迁移给首个窗口', () => {

@@ -17,6 +17,7 @@ import {
 } from './update-channel'
 import { registerHandle, registerOn } from './ipc-guard'
 import { isSettingsWindowSender } from './settings-window'
+import { activateWindow, resolveWindowPlacement } from './window-placement'
 
 /**
  * apphub 应用管理平台更新通道。
@@ -425,23 +426,23 @@ function isUpdateWindowSender(contents: WebContents): boolean {
 }
 
 /** 打开（或聚焦）独立的更新详情窗口 */
-function openUpdateWindow(): void {
+function openUpdateWindow(sourceWindow?: BrowserWindow | null): void {
   if (updateWindow && !updateWindow.isDestroyed()) {
-    if (updateWindow.isMinimized()) updateWindow.restore()
-    updateWindow.show()
-    updateWindow.focus()
+    activateWindow(updateWindow)
     return
   }
 
-  updateWindow = new BrowserWindow({
+  const placement = resolveWindowPlacement(sourceWindow, {
     width: 560,
     height: 680,
     minWidth: 460,
-    minHeight: 520,
+    minHeight: 520
+  })
+  updateWindow = new BrowserWindow({
+    ...placement,
     show: false,
     frame: false,
     autoHideMenuBar: true,
-    center: true,
     backgroundColor: '#1c1c27',
     title: 'MarkIt 更新',
     webPreferences: {
@@ -450,7 +451,7 @@ function openUpdateWindow(): void {
     }
   })
 
-  updateWindow.once('ready-to-show', () => updateWindow?.show())
+  updateWindow.once('ready-to-show', () => activateWindow(updateWindow))
   updateWindow.on('closed', () => {
     updateWindow = null
   })
@@ -626,7 +627,9 @@ export function initAutoUpdater(
       isUpdateWindowSender(event.sender)
     return allowed ? requestInstallFromWindow() : false
   })
-  registerHandle('update:open-window', () => openUpdateWindow())
+  registerHandle('update:open-window', (event) => {
+    openUpdateWindow(BrowserWindow.fromWebContents(event.sender))
+  })
   // 更新窗口自己的关闭按钮：只接受更新详情窗口，其他窗口调用直接忽略。
   registerOn('update:close-window', (event) => {
     const win = BrowserWindow.fromWebContents(event.sender)

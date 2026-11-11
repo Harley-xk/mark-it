@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
 import type { ExportKind, ExportStatus, LayoutMode, PreviewWidthMode, ThemeMode } from '../types'
 import { LAYOUT_MODES, loadSavedLayoutMode, saveLayoutMode } from '../utils/layout-mode'
+import { loadSavedOutlineVisible, saveOutlineVisible } from '../utils/outline-visibility'
 import { useDocumentsStore } from './documents'
 
 function getSystemTheme(): 'light' | 'dark' {
@@ -45,7 +46,11 @@ export const useAppStore = defineStore('app', () => {
   )
   const themeMode = ref<ThemeMode>(loadSavedTheme())
   const systemIsDark = ref(getSystemTheme() === 'dark')
-  const showOutline = ref(localStorage.getItem('markit-show-outline') !== '0')
+  // 大纲显隐按标签保存；无激活标签的瞬间用最近一次使用的值兜底
+  const fallbackShowOutline = ref(loadSavedOutlineVisible())
+  const showOutline = computed<boolean>(
+    () => documents.activeDoc?.outlineVisible ?? fallbackShowOutline.value
+  )
   const outlineWidth = ref(loadClampedNumber('markit-outline-width', 220, 160, 500))
   const splitRatio = ref(loadClampedNumber('markit-split-ratio', 0.5, 0.3, 0.7))
   const previewWidthMode = ref<PreviewWidthMode>(loadSavedPreviewWidthMode())
@@ -86,7 +91,7 @@ export const useAppStore = defineStore('app', () => {
     if (event.storageArea && event.storageArea !== localStorage) return
     if (event.key !== null && !APP_STORAGE_KEYS.has(event.key)) return
     themeMode.value = loadSavedTheme()
-    showOutline.value = localStorage.getItem('markit-show-outline') !== '0'
+    fallbackShowOutline.value = loadSavedOutlineVisible()
     outlineWidth.value = loadClampedNumber('markit-outline-width', 220, 160, 500)
     splitRatio.value = loadClampedNumber('markit-split-ratio', 0.5, 0.3, 0.7)
     previewWidthMode.value = loadSavedPreviewWidthMode()
@@ -98,9 +103,8 @@ export const useAppStore = defineStore('app', () => {
   })
   // markit-layout 记录最近一次使用的布局，作为新标签与旧会话的兜底
   watch(layoutMode, saveLayoutMode)
-  watch(showOutline, (v) => {
-    localStorage.setItem('markit-show-outline', v ? '1' : '0')
-  })
+  // markit-show-outline 记录最近一次使用的大纲显隐，作为新标签与旧会话的兜底
+  watch(showOutline, saveOutlineVisible)
   watch(outlineWidth, (w) => {
     localStorage.setItem('markit-outline-width', String(w))
   })
@@ -134,8 +138,15 @@ export const useAppStore = defineStore('app', () => {
     themeMode.value = modes[(idx + 1) % modes.length]
   }
 
+  function setOutlineVisible(visible: boolean): void {
+    fallbackShowOutline.value = visible
+    if (documents.activeDoc) {
+      documents.setOutlineVisible(documents.activeDoc.id, visible)
+    }
+  }
+
   function toggleOutline(): void {
-    showOutline.value = !showOutline.value
+    setOutlineVisible(!showOutline.value)
   }
 
   function setSessionSaveFailed(failed: boolean): void {
@@ -181,6 +192,7 @@ export const useAppStore = defineStore('app', () => {
     showPreview,
     setLayoutMode,
     cycleLayout,
+    setOutlineVisible,
     setThemeMode,
     cycleTheme,
     toggleOutline,

@@ -100,6 +100,71 @@ test('布局模式按标签独立保存并在重启后恢复', async () => {
   }
 })
 
+test('大纲显隐按标签独立保存并在重启后恢复', async () => {
+  test.skip(!existsSync(appEntry), '请先执行 npm run build 生成 out/main/index.js')
+
+  const workDir = mkdtempSync(join(tmpdir(), 'markit-e2e-outline-'))
+  const userDataDir = mkdtempSync(join(tmpdir(), 'markit-e2e-outline-user-'))
+  const firstPath = join(workDir, 'outline-first.md')
+  const secondPath = join(workDir, 'outline-second.md')
+  writeFileSync(firstPath, '# 第一个文档\n', 'utf-8')
+  writeFileSync(secondPath, '# 第二个文档\n', 'utf-8')
+
+  const launchOptions = {
+    args: ['.', `--user-data-dir=${userDataDir}`, firstPath, secondPath],
+    cwd: projectRoot,
+    env: getLaunchEnv()
+  }
+
+  const app = await electron.launch(launchOptions)
+  try {
+    const window = await app.firstWindow()
+    const outlineButton = window.locator('.tb-btn[title="大纲 (Ctrl+Shift+O)"]')
+    await expect(window.locator('.tab-name', { hasText: 'outline-second.md' })).toBeVisible()
+
+    // 第二个标签隐藏大纲
+    await expect(outlineButton).toHaveClass(/active/)
+    await expect(window.locator('.outline-panel')).toBeVisible()
+    await outlineButton.click()
+    await expect(outlineButton).not.toHaveClass(/active/)
+    await expect(window.locator('.outline-panel')).toHaveCount(0)
+
+    // 第一个标签保持自己的默认显示状态
+    await window.locator('.tab-name', { hasText: 'outline-first.md' }).click()
+    await expect(outlineButton).toHaveClass(/active/)
+    await expect(window.locator('.outline-panel')).toBeVisible()
+
+    // 切回第二个标签，显隐跟随标签而不是沿用上一个标签
+    await window.locator('.tab-name', { hasText: 'outline-second.md' }).click()
+    await expect(outlineButton).not.toHaveClass(/active/)
+    await expect(window.locator('.outline-panel')).toHaveCount(0)
+
+    // 等待会话防抖写入后再关闭，验证跨重启恢复
+    await window.waitForTimeout(1200)
+  } finally {
+    await app.close()
+  }
+
+  const restored = await electron.launch(launchOptions)
+  try {
+    const window = await restored.firstWindow()
+    const outlineButton = window.locator('.tb-btn[title="大纲 (Ctrl+Shift+O)"]')
+    await expect(window.locator('.tab-name', { hasText: 'outline-second.md' })).toBeVisible()
+
+    // 激活标签为第二个，应恢复隐藏
+    await expect(outlineButton).not.toHaveClass(/active/)
+    await expect(window.locator('.outline-panel')).toHaveCount(0)
+
+    await window.locator('.tab-name', { hasText: 'outline-first.md' }).click()
+    await expect(outlineButton).toHaveClass(/active/)
+    await expect(window.locator('.outline-panel')).toBeVisible()
+  } finally {
+    await restored.close()
+    rmSync(workDir, { recursive: true, force: true })
+    rmSync(userDataDir, { recursive: true, force: true })
+  }
+})
+
 test('重启后恢复编辑区与预览区的滚动位置', async () => {
   test.skip(!existsSync(appEntry), '请先执行 npm run build 生成 out/main/index.js')
 

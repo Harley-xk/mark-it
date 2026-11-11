@@ -78,6 +78,18 @@ export function placeWindowOnWorkArea(
   }
 }
 
+/** 将窗口居中放在指定显示器可用区域内，并夹取到工作区尺寸 */
+export function centerWindowOnWorkArea(
+  workArea: WorkArea,
+  preferredWidth: number,
+  preferredHeight: number
+): { width: number; height: number; x: number; y: number } {
+  return placeWindowOnWorkArea(workArea, preferredWidth, preferredHeight, {
+    x: workArea.x + workArea.width / 2,
+    y: workArea.y + workArea.height / 2
+  })
+}
+
 /**
  * 解析窗口状态文件。
  * 旧版单窗口对象会迁移给调用方指定的首个窗口；损坏切片被丢弃。
