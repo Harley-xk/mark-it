@@ -170,6 +170,17 @@ async function writeFileAtomic(targetPath: string, content: string): Promise<voi
   }
 }
 
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | null = null
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), timeoutMs)
+  })
+
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timer) clearTimeout(timer)
+  })
+}
+
 function persistSessionFile(): void {
   sessionFileData.windows = Array.from(sessionWindows, ([id, data]) => ({ id, ...data }))
   sessionFileData.lastFocusedWindowId = lastFocusedWindowId ?? undefined
@@ -1416,6 +1427,9 @@ const PDF_LAYOUT_TIMEOUT_MS = 1500
 const PDF_HTML_MAX_BYTES = 64 * 1024 * 1024
 /** 长图等待网络图片、字体与布局稳定的兜底上限 */
 const IMAGE_LAYOUT_TIMEOUT_MS = 4000
+const IMAGE_LOAD_TIMEOUT_MS = 30_000
+const IMAGE_INSPECT_TIMEOUT_MS = 10_000
+const IMAGE_CAPTURE_TIMEOUT_MS = 60_000
 /** 长图自包含 HTML 与 PDF 使用同一保守体积上限 */
 const IMAGE_HTML_MAX_BYTES = 64 * 1024 * 1024
 
@@ -1440,6 +1454,42 @@ function buildImageDefaultPath(
   if (!sourcePath) return base
   const dir = dirname(sourcePath)
   return dir && dir !== '.' ? join(dir, base) : base
+}
+
+interface ImagePageSize {
+  width: number
+  height: number
+}
+
+const IMAGE_PAGE_MEASURE_SCRIPT = `(() => {
+  const page = document.querySelector('.image-export-page')
+  const rect = page ? page.getBoundingClientRect() : null
+  return {
+    width: Math.ceil(rect ? rect.width : document.documentElement.scrollWidth),
+    height: Math.ceil(Math.max(
+      document.documentElement.scrollHeight,
+      document.body.scrollHeight,
+      rect ? rect.height : 0
+    ))
+  }
+})()`
+const IMAGE_WAIT_FRAMES_SCRIPT =
+  'new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))'
+
+async function measureImageExportPage(win: BrowserWindow): Promise<ImagePageSize> {
+  return withTimeout(
+    win.webContents.executeJavaScript(IMAGE_PAGE_MEASURE_SCRIPT) as Promise<ImagePageSize>,
+    IMAGE_INSPECT_TIMEOUT_MS,
+    '图片导出页面测量超时'
+  )
+}
+
+async function waitForImageExportLayout(win: BrowserWindow): Promise<void> {
+  await withTimeout(
+    win.webContents.executeJavaScript(IMAGE_WAIT_FRAMES_SCRIPT) as Promise<void>,
+    IMAGE_INSPECT_TIMEOUT_MS,
+    '图片导出页面布局超时'
+  )
 }
 
 registerHandle(
@@ -1593,12 +1643,15 @@ registerHandle(
       }
     })
     const tempHtmlPath = join(app.getPath('temp'), `markit-image-${randomUUID()}.html`)
-    let debuggerAttached = false
 
     try {
       await writeFile(tempHtmlPath, html, 'utf-8')
       reportProgress(15, '加载页面')
-      await imageWin.loadFile(tempHtmlPath)
+      await withTimeout(
+        imageWin.loadFile(tempHtmlPath),
+        IMAGE_LOAD_TIMEOUT_MS,
+        '图片导出页面加载超时'
+      )
       reportProgress(30, '等待图片与字体')
 
       const layoutReady = imageWin.webContents
@@ -1629,64 +1682,46 @@ registerHandle(
       ])
 
       reportProgress(45, '测量版面')
-      const size = (await imageWin.webContents.executeJavaScript(
-        `(() => {
-          const page = document.querySelector('.image-export-page')
-          const rect = page ? page.getBoundingClientRect() : null
-          return {
-            width: Math.ceil(rect ? rect.width : document.documentElement.scrollWidth),
-            height: Math.ceil(Math.max(
-              document.documentElement.scrollHeight,
-              document.body.scrollHeight,
-              rect ? rect.height : 0
-            ))
-          }
-        })()`
-      )) as { width: number; height: number }
+      let size = await measureImageExportPage(imageWin)
 
       const scale = resolveImageCaptureScale(size.width, size.height, requestedScale)
       reportProgress(60, '生成图片')
-      const debuggerClient = imageWin.webContents.debugger
-      if (!debuggerClient.isAttached()) {
-        debuggerClient.attach('1.3')
-        debuggerAttached = true
+      imageWin.webContents.setZoomFactor(scale)
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        imageWin.setContentSize(Math.ceil(size.width * scale), Math.ceil(size.height * scale))
+        await waitForImageExportLayout(imageWin)
+        size = await measureImageExportPage(imageWin)
       }
-      await debuggerClient.sendCommand('Page.enable')
-      const screenshot = (await debuggerClient.sendCommand(
-        'Page.captureScreenshot',
-        format === 'jpeg'
-          ? {
-              format: 'jpeg',
-              quality: 92,
-              fromSurface: true,
-              captureBeyondViewport: true,
-              clip: {
-                x: 0,
-                y: 0,
-                width: size.width,
-                height: size.height,
-                scale
-              }
-            }
-          : {
-              format: 'png',
-              fromSurface: true,
-              captureBeyondViewport: true,
-              clip: {
-                x: 0,
-                y: 0,
-                width: size.width,
-                height: size.height,
-                scale
-              }
-            }
-      )) as { data?: string }
 
-      if (!screenshot.data) {
-        throw new Error('Chromium 未返回图片数据')
+      const expectedWidth = Math.ceil(size.width * scale)
+      const expectedHeight = Math.ceil(size.height * scale)
+      const [contentWidth, contentHeight] = imageWin.getContentSize()
+      if (expectedWidth > contentWidth || expectedHeight > contentHeight) {
+        throw new Error('图片导出窗口无法容纳完整长图，请缩短文档或降低导出倍率后重试')
       }
+
+      const screenshot = await withTimeout(
+        imageWin.webContents.capturePage(),
+        IMAGE_CAPTURE_TIMEOUT_MS,
+        '图片生成超时，请缩短文档或降低导出倍率后重试'
+      )
+      const capturedSize = screenshot.getSize()
+      if (capturedSize.width < expectedWidth || capturedSize.height < expectedHeight) {
+        throw new Error('图片截图未覆盖完整页面，请缩短文档或降低导出倍率后重试')
+      }
+
+      const output =
+        capturedSize.width === expectedWidth && capturedSize.height === expectedHeight
+          ? screenshot
+          : screenshot.resize({
+              width: expectedWidth,
+              height: expectedHeight,
+              quality: 'best'
+            })
+      const imageData = format === 'jpeg' ? output.toJPEG(92) : output.toPNG()
+
       reportProgress(85, '写入文件')
-      await writeFile(outputPath, Buffer.from(screenshot.data, 'base64'))
+      await writeFile(outputPath, imageData)
       reportProgress(100, '完成')
       return createImageExportResult(
         outputPath,
@@ -1701,13 +1736,6 @@ registerHandle(
       dialog.showErrorBox('图片导出失败', message)
       throw err
     } finally {
-      if (debuggerAttached && imageWin.webContents.debugger.isAttached()) {
-        try {
-          imageWin.webContents.debugger.detach()
-        } catch (err) {
-          console.warn('Failed to detach image export debugger:', err)
-        }
-      }
       if (!imageWin.isDestroyed()) imageWin.destroy()
       await rm(tempHtmlPath, { force: true }).catch((err) => {
         console.error('Failed to remove image export temp file:', tempHtmlPath, err)
