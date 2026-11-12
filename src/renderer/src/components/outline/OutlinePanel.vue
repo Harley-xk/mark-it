@@ -24,7 +24,9 @@ function flattenHeadings(items: HeadingItem[]): FlatHeading[] {
 }
 
 function scrollToHeading(h: FlatHeading): void {
-  const el = document.getElementById(h.id)
+  // 多个预览层可能都带有 heading-N：必须先限定在当前激活的预览层内查找，
+  // 否则 document.getElementById 可能命中隐藏层，滚到错误的文档位置
+  const el = editorStore.previewContent?.querySelector(`#${h.id}`) ?? document.getElementById(h.id)
   if (el) {
     el.scrollIntoView({ behavior: 'smooth', block: 'start' })
     return

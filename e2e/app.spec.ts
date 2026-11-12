@@ -643,3 +643,55 @@ test('标签页可以拖拽排序并在重启后保持顺序', async () => {
     rmSync(userDataDir, { recursive: true, force: true })
   }
 })
+
+test('切换标签复用预览层并保留滚动位置', async () => {
+  test.skip(!existsSync(appEntry), '请先执行 npm run build 生成 out/main/index.js')
+
+  const workDir = mkdtempSync(join(tmpdir(), 'markit-e2e-preview-'))
+  const userDataDir = mkdtempSync(join(tmpdir(), 'markit-e2e-preview-user-'))
+  const longPath = join(workDir, 'preview-long.md')
+  const shortPath = join(workDir, 'preview-short.md')
+  const sections = Array.from({ length: 200 }, (_, index) => `## 第 ${index} 节\n\n内容 ${index}\n`)
+  writeFileSync(longPath, `# 长文档\n\n${sections.join('\n')}`, 'utf-8')
+  writeFileSync(shortPath, '# 短文档\n\n短文档正文\n', 'utf-8')
+
+  const app = await electron.launch({
+    args: ['.', `--user-data-dir=${userDataDir}`, longPath, shortPath],
+    cwd: projectRoot,
+    env: getLaunchEnv()
+  })
+  try {
+    const window = await app.firstWindow()
+    const activePreview = window.locator(
+      '.markit-preview-layer:not([aria-hidden]) .preview-content'
+    )
+
+    await expect(activePreview).toContainText('短文档正文')
+
+    await window.locator('.tab-name', { hasText: 'preview-long.md' }).click()
+    await expect(activePreview).toContainText('第 199 节')
+
+    // 两个标签各保留一个预览层，且只有一个处于激活状态
+    await expect(window.locator('.markit-preview-layer')).toHaveCount(2)
+    await expect(window.locator('.markit-preview-layer[aria-hidden="true"]')).toHaveCount(1)
+
+    await window.locator('.preview-container').evaluate((el) => {
+      el.scrollTop = 3000
+    })
+    const before = await window.locator('.preview-container').evaluate((el) => el.scrollTop)
+    expect(before).toBeGreaterThan(0)
+
+    await window.locator('.tab-name', { hasText: 'preview-short.md' }).click()
+    await expect(activePreview).toContainText('短文档正文')
+
+    await window.locator('.tab-name', { hasText: 'preview-long.md' }).click()
+    await expect(activePreview).toContainText('第 199 节')
+
+    const after = await window.locator('.preview-container').evaluate((el) => el.scrollTop)
+    expect(Math.abs(after - before)).toBeLessThan(20)
+  } finally {
+    await app.close()
+    rmSync(workDir, { recursive: true, force: true })
+    rmSync(userDataDir, { recursive: true, force: true })
+  }
+})

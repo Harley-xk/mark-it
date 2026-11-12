@@ -4,7 +4,7 @@
  *
  * 描述: 预览表格列宽拖动：注入表头手柄，并在每次 v-html 重渲染后恢复列宽
  */
-import { onBeforeUnmount, type Ref } from 'vue'
+import { onBeforeUnmount } from 'vue'
 import { useDocumentsStore } from '../stores/documents'
 import { useTableWidthsStore } from '../stores/table-widths'
 import { normalizePath } from '../utils/path'
@@ -40,7 +40,7 @@ interface DragState {
   changed: boolean
 }
 
-export function usePreviewTableResize(previewRef: Ref<HTMLDivElement | undefined>): {
+export function usePreviewTableResize(getRoot: () => HTMLElement | null): {
   apply: () => void
 } {
   const documents = useDocumentsStore()
@@ -60,7 +60,7 @@ export function usePreviewTableResize(previewRef: Ref<HTMLDivElement | undefined
   }
 
   function tableElements(): HTMLTableElement[] {
-    const root = previewRef.value?.querySelector<HTMLElement>('.preview-content')
+    const root = getRoot()
     if (!root) return []
     return Array.from(root.querySelectorAll<HTMLTableElement>('table')).filter(
       (table) =>

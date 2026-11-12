@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch, onMounted, onBeforeUnmount, onUnmounted, nextTick } from 'vue'
+import { useDocumentsStore, type DocumentTab } from '../../stores/documents'
 import { useEditorStore } from '../../stores/editor'
-import { useDocumentsStore } from '../../stores/documents'
 import { useAppStore } from '../../stores/app'
 import { useStyleStore } from '../../stores/style'
 import { useSearchStore } from '../../stores/search'
@@ -14,7 +14,11 @@ import {
   getDiagramTheme,
   type DiagramThemeTokens
 } from '../../utils/diagram-theme'
-import { renderDiagramSvg, type DiagramEngine } from '../../utils/diagram-renderer'
+import {
+  renderDiagramSvg,
+  type DiagramEngine,
+  type DiagramRenderResult
+} from '../../utils/diagram-renderer'
 import { parseFrontmatter, renderFrontmatterTable } from '../../utils/frontmatter'
 import { saveDiagram, serializeSvg } from '../../utils/diagram-export'
 import { installLocalImageRule, resolveImageSrc, resolveLocalPath } from '../../utils/local-image'
@@ -22,17 +26,41 @@ import { installHeadingAnchors } from '../../utils/headings'
 import { installLinkTitles } from '../../utils/link-title'
 import { createMarkdownRenderer } from '../../utils/markdown'
 import { collectPreviewRanges } from '../../utils/search'
+import { LruCache } from '../../utils/lru-cache'
 import SearchPanel from '../common/SearchPanel.vue'
 import DiagramPreviewModal from './DiagramPreviewModal.vue'
 
-const editorStore = useEditorStore()
+/** 单个标签的预览渲染结果；路径参与校验，因为相对图片在渲染时已解析为绝对地址 */
+interface CachedPreviewHtml {
+  content: string
+  path: string | null
+  html: string
+}
+
+/** 图表缓存条目额外记录渲染时使用的 diagramId，复用时据此替换成新的唯一 id */
+interface CachedDiagramSvg extends DiagramRenderResult {
+  diagramId: string
+}
+
+/**
+ * 预览组件在布局切换时会被卸载重挂，缓存放在模块级才能跨实例复用。
+ * 容量按「文档数」「图表数」限制，避免长文档的 HTML 字符串无限累积。
+ */
+const htmlCache = new LruCache<string, CachedPreviewHtml>(6)
+const diagramCache = new LruCache<string, CachedDiagramSvg>(32)
+
+/** 正文输入到预览重渲染的合并窗口；切换标签不受此限制 */
+const RENDER_DEBOUNCE_MS = 150
+
 const documentsStore = useDocumentsStore()
+const editorStore = useEditorStore()
 const appStore = useAppStore()
 const styleStore = useStyleStore()
 const search = useSearchStore()
 const { suspendSync, registerPreview, unregisterPreview } = useScrollSync()
 const previewRef = ref<HTMLDivElement>()
-const { apply: applyTableWidths } = usePreviewTableResize(previewRef)
+const spacerRef = ref<HTMLDivElement>()
+const { apply: applyTableWidths } = usePreviewTableResize(() => previewContentEl())
 let unregisterScrollCapture: (() => void) | null = null
 
 const isDark = computed(() => appStore.resolvedTheme === 'dark')
@@ -49,17 +77,226 @@ const md = createMarkdownRenderer({ typographer: true })
 installLocalImageRule(md, () => documentsStore.activeDoc?.path)
 
 // 为标题赋予与大纲解析器（useOutline、parseHeadings）一致的顺序锚点 id
-// （heading-0, heading-1, ...），大纲面板点击时通过 document.getElementById 定位滚动
+// （heading-0, heading-1, ...），大纲面板点击时在当前激活层的 previewContent 内定位
 installHeadingAnchors(md)
 
 // 悬停链接时由浏览器原生提示显示完整地址（含自动识别的裸网址）
 installLinkTitles(md)
 
-const renderedHtml = computed(() => {
-  const { entries, body } = parseFrontmatter(editorStore.content)
+/**
+ * 每个访问过的标签保留一个预览层：
+ * 层始终挂在滚动容器里，切换标签只切换 transform，不重建 DOM，
+ * 因此切回大文档时不会重新解析 HTML、也不会重新布局整篇内容。
+ * 不用 visibility：它是继承属性，切换会触发整棵子树（上万节点）的样式重算。
+ */
+interface PreviewLayer {
+  docId: string
+  /** 绝对定位的外层，负责内边距与整体高度 */
+  element: HTMLElement
+  /** 渲染 HTML 的容器；表格列宽、搜索范围都以它为根 */
+  content: HTMLElement
+  /** 当前 DOM 对应的正文 */
+  source: string
+  /** 渲染时的文档路径（相对图片已按此解析） */
+  path: string | null
+  /** 图表按哪一版主题渲染；与当前主题不同才需要重绘 */
+  themeRevision: number
+  /** 最近一次激活的序号，用于淘汰最久未使用的层 */
+  touchedAt: number
+}
+
+/** 同时保留的预览层数量：兼顾切换命中率与常驻 DOM 的内存占用 */
+const MAX_PREVIEW_LAYERS = 3
+
+const layers = new Map<string, PreviewLayer>()
+let activeLayer: PreviewLayer | null = null
+let layerTouchSeq = 0
+let layerResizeObserver: ResizeObserver | null = null
+/** 主题 / 预览样式的版本号：变化后需要按新主题重绘图表 */
+let themeRevision = 0
+
+function previewContentEl(): HTMLElement | null {
+  return activeLayer?.content ?? null
+}
+
+/** 取该标签的预览 HTML：内容与路径都没变时直接复用上次渲染结果 */
+function previewHtmlFor(doc: DocumentTab): string {
+  const cached = htmlCache.get(doc.id)
+  if (cached && cached.content === doc.content && cached.path === doc.path) return cached.html
+
+  const { entries, body } = parseFrontmatter(doc.content)
   // frontmatter 不再作为 YAML 文本渲染，改为顶部的文档信息表格
   const frontmatter = entries.length > 0 ? renderFrontmatterTable(entries) : ''
-  return frontmatter + md.render(body)
+  const html = frontmatter + md.render(body)
+  htmlCache.set(doc.id, { content: doc.content, path: doc.path, html })
+  return html
+}
+
+function fillLayer(layer: PreviewLayer, doc: DocumentTab): void {
+  layer.content.innerHTML = previewHtmlFor(doc)
+  layer.source = doc.content
+  layer.path = doc.path
+}
+
+function createLayer(doc: DocumentTab): PreviewLayer | null {
+  const container = previewRef.value
+  if (!container) return null
+  const element = document.createElement('div')
+  element.className = 'markit-preview-layer'
+  const content = document.createElement('div')
+  content.className = 'preview-content markdown-body'
+  content.style.maxWidth = contentStyle.value.maxWidth
+  // 可编程聚焦：隐藏层里的链接获得焦点时把焦点拉回当前层
+  content.tabIndex = -1
+  element.appendChild(content)
+  container.appendChild(element)
+
+  const layer: PreviewLayer = {
+    docId: doc.id,
+    element,
+    content,
+    source: '',
+    path: null,
+    themeRevision: -1,
+    touchedAt: 0
+  }
+  // 先隐藏，等确认它成为激活层后再移回视口，避免切换瞬间新层闪一下
+  hideLayer(layer)
+  fillLayer(layer, doc)
+  layers.set(doc.id, layer)
+  return layer
+}
+
+/**
+ * 隐藏非激活层：移出视口而不是改 visibility。
+ * transform 不影响后代元素的样式，切换时不会触发整棵子树重算。
+ * 注意不要用 inert / visibility：它们会让 Chromium 重算整层（上万个元素）的样式。
+ * 隐藏层里仍可聚焦的链接由 onPreviewFocusIn 拉回当前层。
+ */
+function hideLayer(layer: PreviewLayer): void {
+  layer.element.style.transform = 'translateX(-200%)'
+  layer.element.setAttribute('aria-hidden', 'true')
+}
+
+function showLayer(layer: PreviewLayer): void {
+  layer.element.style.transform = ''
+  layer.element.removeAttribute('aria-hidden')
+}
+
+/**
+ * 焦点落进非激活层时（隐藏层里的链接仍可被 Tab 命中），
+ * 立即拉回当前层，避免浏览器把视口滚到屏幕外的内容。
+ */
+function onPreviewFocusIn(event: FocusEvent): void {
+  if (!activeLayer) return
+  const target = event.target
+  if (!(target instanceof Node) || activeLayer.element.contains(target)) return
+  activeLayer.content.focus({ preventScroll: true })
+  const container = previewRef.value
+  if (container) container.scrollLeft = 0
+}
+
+/** 滚动容器的高度由占位元素提供（层是绝对定位，不参与流式布局） */
+function updateSpacer(): void {
+  const spacer = spacerRef.value
+  if (!spacer) return
+  spacer.style.height = activeLayer ? `${activeLayer.element.offsetHeight}px` : '0px'
+}
+
+/** 图片、图表、字体加载完成后层高会变化，用观察器同步占位元素 */
+function observeActiveLayer(): void {
+  if (typeof ResizeObserver === 'undefined') return
+  layerResizeObserver ??= new ResizeObserver(() => updateSpacer())
+  layerResizeObserver.disconnect()
+  if (activeLayer) layerResizeObserver.observe(activeLayer.element)
+}
+
+/** 清理已关闭标签的层，并按最近使用淘汰超出上限的层 */
+function pruneLayers(): void {
+  const liveIds = new Set(documentsStore.docs.map((doc) => doc.id))
+  for (const [id, layer] of layers) {
+    if (layer === activeLayer || liveIds.has(id)) continue
+    layer.element.remove()
+    layers.delete(id)
+  }
+
+  while (layers.size > MAX_PREVIEW_LAYERS) {
+    let victim: PreviewLayer | null = null
+    for (const layer of layers.values()) {
+      if (layer === activeLayer) continue
+      if (!victim || layer.touchedAt < victim.touchedAt) victim = layer
+    }
+    if (!victim) break
+    victim.element.remove()
+    layers.delete(victim.docId)
+  }
+}
+
+/** 把激活文档切到它自己的预览层；返回是否重建了该层的 DOM */
+function applyActiveLayer(): boolean {
+  cancelPendingRender()
+
+  const doc = documentsStore.activeDoc
+  if (!doc || !previewRef.value) {
+    if (activeLayer) {
+      hideLayer(activeLayer)
+      activeLayer = null
+    }
+    editorStore.setPreviewContent(null)
+    updateSpacer()
+    return false
+  }
+
+  let layer: PreviewLayer | null | undefined = layers.get(doc.id)
+  let rebuilt = false
+  if (!layer) {
+    layer = createLayer(doc)
+    rebuilt = true
+  } else if (layer.source !== doc.content || layer.path !== doc.path) {
+    fillLayer(layer, doc)
+    rebuilt = true
+  }
+  if (!layer) return false
+
+  if (layer !== activeLayer) {
+    if (activeLayer) hideLayer(activeLayer)
+    showLayer(layer)
+    activeLayer = layer
+    editorStore.setPreviewContent(layer.content)
+    observeActiveLayer()
+  }
+
+  layer.touchedAt = ++layerTouchSeq
+  updateSpacer()
+  pruneLayers()
+  return rebuilt
+}
+
+let pendingRenderTimer: ReturnType<typeof setTimeout> | null = null
+
+function cancelPendingRender(): void {
+  if (pendingRenderTimer === null) return
+  clearTimeout(pendingRenderTimer)
+  pendingRenderTimer = null
+}
+
+/** 正文变化后合并渲染，避免每个字符都整篇重算 */
+function scheduleDocumentRender(): void {
+  cancelPendingRender()
+  pendingRenderTimer = setTimeout(() => {
+    pendingRenderTimer = null
+    if (applyActiveLayer()) void schedulePostRender()
+  }, RENDER_DEBOUNCE_MS)
+}
+
+watch(() => documentsStore.activeDoc?.content, scheduleDocumentRender)
+
+// 关闭标签（含批量关闭其他标签）后及时释放对应的预览层
+watch(() => documentsStore.docs.length, pruneLayers)
+
+// 预览宽度变化时同步到所有保留的层
+watch(contentStyle, (style) => {
+  for (const layer of layers.values()) layer.content.style.maxWidth = style.maxWidth
 })
 
 const EXTERNAL_LINK = /^(?:https?|mailto):/i
@@ -68,7 +305,21 @@ const LINK_SCHEME = /^[a-zA-Z][a-zA-Z0-9+.-]*:/
 const WINDOWS_DRIVE_PATH = /^[a-zA-Z]:[\\/]/
 
 /**
- * 预览区链接点击分流：页内锚点保持浏览器原生跳转；
+ * 页内锚点在当前预览层内解析。
+ * 多个标签的预览层会同时带有 heading-N 等 id，原生 #id 跳转可能命中隐藏层。
+ */
+function scrollToPreviewAnchor(rawId: string): void {
+  const id = decodeURIComponent(rawId)
+  if (!id) {
+    previewRef.value?.scrollTo({ top: 0, behavior: 'smooth' })
+    return
+  }
+  const target = previewContentEl()?.querySelector(`#${CSS.escape(id)}`)
+  target?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
+/**
+ * 预览区链接点击分流：页内锚点在当前预览层内跳转；
  * 网络链接交给默认浏览器；本地文件链接在资源管理器中定位，无法定位则不处理。
  * 其余协议（ftp、tel、javascript 等）一律忽略，避免编辑窗口被导航走。
  */
@@ -79,7 +330,13 @@ function handlePreviewLinkClick(event: MouseEvent): void {
   if (!(anchor instanceof HTMLAnchorElement)) return
 
   const href = anchor.getAttribute('href')?.trim()
-  if (!href || href.startsWith('#')) return
+  if (!href) return
+
+  if (href.startsWith('#')) {
+    event.preventDefault()
+    scrollToPreviewAnchor(href.slice(1))
+    return
+  }
 
   event.preventDefault()
 
@@ -360,9 +617,9 @@ function createDiagramView(
   return wrapper
 }
 
-/** 兼容 Markdown 内嵌 HTML 的 <img src>：v-html 渲染后统一改写相对路径 */
+/** 兼容 Markdown 内嵌 HTML 的 <img src>：渲染后统一改写相对路径 */
 function resolveHtmlImages(): void {
-  const content = previewRef.value?.querySelector('.preview-content')
+  const content = previewContentEl()
   if (!content) return
   const docPath = documentsStore.activeDoc?.path
   for (const img of content.querySelectorAll('img')) {
@@ -375,31 +632,51 @@ function resolveHtmlImages(): void {
   }
 }
 
+function randomDiagramId(): string {
+  return `mermaid-${Math.random().toString(36).slice(2, 9)}`
+}
+
+/**
+ * 按「主题 + 字体 + 源码」复用图表 SVG。
+ * 复用时为 SVG 换一个新的 diagramId，避免同一文档里出现重复的 DOM id。
+ */
+async function renderDiagramCached(
+  source: string,
+  theme: DiagramThemeTokens,
+  fontFamily: string
+): Promise<DiagramRenderResult> {
+  const key = `${isDark.value ? 'dark' : 'light'}|${fontFamily}|${source}`
+  const cached = diagramCache.get(key)
+  const diagramId = randomDiagramId()
+  if (cached) {
+    return {
+      svg: cached.svg.split(cached.diagramId).join(diagramId),
+      engine: cached.engine,
+      diagramType: cached.diagramType
+    }
+  }
+
+  const result = await renderDiagramSvg(source, { diagramId, theme, fontFamily, fontSize: 16 })
+  diagramCache.set(key, { ...result, diagramId })
+  return result
+}
+
 async function renderDiagrams(): Promise<void> {
-  if (!previewRef.value) return
+  const content = previewContentEl()
+  if (!content) return
   // 旧图表会随预览内容一起被替换，先停止观察它们
   clearViewportObservers()
 
   const theme = diagramTheme.value
-  const content = previewContentEl()
-  const fontFamily = content
-    ? getComputedStyle(content).fontFamily
-    : '-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif'
+  const fontFamily = getComputedStyle(content).fontFamily
 
   // 主题切换时代码块已被替换成图表，需要按保存的源码重绘现有图表
-  const rendered = previewRef.value.querySelectorAll<HTMLElement>(
-    '.mermaid-diagram[data-diagram-source]'
-  )
+  const rendered = content.querySelectorAll<HTMLElement>('.mermaid-diagram[data-diagram-source]')
   for (const wrapper of rendered) {
     const source = wrapper.dataset.diagramSource ?? ''
     const language = wrapper.dataset.diagramLanguage ?? 'mermaid'
     try {
-      const result = await renderDiagramSvg(source, {
-        diagramId: `mermaid-${Math.random().toString(36).slice(2, 9)}`,
-        theme,
-        fontFamily,
-        fontSize: 16
-      })
+      const result = await renderDiagramCached(source, theme, fontFamily)
       wrapper.replaceWith(
         createDiagramView(result.svg, source, language, theme, fontFamily, result.engine)
       )
@@ -412,23 +689,17 @@ async function renderDiagrams(): Promise<void> {
     }
   }
 
-  const blocks = collectMermaidBlocks(previewRef.value)
+  const blocks = collectMermaidBlocks(content)
   if (blocks.length === 0) return
 
   for (const block of blocks) {
     const parent = block.parentElement
     if (!parent || parent.tagName !== 'PRE') continue
 
-    const id = `mermaid-${Math.random().toString(36).slice(2, 9)}`
     const code = block.textContent || ''
     const language = getMermaidLanguage(block) ?? 'mermaid'
     try {
-      const result = await renderDiagramSvg(code, {
-        diagramId: id,
-        theme,
-        fontFamily,
-        fontSize: 16
-      })
+      const result = await renderDiagramCached(code, theme, fontFamily)
       parent.replaceWith(
         createDiagramView(result.svg, code, language, theme, fontFamily, result.engine)
       )
@@ -447,8 +718,14 @@ async function renderDiagrams(): Promise<void> {
 let renderToken = 0
 let renderChain: Promise<void> = Promise.resolve()
 
-async function scheduleRender(): Promise<void> {
+/**
+ * DOM 稳定后的收尾：图片、表格列宽、图表、搜索范围。
+ * 调用方拿到的 promise 一定等到「链尾」——即本轮所有更新的渲染都结束，
+ * 切换标签的滚动恢复据此判断可以对齐。
+ */
+async function schedulePostRender(): Promise<void> {
   const token = ++renderToken
+  const revision = themeRevision
   await nextTick()
   renderChain = renderChain
     .then(async () => {
@@ -457,28 +734,40 @@ async function scheduleRender(): Promise<void> {
       resolveHtmlImages()
       applyTableWidths()
       await renderDiagrams()
+      // 记录该层图表所依据的主题版本，切回时据此判断是否需要重绘
+      if (activeLayer) activeLayer.themeRevision = revision
       // Mermaid / 图片 / 表格列宽渲染完成后 DOM 已稳定，重新收集搜索范围
       applyPreviewSearch(false)
+      // 图表与图片可能改变层高，同步滚动容器的占位高度
+      updateSpacer()
     })
     .catch((err) => {
       console.error('Diagram render failed:', err)
     })
-  await renderChain
-}
 
-watch(renderedHtml, () => {
-  void scheduleRender()
-})
+  // 等待期间可能又有新的渲染入链：继续等链尾，确保调用方看到的是最终结果
+  let waited: Promise<void>
+  do {
+    waited = renderChain
+    await waited
+  } while (waited !== renderChain)
+}
 
 // 主题或预览样式变化后，图表颜色与测量尺寸都可能变化，需要按当前主题重新渲染
 watch([isDark, currentCss], () => {
-  void scheduleRender()
+  themeRevision += 1
+  void schedulePostRender()
 })
 
-// 文档目录变化（切换标签 / 另存为）时，HTML <img> 需要按新目录重新解析
+// 文档目录变化时，HTML <img> 需要按新目录重新解析。
+// 切换标签也会改变路径，但目标层的图片在渲染时已按该路径解析过；
+// 只有同一标签另存为（层里的路径已过期）才需要重新处理。
 watch(
   () => documentsStore.activeDoc?.path,
   async () => {
+    const layer = activeLayer
+    if (!layer || layer.docId !== documentsStore.activeId) return
+    if (layer.path === documentsStore.activeDoc?.path) return
     await nextTick()
     resolveHtmlImages()
     // 文档路径变化后列宽存档的键随之改变，需要按新文档重新匹配
@@ -489,10 +778,6 @@ watch(
 /** 等待下一帧渲染完成（scroll 事件在帧内派发，用于延后解除联动屏蔽） */
 function nextFrame(): Promise<void> {
   return new Promise((resolve) => requestAnimationFrame(() => resolve()))
-}
-
-function previewContentEl(): HTMLElement | null {
-  return (previewRef.value?.querySelector('.preview-content') as HTMLElement | null) ?? null
 }
 
 // ── 搜索高亮（CSS Custom Highlight API） ──
@@ -654,6 +939,10 @@ watch(
   async (newId, oldId) => {
     // 关闭标签同样会改变 activeId，此时旧标签已移除，不必再记录位置
     if (oldId && documentsStore.getDoc(oldId)) savePreviewScroll(oldId)
+
+    // 切换到该标签自己的预览层：已渲染过的标签只切换显示状态，
+    // 同时取消正文输入遗留的防抖任务，避免旧内容覆盖新标签
+    const rebuilt = applyActiveLayer()
     if (!newId) return
 
     // 预览内容切换后会重新异步渲染（Mermaid、图片、表格列宽），高度在渲染
@@ -663,7 +952,14 @@ watch(
     try {
       await nextTick()
       restorePreviewScroll(newId)
-      await scheduleRender()
+      // 命中已渲染的层时不再重跑图片 / 表格 / 图表收尾：
+      // 它们已按该标签的路径与主题处理过，重复执行反而会触发整棵子树样式重算
+      if (rebuilt || (activeLayer && activeLayer.themeRevision !== themeRevision)) {
+        await schedulePostRender()
+      } else {
+        applyPreviewSearch(false)
+        updateSpacer()
+      }
       restorePreviewScroll(newId)
       // 程序化写入 scrollTop 触发的 scroll 事件在下一帧才派发；
       // 多等两帧再释放，避免恢复动作本身触发一次跨区联动
@@ -676,7 +972,8 @@ watch(
 )
 
 onMounted(async () => {
-  await scheduleRender()
+  applyActiveLayer()
+  await schedulePostRender()
   if (previewRef.value) {
     registerPreview(previewRef.value)
     // 写会话前把活跃标签的实时预览滚动位置刷回 store
@@ -697,6 +994,10 @@ onBeforeUnmount(() => {
 
 onUnmounted(() => {
   previewUnmounted = true
+  cancelPendingRender()
+  editorStore.setPreviewContent(null)
+  layerResizeObserver?.disconnect()
+  layerResizeObserver = null
   unregisterScrollCapture?.()
   unregisterScrollCapture = null
   unregisterPreview()
@@ -706,15 +1007,14 @@ onUnmounted(() => {
 
 <template>
   <div class="preview-wrapper">
-    <div ref="previewRef" class="preview-container">
-      <!-- eslint-disable-next-line vue/no-v-html -->
+    <div
+      ref="previewRef"
+      class="preview-container"
+      @click="handlePreviewLinkClick"
+      @focusin="onPreviewFocusIn"
+    >
       <component :is="'style'">{{ currentCss }}</component>
-      <div
-        class="preview-content markdown-body"
-        :style="contentStyle"
-        v-html="renderedHtml"
-        @click="handlePreviewLinkClick"
-      ></div>
+      <div ref="spacerRef" class="preview-spacer"></div>
     </div>
 
     <SearchPanel v-if="search.isOpen && search.surface === 'preview'" />
@@ -739,14 +1039,16 @@ onUnmounted(() => {
 }
 
 .preview-container {
+  position: relative;
   flex: 1;
+  overflow-x: hidden;
   overflow-y: auto;
-  padding: 32px 40px;
   background: rgba(255, 255, 255, 0.02);
 }
 
-.preview-content {
-  margin: 0 auto;
+/* 绝对定位的预览层不参与流式布局，由这个占位元素撑起滚动高度 */
+.preview-spacer {
+  width: 1px;
 }
 
 :global(.light .preview-container) {
@@ -806,5 +1108,21 @@ onUnmounted(() => {
 :deep(.markit-col-resizer:hover::after),
 :deep(.markit-col-resizer.dragging::after) {
   opacity: 0.35;
+}
+</style>
+
+<style>
+/* 预览层由脚本创建，没有 scoped 的 data-v 属性，因此放在全局样式里 */
+.markit-preview-layer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  box-sizing: border-box;
+  padding: 32px 40px;
+}
+
+.markit-preview-layer > .preview-content {
+  margin: 0 auto;
 }
 </style>

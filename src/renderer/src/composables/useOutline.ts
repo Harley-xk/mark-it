@@ -1,9 +1,16 @@
 import { watch } from 'vue'
 import { useEditorStore } from '../stores/editor'
-import { useDocumentsStore } from '../stores/documents'
+import { useDocumentsStore, type DocumentTab } from '../stores/documents'
 import { parseFrontmatter } from '../utils/frontmatter'
 import { parseHeadings } from '../utils/headings'
 import type { HeadingItem } from '../types'
+
+/**
+ * 每个标签最近一次生成大纲时对应的正文。
+ * 切换标签时内容没变就直接复用 DocumentTab.headings，避免整篇重新解析；
+ * WeakMap 以标签对象为键，标签关闭后自动释放。
+ */
+const headingSources = new WeakMap<DocumentTab, string>()
 
 export function useOutline(): void {
   const editorStore = useEditorStore()
@@ -49,12 +56,15 @@ export function useOutline(): void {
     return root
   }
 
-  // 同时跟踪内容与当前标签：切换标签时即使两个文档内容相同也要重新生成大纲
+  // 同时跟踪内容与当前标签：内容变化时重新解析，切换标签时命中缓存则直接复用
   watch(
     () => [docs.activeId, editorStore.content] as const,
     () => {
-      if (!docs.activeDoc) return
-      editorStore.setHeadings(extractHeadings(docs.activeDoc.content))
+      const doc = docs.activeDoc
+      if (!doc) return
+      if (headingSources.get(doc) === doc.content) return
+      editorStore.setHeadings(extractHeadings(doc.content))
+      headingSources.set(doc, doc.content)
     },
     { immediate: true }
   )

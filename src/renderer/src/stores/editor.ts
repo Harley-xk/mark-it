@@ -12,6 +12,8 @@ import { useDocumentsStore } from './documents'
 export const useEditorStore = defineStore('editor', () => {
   const documents = useDocumentsStore()
   const editorView = shallowRef<EditorView | null>(null)
+  // 当前标签的预览内容根节点：多预览层共存时，按 id / 锚点定位必须限定在这一层内
+  const previewContent = shallowRef<HTMLElement | null>(null)
 
   const content = computed(() => documents.activeDoc?.content ?? '')
   const cursorLine = computed(() => documents.activeDoc?.cursorLine ?? 1)
@@ -31,6 +33,10 @@ export const useEditorStore = defineStore('editor', () => {
     editorView.value = view
   }
 
+  function setPreviewContent(element: HTMLElement | null): void {
+    previewContent.value = element
+  }
+
   return {
     content,
     cursorLine,
@@ -38,8 +44,10 @@ export const useEditorStore = defineStore('editor', () => {
     wordCount,
     headings,
     editorView,
+    previewContent,
     setCursor,
     setHeadings,
-    setEditorView
+    setEditorView,
+    setPreviewContent
   }
 })
