@@ -97,6 +97,10 @@ let downloading = false
 let rollbackPending = false
 /** 回退流程进行中：阻止周期检测、普通检测与 Beta 开关干扰 */
 let rollbacking = false
+/** 编辑窗口右下角提示是否允许显示：由检测来源与更新详情窗口状态决定 */
+let noticeAllowed = true
+/** 当前检测是否来自设置页 / 更新详情窗口：其结果不在编辑窗口重复提示 */
+let quietCheck = false
 /** 偏好文件路径，首次使用时按 userData 计算（init 在 app ready 之后） */
 let preferenceFile = ''
 
@@ -108,6 +112,23 @@ function setState(patch: Partial<UpdateState>): void {
 function broadcast(): void {
   for (const win of BrowserWindow.getAllWindows()) {
     if (!win.isDestroyed()) win.webContents.send('update:state', state)
+  }
+}
+
+function isUpdateWindowOpen(): boolean {
+  return updateWindow !== null && !updateWindow.isDestroyed()
+}
+
+/**
+ * 统一下发「编辑窗口右下角提示是否可见」的策略。
+ * 设置页 / 更新窗口发起的检测结果由它们自己展示，更新详情窗口打开期间也不再重复提示。
+ */
+function setNoticeAllowed(allowed: boolean): void {
+  const next = allowed && !isUpdateWindowOpen()
+  if (next === noticeAllowed) return
+  noticeAllowed = next
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) win.webContents.send('update:notice-allowed', next)
   }
 }
 
@@ -201,12 +222,16 @@ function failRollback(message: string, isRollback = true): UpdateState {
 /**
  * 双通道检测：取两个通道中大于当前版本的最高版本，再让 electron-updater
  * 对该通道执行正式检测。只开单通道时保持原有的单 feed 行为。
+ * quiet 表示本次检测由设置页 / 更新详情窗口发起，结果不在编辑窗口弹提示。
  */
-async function checkForUpdates(): Promise<UpdateState> {
+async function checkForUpdates(quiet = false): Promise<UpdateState> {
   if (state.status === 'disabled') return state
   if (state.status === 'checking' || state.status === 'downloading') return state
   if (rollbacking) return state
 
+  // 必须先于 checking 广播下发，避免编辑窗口在结果到达前短暂弹出提示
+  quietCheck = quiet
+  setNoticeAllowed(!quiet)
   clearRollbackMode()
   setState({
     status: 'checking',
@@ -261,7 +286,7 @@ function finishCheck(): void {
   if (!recheckPending) return
   recheckPending = false
   if (downloading || state.status === 'downloading' || state.status === 'downloaded') return
-  void checkForUpdates()
+  void checkForUpdates(quietCheck)
 }
 
 /**
@@ -317,6 +342,10 @@ async function rollbackToStable(): Promise<UpdateState> {
     })
     return state
   }
+
+  // 回退入口在设置页，结果由设置页 / 更新详情窗口展示，不在编辑窗口提示
+  quietCheck = true
+  setNoticeAllowed(false)
 
   clearRollbackMode()
   recheckPending = false
@@ -427,6 +456,8 @@ function isUpdateWindowSender(contents: WebContents): boolean {
 
 /** 打开（或聚焦）独立的更新详情窗口 */
 function openUpdateWindow(sourceWindow?: BrowserWindow | null): void {
+  // 详情窗口接管更新界面：编辑窗口右下角提示立即隐藏，窗口打开期间不再重复弹出
+  setNoticeAllowed(false)
   if (updateWindow && !updateWindow.isDestroyed()) {
     activateWindow(updateWindow)
     return
@@ -609,8 +640,15 @@ export function initAutoUpdater(
   autoUpdater.autoInstallOnAppQuit = true
   bindEvents()
 
-  registerHandle('update:get-state', () => state)
-  registerHandle('update:check', () => checkForUpdates())
+  registerHandle('update:get-state', (event) => {
+    // 新建窗口在新帧即以当前策略同步提示可见性，避免先弹提示再被抑制
+    if (!event.sender.isDestroyed()) event.sender.send('update:notice-allowed', noticeAllowed)
+    return state
+  })
+  // 设置页 / 更新详情窗口发起的检测为静默检测：结果直接进入更新详情窗口，编辑窗口不弹提示
+  registerHandle('update:check', (event) =>
+    checkForUpdates(isSettingsWindowSender(event.sender) || isUpdateWindowSender(event.sender))
+  )
   registerHandle('update:download', () => downloadUpdate())
   registerHandle('update:set-beta-enabled', (_event, enabled: unknown) => {
     if (typeof enabled !== 'boolean') return state

@@ -216,7 +216,10 @@ const api = {
     /** 请求主进程协调全部编辑窗口保存后安装 */
     requestInstall: (): Promise<boolean> => ipcRenderer.invoke('update:request-install'),
     onState: (callback: (state: UpdateState) => void): (() => void) =>
-      subscribe('update:state', callback)
+      subscribe('update:state', callback),
+    /** 编辑窗口右下角提示是否允许显示（主进程按检测来源与更新窗口状态下发） */
+    onNoticeAllowed: (callback: (allowed: boolean) => void): (() => void) =>
+      subscribe('update:notice-allowed', callback)
   }
 }
 

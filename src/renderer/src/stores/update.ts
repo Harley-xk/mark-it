@@ -12,10 +12,13 @@ export const useUpdateStore = defineStore('update', () => {
   })
   /** 是否展示更新提示卡片（设置页始终展示状态，不依赖此值） */
   const showNotice = ref(false)
+  /** 主进程下发的提示可显示策略：设置页检测与更新窗口打开期间为 false */
+  const noticeAllowed = ref(true)
   /** 用户选择「跳过」的版本，同一版本不再自动弹出（进度事件会持续刷新状态） */
   const dismissedVersion = ref<string | null>(null)
   let initialized = false
   let offState: (() => void) | null = null
+  let offNoticeAllowed: (() => void) | null = null
 
   const isBusy = computed(
     () => state.value.status === 'checking' || state.value.status === 'downloading'
@@ -50,15 +53,22 @@ export const useUpdateStore = defineStore('update', () => {
     state.value = next
     const shouldNotice =
       next.status === 'available' || next.status === 'downloading' || next.status === 'downloaded'
-    if (shouldNotice && next.latestVersion !== dismissedVersion.value) {
+    if (shouldNotice && noticeAllowed.value && next.latestVersion !== dismissedVersion.value) {
       showNotice.value = true
     }
+  }
+
+  /** 跟随主进程策略：被抑制时立即隐藏已有提示，恢复时只解除抑制、不主动弹卡 */
+  function applyNoticeAllowed(allowed: boolean): void {
+    noticeAllowed.value = allowed
+    if (!allowed) showNotice.value = false
   }
 
   function init(): void {
     if (initialized) return
     initialized = true
     offState = window.api.update.onState(apply)
+    offNoticeAllowed = window.api.update.onNoticeAllowed(applyNoticeAllowed)
     window.api.update.getState().then(apply)
   }
 
@@ -66,6 +76,8 @@ export const useUpdateStore = defineStore('update', () => {
   function dispose(): void {
     offState?.()
     offState = null
+    offNoticeAllowed?.()
+    offNoticeAllowed = null
     initialized = false
   }
 
@@ -73,7 +85,10 @@ export const useUpdateStore = defineStore('update', () => {
     // 手动检测：清除「跳过」记录，有更新时重新提示
     dismissedVersion.value = null
     apply(await window.api.update.check())
-    if (state.value.status === 'available' || state.value.status === 'downloading') {
+    if (
+      noticeAllowed.value &&
+      (state.value.status === 'available' || state.value.status === 'downloading')
+    ) {
       showNotice.value = true
     }
   }
@@ -106,8 +121,9 @@ export const useUpdateStore = defineStore('update', () => {
     return window.api.update.install()
   }
 
-  /** 打开更新详情窗口 */
+  /** 打开更新详情窗口：先隐藏本窗口提示，避免窗口出现后提示仍停留 */
   async function openWindow(): Promise<void> {
+    showNotice.value = false
     await window.api.update.openWindow()
   }
 
