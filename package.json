@@ -1,6 +1,6 @@
 {
   "name": "mark-it",
-  "version": "1.6.0-beta.11",
+  "version": "1.6.0-beta.12",
   "description": "MarkIt - 轻量 Markdown 编辑器",
   "main": "./out/main/index.js",
   "author": "witice.top",
