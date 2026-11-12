@@ -216,7 +216,7 @@ GitHub Release 是面向用户的长期下载入口。为了让用户直接区�
 | Windows x64 | `mark-it-<version>-windows-x64-setup.exe`（+ `.blockmap`） |
 | macOS x64 | `mark-it-<version>-macos-x64.dmg`、`mark-it-<version>-macos-x64.zip`（+ `.blockmap`） |
 | macOS arm64 | `mark-it-<version>-macos-arm64.dmg`、`mark-it-<version>-macos-arm64.zip`（+ `.blockmap`） |
-| Linux x64 | `mark-it-<version>-linux-x64.AppImage`（+ `.blockmap`）、`mark-it-<version>-linux-x64.deb` |
+| Linux x64 | `mark-it-<version>-linux-x64.AppImage`、`mark-it-<version>-linux-x64.deb`（AppImage 当前不生成 blockmap） |
 
 ## 6. OSS multipart 并行分片设计
 

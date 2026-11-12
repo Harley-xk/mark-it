@@ -444,7 +444,10 @@ jobs:
             copy "dist/mark-it-$VERSION-$arch.zip.blockmap" "mark-it-$VERSION-macos-$arch.zip.blockmap"
           done
           copy "dist/mark-it-$VERSION.AppImage" "mark-it-$VERSION-linux-x64.AppImage"
-          copy "dist/mark-it-$VERSION.AppImage.blockmap" "mark-it-$VERSION-linux-x64.AppImage.blockmap"
+          # electron-builder 当前不为 AppImage 生成 blockmap，存在时才一并分发
+          if [ -f "dist/mark-it-$VERSION.AppImage.blockmap" ]; then
+            cp "dist/mark-it-$VERSION.AppImage.blockmap" "release-assets/mark-it-$VERSION-linux-x64.AppImage.blockmap"
+          fi
           copy "dist/mark-it_${VERSION}_amd64.deb" "mark-it-$VERSION-linux-x64.deb"
           ls -lh release-assets
 

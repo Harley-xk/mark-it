@@ -166,7 +166,7 @@ gh workflow run release.yml --ref master \
 | Windows x64     | `windows-latest` | `npm run build:win`                                 | `*-setup.exe` + `.blockmap` | `*-windows-x64-setup.exe` + `.blockmap`               |
 | macOS x64       | `macos-latest`   | `npm run build && electron-builder --mac --x64`     | `*-x64.zip` + `.blockmap`   | `*-macos-x64.dmg`、`*-macos-x64.zip` + `.blockmap`    |
 | macOS arm64     | `macos-latest`   | `npm run build && electron-builder --mac --arm64`   | `*-arm64.zip` + `.blockmap` | `*-macos-arm64.dmg`、`*-macos-arm64.zip` + `.blockmap` |
-| Linux x64       | `ubuntu-latest`  | `npm run build && electron-builder --linux`         | `*.AppImage` + `.blockmap`  | `*-linux-x64.AppImage` + `.blockmap`、`*-linux-x64.deb` |
+| Linux x64       | `ubuntu-latest`  | `npm run build && electron-builder --linux`         | `*.AppImage`（无 blockmap） | `*-linux-x64.AppImage`、`*-linux-x64.deb`               |
 
 说明：
 
@@ -245,7 +245,7 @@ git push origin :refs/tags/v1.6.0-beta.3
 - 标签触发：Release 使用已推送的 `vX.Y.Z` tag
 - 手动触发且尚无 tag：自动在当次运行的提交上补建 `vX.Y.Z` tag 后再建 Release
 - Release 已存在（重跑）：刷新标题与更新说明，并用 `--clobber` 覆盖同名附件
-- 附件为当次四套平台 / 架构产物（Windows x64、macOS x64、macOS arm64、Linux x64 的 exe / dmg / zip / AppImage / deb 及 blockmap）
+- 附件为当次四套平台 / 架构产物（Windows x64、macOS x64、macOS arm64、Linux x64 的 exe / dmg / zip / AppImage / deb；Windows 与 macOS 另含 blockmap，AppImage 当前不生成 blockmap）
 - 附件名在上传前统一补上平台与架构，例如 `mark-it-1.6.0-macos-arm64.zip`、`mark-it-1.6.0-windows-x64-setup.exe`
 
 该任务只使用 workflow 内置的 `GITHUB_TOKEN`（job 级 `permissions: contents: write`），不需要额外 Secrets。
