@@ -57,6 +57,7 @@ flowchart TD
 
   subgraph PLANNED["计划功能"]
     VSRESEARCH["计划功能/VSCode衍生桌面编辑器兼容性调研.md"]
+    PREVIEWPLAN["计划功能/预览渲染后续优化计划.md"]
     UPLOADPLAN["计划功能/AppHub发布上传链路优化设计.md"]
     MULTIPART["计划功能/AppHub OSS分片上传适配层设计.md"]
     UPSTREAMMULTIPART["计划功能/AppHub skill OSS分片上传上游改造说明.md"]
@@ -78,6 +79,7 @@ flowchart TD
   EDIT --> TABLE
   EDIT --> SEARCH
   EDIT --> TABORDER
+  EDIT --> PREVIEWPLAN
   MERMAID --> PDF
   MERMAID --> IMAGE
   PDF --> FEEDBACK
