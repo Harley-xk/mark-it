@@ -22,4 +22,9 @@ describe('文本换行符与 BOM', () => {
   it('normalizeToLf 应同时处理 CRLF 与孤立 CR', () => {
     expect(normalizeToLf('a\r\nb\rc')).toBe('a\nb\nc')
   })
+
+  it('已是 LF 的内容应原样返回', () => {
+    const text = 'a\nb\nc'
+    expect(normalizeToLf(text)).toBe(text)
+  })
 })

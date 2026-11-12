@@ -49,6 +49,8 @@ const themeCompartment = new Compartment()
 
 // 以编程方式替换文档内容时置位，避免被当成用户输入标记为已修改
 let isExternalUpdate = false
+// 最近一次由编辑器自己写入 store 的内容：内容监听器据此跳过重复的全文比较
+let lastEditorContent: string | null = null
 
 const markitDark = HighlightStyle.define([
   { tag: tags.heading1, color: '#e8e8f0', fontWeight: 'bold', fontSize: '1.4em' },
@@ -125,8 +127,8 @@ const updateListener = EditorView.updateListener.of((update) => {
   if (!id) return
 
   if (update.docChanged && !isExternalUpdate) {
-    // 内容与字数由 documents store 统一维护
-    docs.updateContent(id, update.state.doc.toString())
+    // 内容与字数由 documents store 统一维护；记下实际存入的字符串供监听器比对
+    lastEditorContent = docs.updateContent(id, update.state.doc.toString())
   }
 
   const pos = update.state.selection.main.head
@@ -344,6 +346,7 @@ onMounted(() => {
 
   const doc = docs.activeDoc
   if (!doc) return
+  lastEditorContent = doc.content
 
   const isDark = appStore.resolvedTheme === 'dark'
   const cached = docs.getEditorState(doc.id)
@@ -436,6 +439,8 @@ watch(
       const transferred = restoreTransferredState(newId, doc.content, isDark)
       view.setState(transferred ?? createState(doc.content, isDark, doc))
     }
+    // 新标签的内容已经由该标签的 state 提供，监听器无需再比较一次全文
+    lastEditorContent = doc.content
     isExternalUpdate = false
 
     editorStore.setEditorView(view)
@@ -466,9 +471,12 @@ watch(
   () => docs.activeDoc?.content,
   (newVal) => {
     if (!view || newVal === undefined || isExternalUpdate) return
+    // 编辑器自身写入的内容已通过 updateListener 同步过，无需再做一次全文比较
+    if (newVal === lastEditorContent) return
     if (newVal !== view.state.doc.toString()) {
       isExternalUpdate = true
       replaceDocContent(newVal)
+      lastEditorContent = newVal
       isExternalUpdate = false
     }
   }

@@ -318,14 +318,16 @@ export const useDocumentsStore = defineStore('documents', () => {
     docs.value = next
   }
 
-  function updateContent(id: string, content: string): void {
+  /** 写入编辑器内容；返回实际存入 store 的字符串，调用方据此识别自身写入 */
+  function updateContent(id: string, content: string): string {
     const doc = getDoc(id)
-    if (!doc) return
+    if (!doc) return content
     const normalized = normalizeToLf(content)
-    if (doc.content === normalized) return
+    if (doc.content === normalized) return normalized
     doc.content = normalized
     doc.isModified = true
     doc.wordCount = countWords(normalized)
+    return normalized
   }
 
   /** 从磁盘载入内容（刷新 / 外部加载），不标记为已修改 */

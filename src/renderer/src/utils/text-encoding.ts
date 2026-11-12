@@ -18,6 +18,8 @@ export interface DecodedText {
 
 /** 把所有换行符统一为 LF（编辑器内部约定） */
 export function normalizeToLf(text: string): string {
+  // 编辑器内部只产生 LF：不含 \r 时直接返回原字符串，避免每次按键整篇重新分配
+  if (!text.includes('\r')) return text
   return text.replace(/\r\n?/g, '\n')
 }
 

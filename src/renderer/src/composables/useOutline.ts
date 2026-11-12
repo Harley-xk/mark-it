@@ -1,4 +1,4 @@
-import { watch } from 'vue'
+import { onUnmounted, watch } from 'vue'
 import { useEditorStore } from '../stores/editor'
 import { useDocumentsStore, type DocumentTab } from '../stores/documents'
 import { parseFrontmatter } from '../utils/frontmatter'
@@ -11,6 +11,9 @@ import type { HeadingItem } from '../types'
  * WeakMap 以标签对象为键，标签关闭后自动释放。
  */
 const headingSources = new WeakMap<DocumentTab, string>()
+
+/** 输入停顿后更新大纲；切换标签时不吃这个延迟 */
+const OUTLINE_DEBOUNCE_MS = 200
 
 export function useOutline(): void {
   const editorStore = useEditorStore()
@@ -56,16 +59,42 @@ export function useOutline(): void {
     return root
   }
 
-  // 同时跟踪内容与当前标签：内容变化时重新解析，切换标签时命中缓存则直接复用
+  let pendingTimer: ReturnType<typeof setTimeout> | null = null
+
+  /** 内容与上次解析时一致就直接复用；否则重新解析并写回当前标签 */
+  function applyHeadings(): void {
+    const doc = docs.activeDoc
+    if (!doc) return
+    if (headingSources.get(doc) === doc.content) return
+    editorStore.setHeadings(extractHeadings(doc.content))
+    headingSources.set(doc, doc.content)
+  }
+
+  function cancelPendingHeadings(): void {
+    if (pendingTimer === null) return
+    clearTimeout(pendingTimer)
+    pendingTimer = null
+  }
+
+  function scheduleHeadings(): void {
+    cancelPendingHeadings()
+    pendingTimer = setTimeout(() => {
+      pendingTimer = null
+      applyHeadings()
+    }, OUTLINE_DEBOUNCE_MS)
+  }
+
+  // 正文输入：尾部防抖，避免每个字符都整篇解析
+  watch(() => editorStore.content, scheduleHeadings)
+  // 切换标签：取消防抖并立即补齐，不能显示上一个文档或旧内容的大纲
   watch(
-    () => [docs.activeId, editorStore.content] as const,
+    () => docs.activeId,
     () => {
-      const doc = docs.activeDoc
-      if (!doc) return
-      if (headingSources.get(doc) === doc.content) return
-      editorStore.setHeadings(extractHeadings(doc.content))
-      headingSources.set(doc, doc.content)
+      cancelPendingHeadings()
+      applyHeadings()
     },
     { immediate: true }
   )
+
+  onUnmounted(cancelPendingHeadings)
 }
