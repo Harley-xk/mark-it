@@ -1,0 +1,101 @@
+name: Mirror Release
+
+# 一次性补救流程：只把既有 run 的构建产物补建为 GitHub Release，
+# 不重新构建、不重新上传 apphub。使用完成后删除本文件。
+#
+# 触发：
+#   gh workflow run mirror-release.yml --ref develop \
+#     -f run_id=<run id> -f version=<version> -f target_sha=<sha> -f notes='...'
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: '包含构建产物的 Actions run id'
+        required: true
+        type: string
+      version:
+        description: '版本号（不带 v 前缀）'
+        required: true
+        type: string
+      target_sha:
+        description: 'tag 指向的提交 SHA'
+        required: true
+        type: string
+      notes:
+        description: '更新说明（纯文本）'
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  mirror:
+    name: Mirror GitHub Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ inputs.version }}
+      TAG: v${{ inputs.version }}
+      TARGET_SHA: ${{ inputs.target_sha }}
+      NOTES: ${{ inputs.notes }}
+    steps:
+      - name: Download artifacts from source run
+        run: |
+          set -euo pipefail
+          mkdir -p dist flat
+          gh run download "${{ inputs.run_id }}" --repo "$GITHUB_REPOSITORY" --dir dist
+          find dist -type f -exec mv -t flat {} +
+          ls -lh flat
+
+      - name: Label release assets with platform and arch
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+          copy() {
+            if [ ! -f "$1" ]; then
+              echo "::error::Missing release asset: $1"
+              exit 1
+            fi
+            cp "$1" "release-assets/$2"
+          }
+          copy "flat/mark-it-$VERSION-setup.exe" "mark-it-$VERSION-windows-x64-setup.exe"
+          copy "flat/mark-it-$VERSION-setup.exe.blockmap" "mark-it-$VERSION-windows-x64-setup.exe.blockmap"
+          for arch in x64 arm64; do
+            copy "flat/mark-it-$VERSION-$arch.dmg" "mark-it-$VERSION-macos-$arch.dmg"
+            copy "flat/mark-it-$VERSION-$arch.zip" "mark-it-$VERSION-macos-$arch.zip"
+            copy "flat/mark-it-$VERSION-$arch.zip.blockmap" "mark-it-$VERSION-macos-$arch.zip.blockmap"
+          done
+          copy "flat/mark-it-$VERSION.AppImage" "mark-it-$VERSION-linux-x64.AppImage"
+          # electron-builder 当前不为 AppImage 生成 blockmap，存在时才一并分发
+          if [ -f "flat/mark-it-$VERSION.AppImage.blockmap" ]; then
+            cp "flat/mark-it-$VERSION.AppImage.blockmap" "release-assets/mark-it-$VERSION-linux-x64.AppImage.blockmap"
+          fi
+          copy "flat/mark-it_${VERSION}_amd64.deb" "mark-it-$VERSION-linux-x64.deb"
+          ls -lh release-assets
+
+      - name: Create or update GitHub Release
+        run: |
+          set -euo pipefail
+          flags=()
+          if [[ "$VERSION" == *-* ]]; then
+            flags+=(--prerelease)
+          fi
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG 已存在：刷新说明并覆盖同名产物"
+            gh release edit "$TAG" --title "$TAG" --notes "$NOTES" "${flags[@]}"
+            gh release upload "$TAG" release-assets/* --clobber
+            exit 0
+          fi
+
+          echo "创建 Release $TAG"
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" release-assets/* --title "$TAG" --notes "$NOTES" "${flags[@]}"
+          else
+            gh release create "$TAG" release-assets/* --title "$TAG" --notes "$NOTES" \
+              --target "$TARGET_SHA" "${flags[@]}"
+          fi
