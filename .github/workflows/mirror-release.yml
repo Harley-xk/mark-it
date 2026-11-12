@@ -1,31 +1,15 @@
 name: Mirror Release
 
 # 一次性补救流程：只把既有 run 的构建产物补建为 GitHub Release，
-# 不重新构建、不重新上传 apphub。使用完成后删除本文件。
+# 不重新构建、不重新上传 apphub。使用完成后删除本文件与触发标签。
 #
-# 触发：
-#   gh workflow run mirror-release.yml --ref develop \
-#     -f run_id=<run id> -f version=<version> -f target_sha=<sha> -f notes='...'
+# 触发（workflow_dispatch 无法从非默认分支解析本文件，改用标签触发）：
+#   git tag mirror-release-beta12 && git push origin mirror-release-beta12
 
 on:
-  workflow_dispatch:
-    inputs:
-      run_id:
-        description: '包含构建产物的 Actions run id'
-        required: true
-        type: string
-      version:
-        description: '版本号（不带 v 前缀）'
-        required: true
-        type: string
-      target_sha:
-        description: 'tag 指向的提交 SHA'
-        required: true
-        type: string
-      notes:
-        description: '更新说明（纯文本）'
-        required: true
-        type: string
+  push:
+    tags:
+      - 'mirror-release-*'
 
 permissions:
   actions: read
@@ -38,16 +22,23 @@ jobs:
     timeout-minutes: 30
     env:
       GH_TOKEN: ${{ github.token }}
-      VERSION: ${{ inputs.version }}
-      TAG: v${{ inputs.version }}
-      TARGET_SHA: ${{ inputs.target_sha }}
-      NOTES: ${{ inputs.notes }}
+      SOURCE_RUN: '43172578682'
+      VERSION: '1.6.0-beta.12'
+      TAG: v1.6.0-beta.12
+      TARGET_SHA: 'ac866a2e47dd0f69dc447d72cac8502438db948e'
+      NOTES: |
+        - 优化：切换标签时复用已渲染的预览，长文档来回切换更流畅
+        - 优化：长文档输入更顺畅，输入时大纲刷新不再拖慢编辑
+        - 优化：macOS 安装包按 Intel 与 Apple 芯片分别提供，下载体积更小
     steps:
+      # gh release create 需要 git 仓库上下文，否则报 “not a git repository”
+      - uses: actions/checkout@v7
+
       - name: Download artifacts from source run
         run: |
           set -euo pipefail
           mkdir -p dist flat
-          gh run download "${{ inputs.run_id }}" --repo "$GITHUB_REPOSITORY" --dir dist
+          gh run download "$SOURCE_RUN" --repo "$GITHUB_REPOSITORY" --dir dist
           find dist -type f -exec mv -t flat {} +
           ls -lh flat
 
