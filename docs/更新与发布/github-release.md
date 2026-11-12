@@ -243,12 +243,34 @@ git push origin :refs/tags/v1.6.0-beta.3
 `github-release` 任务在 apphub 发布并验证通过后执行，行为如下：
 
 - 标签触发：Release 使用已推送的 `vX.Y.Z` tag
-- 手动触发且尚无 tag：先通过 Git References API 在当次运行的提交上补建 `vX.Y.Z` tag，再基于该 tag 创建 Release。不要用 `gh release create --target` 补建 tag：当目标提交上的 workflow 文件与默认分支不一致时，releases API 会额外要求 `workflows: write`，而 `GITHUB_TOKEN` 无法获得该权限，会返回 403
+- 手动触发且尚无 tag：先通过 Git References API 在当次运行的提交上补建 `vX.Y.Z` tag，再基于该 tag 创建 Release
+- tag 补建受权限限制时（见下节）：任务会给出明确错误；维护者本地推送 tag 后重跑失败的 `github-release` job 即可
 - Release 已存在（重跑）：刷新标题与更新说明，并用 `--clobber` 覆盖同名附件
 - 附件为当次四套平台 / 架构产物（Windows x64、macOS x64、macOS arm64、Linux x64 的 exe / dmg / zip / AppImage / deb；Windows 与 macOS 另含 blockmap，AppImage 当前不生成 blockmap）
 - 附件名在上传前统一补上平台与架构，例如 `mark-it-1.6.0-macos-arm64.zip`、`mark-it-1.6.0-windows-x64-setup.exe`
 
 该任务只使用 workflow 内置的 `GITHUB_TOKEN`（job 级 `permissions: contents: write`），不需要额外 Secrets。
+
+#### tag 补建的权限限制
+
+GitHub 在创建指向「workflow 文件与默认分支不一致」的提交的 tag 时，会额外要求 `workflows: write`。该权限只存在于 PAT / GitHub App token，`GITHUB_TOKEN` 无法通过 `permissions` 获得，表现为 `Resource not accessible by integration`（403）。
+
+本仓库从 `develop` 发版、`master` 长期滞后，因此当 `develop` 上的 workflow 文件发生变化后，自动补建 tag 可能失败。补救步骤：
+
+```bash
+# 1. 本地创建并推送 tag（SSH 不受 OAuth workflow scope 限制）
+git tag v1.6.0-beta.12 <发布提交>
+git push origin v1.6.0-beta.12
+
+# 2. tag 推送会额外触发一次 Release 运行，立即取消它
+gh run list --workflow=release.yml --limit 1
+gh run cancel <run-id>
+
+# 3. 重跑原运行中失败的 github-release job（tag 已存在，不再触发该限制）
+gh run rerun <原运行 id> --failed
+```
+
+需要长期消除该限制时，应让 `master` 的 workflow 文件与 `develop` 保持一致，或改用带 `workflow` 权限的 GitHub App / PAT。
 
 ### 重跑同一版本
 
