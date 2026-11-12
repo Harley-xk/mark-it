@@ -60,7 +60,6 @@ flowchart TD
   subgraph PLANNED["计划功能"]
     VSRESEARCH["计划功能/VSCode衍生桌面编辑器兼容性调研.md"]
     PREVIEWPLAN["计划功能/预览渲染后续优化计划.md"]
-    UPSTREAMMULTIPART["计划功能/AppHub skill OSS分片上传上游改造说明.md"]
   end
 
   IDX --> ARCH
@@ -101,8 +100,6 @@ flowchart TD
   UPLOADPLAN --> RELEASE
   UPLOADPLAN --> MULTIPART
   MULTIPART --> RELEASE
-  MULTIPART --> UPSTREAMMULTIPART
-  UPSTREAMMULTIPART --> RELEASE
   QA --> TODO
   DEC --> TODO
   TABORDER --> MULTI
@@ -153,7 +150,6 @@ flowchart TD
 5. [GitHub Actions 发版说明](./github-release.md) —— apphub CLI 详细操作（存量文档）
 6. [AppHub 发布上传链路优化](./AppHub发布上传链路优化.md) —— 并行上传、OSS 分片、macOS 分架构与 GitHub Release 产物命名；分架构流程待下一次 Beta 验证
 7. [AppHub OSS 分片上传](./AppHub%20OSS分片上传.md) —— 多分片并行、进度、重试与中止的落地边界和已验证范围
-8. [AppHub skill OSS 分片上传上游改造说明](./计划功能/AppHub%20skill%20OSS分片上传上游改造说明.md) —— 提供给 `apphub-release` 上游合并原生 multipart 的接口、协议与验收要求；上游尚未合并
 
 ### 2.5 需要理解「为什么这样设计」
 
@@ -219,7 +215,6 @@ flowchart TD
 | [构建与发布](./构建与发布.md)                                                                   | 命令、构建架构、打包配置、产物命名、CI 流水线                            | 维护者、发版者                   |
 | [AppHub 发布上传链路优化](./AppHub发布上传链路优化.md)                                         | 并行上传、OSS 分片、macOS 分架构、GitHub Release 产物命名                | 维护者、发版与 CI 开发者         |
 | [AppHub OSS 分片上传](./AppHub%20OSS分片上传.md)                                                | 多分片并行、进度、重试、中止、权限边界与已验证范围                       | 维护者、发版与 CI 开发者         |
-| [AppHub skill OSS 分片上传上游改造说明](./计划功能/AppHub%20skill%20OSS分片上传上游改造说明.md) | 原生 `upload` 的 multipart 契约、协议、兼容、manifest 与上游验收要求     | AppHub skill 上游、发版开发者    |
 | [Windows 安装向导](./Windows安装向导.md)                                                        | 交互式安装流程、安装路径与快捷方式选项、静默升级、自定义 NSIS 脚本       | 维护者、发版者                   |
 | [GitHub Actions 发版说明](./github-release.md)                                                  | apphub CLI 详细操作、Secrets、故障排查（存量文档）                       | 发版者                           |
 | [开发指南](./开发指南.md)                                                                       | 环境、目录速查、编码约定、常见任务操作手册、DoD                          | 新成员、全体开发者               |
