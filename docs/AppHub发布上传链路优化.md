@@ -1,8 +1,8 @@
 # AppHub 发布上传链路优化
 
-> **当前状态：已实施。** 阶段 1（三平台并行上传）和阶段 2（OSS 分片上传）已落地并通过真实 Beta 验证；阶段 3（网络路径优化）按需评估。当前发版采用 `prepare` + 三平台并行 `upload` 矩阵，并通过仓库适配层提供 OSS multipart 并行分片、进度、分片重试和中止。`1.6.0-beta.9` 已验证约 245 MiB 的最大真实样本；超过 500 MiB 的样本与 Abort 真实失败路径仍待验证。
+> **状态：已落地。** 当前发版采用 `prepare` + 并行 `upload` 矩阵，并通过仓库适配层提供 OSS multipart 并行分片、进度、分片重试和中止。macOS 已按 AppHub 最新设计拆分为 `x64` 与 `arm64` 两个包槽位，更新平台只上传 zip；GitHub Release 额外附带 dmg，附件名统一带平台与架构标识。`1.6.0-beta.9` 已验证约 245 MiB 的最大真实上传样本；超过 500 MiB 的样本与 Abort 真实失败路径仍待验证，macOS 分架构发布尚待下一次真实 Beta 验证。
 >
-> 文档定位：记录 `.github/workflows/release.yml` 中三平台安装包上传到 AppHub 的链路设计、实现边界与验收结果。操作手册见 [构建与发布](./构建与发布.md) 与 [GitHub Actions 发版说明](./github-release.md)。
+> 文档定位：说明 `.github/workflows/release.yml` 中安装包上传到 AppHub 的编排、耗时优化、可观测性、失败恢复能力，以及 macOS 分架构与 GitHub Release 产物命名约定。
 >
 > 最后核对：2026-11-12。
 
@@ -14,7 +14,9 @@
 4. 第一阶段已把三个平台拆成并行矩阵任务。该方案只改工作流，不触碰会自更新的 `scripts/release/apphub.mjs`，可缩短总等待时间并隔离平台故障。
 5. 第二阶段已通过 `scripts/release/apphub-upload.mjs` 和 `scripts/release/oss-multipart.mjs` 提供 OSS multipart，支持多分片并行、进度、重试与中止，不修改 `apphub.mjs` 技能快照。
 6. 若分片并行后跨境链路的吞吐仍无改善，再评估国内自托管 runner 或 OSS 传输加速；不应先假设分片一定能解决线路质量问题。
-7. `1.6.0-beta.9` 已完成三平台并行、同文件多分片并行、实时进度、包登记、发布和三平台 `verify` 的真实回归。当前最大样本约 245 MiB，尚不能据此宣称超过 500 MiB 已得到验证。
+7. `1.6.0-beta.9` 已完成三平台并行、同文件多分片并行、实时进度、包登记、发布和逐平台 `verify` 的真实回归。当前最大样本约 245 MiB，尚不能据此宣称超过 500 MiB 已得到验证。
+8. macOS 按 AppHub 最新设计拆为 `x64` 与 `arm64` 两个独立 zip 包，不再发布 universal 包；平台级 `latest-mac.yml` 负责聚合两种架构，客户端由 electron-updater ≥ 6.8.8 按本机架构筛选。
+9. GitHub Release 继续附带 dmg 与 zip，且下载资源名统一携带平台和架构（如 `mark-it-1.6.0-macos-arm64.dmg`），方便用户手动选择。
 
 ## 2. 问题与观测
 
@@ -115,23 +117,25 @@ flowchart TD
   V[Validate version] --> T[Unit tests]
   T --> B[Build matrix]
   B --> P[Prepare draft]
-  P --> WU[Upload Windows]
-  P --> MU[Upload macOS]
-  P --> LU[Upload Linux]
+  P --> WU[Upload Windows x64]
+  P --> MX[Upload macOS x64]
+  P --> MA[Upload macOS arm64]
+  P --> LU[Upload Linux x64]
   WU --> PU[Publish]
-  MU --> PU
+  MX --> PU
+  MA --> PU
   LU --> PU
-  PU --> VF[Verify three platforms]
+  PU --> VF[Verify four package slots]
   VF --> GR[GitHub Release]
 ```
 
 职责调整：
 
 - `prepare`：校验版本、生成或读取更新说明、创建或复用 AppHub draft；只执行一次。
-- `upload`：使用 `strategy.matrix` 并行执行；每个 job 只下载本平台 artifact，并上传本平台安装包。
-- `publish`：仅在三个 upload job 全部成功后运行。
-- `verify`：保持三平台更新检测验证。
-- `github-release`：保持现有 prerelease 判断和附件上传逻辑。
+- `upload`：使用 `strategy.matrix` 并行执行；每个 job 只下载本平台 artifact，并上传对应平台 / 架构的安装包。macOS 拆为 `x64` 与 `arm64` 两个槽位。
+- `publish`：仅在全部 upload job 成功后运行。
+- `verify`：逐个验证 `windows x64`、`macos x64`、`macos arm64`、`linux x64`。
+- `github-release`：保持 prerelease 判断；附件名统一补充平台与架构标识后上传。
 
 `prepare` 必须把 `version`、`config`、`channel` 和 `notes` 作为 job outputs 传给后续任务，避免每个矩阵任务重复创建版本或重复计算说明。
 
@@ -147,17 +151,21 @@ upload:
   needs: [validate, prepare]
   strategy:
     fail-fast: false
-    max-parallel: 3
+    max-parallel: 4
     matrix:
       include:
         - name: windows-x64
           platform: windows
           arch: x64
           artifact: windows-x64
-        - name: macos-universal
+        - name: macos-x64
           platform: macos
-          arch: universal
-          artifact: macos-universal
+          arch: x64
+          artifact: macos
+        - name: macos-arm64
+          platform: macos
+          arch: arm64
+          artifact: macos
         - name: linux-x64
           platform: linux
           arch: x64
@@ -179,9 +187,36 @@ publish:
 ### 5.3 重跑语义
 
 1. 重跑整个工作流时，`create-version` 应继续复用同一版本下的 draft。
-2. 重跑勾选 `--replace` 时，已成功登记的平台执行替换；尚无包记录的平台按新增登记，避免部分平台先成功、其余平台因替换目标不存在而再次失败。
-3. 发布前仍要求三个平台包记录同时存在，不能因矩阵并行而降低完整性校验。
+2. 重跑勾选 `--replace` 时，已成功登记的槽位执行替换；尚无包记录的槽位按新增登记，避免部分平台先成功、其余平台因替换目标不存在而再次失败。
+3. 发布前要求 `windows x64`、`macos x64`、`macos arm64`、`linux x64` 四个包记录同时存在，不能因矩阵并行而降低完整性校验。
 4. 如果 `prepare` 已创建 draft 而所有上传均失败，保留 draft 供修复后重跑，不自动删除。
+
+### 5.4 macOS 分架构发布
+
+AppHub 更新检测手册要求桌面端登记架构，macOS 平台的包记录按 `(macos, arch)` 槽位区分。本项目不再构建 universal 包，而是分别构建 `x64`（Intel）与 `arm64`（Apple Silicon）：
+
+| 项目 | 约定 |
+| --- | --- |
+| 构建 | `electron-builder --mac --x64 --arm64`，同一构建任务产出两套 dmg / zip |
+| 更新平台 | 只上传 zip + blockmap；dmg 只进入 GitHub Release |
+| 包槽位 | `macos/x64`、`macos/arm64` 各一条，互不覆盖 |
+| 文件名架构标记 | `arm64` 包必须包含 `arm64`；`x64` 包不得包含 `arm64`，否则平台在发布时拒绝 |
+| 更新清单 | 平台级 `latest-mac.yml` 自动聚合两种架构，`files[]` 同时列出 x64 / arm64 条目 |
+| 客户端筛选 | electron-updater **≥ 6.8.8** 按本机架构过滤；更早版本直接取 `files[0]`，因此依赖下限固定为 6.8.8 |
+| 客户端配置 | 不需要设置 `autoUpdater.channel`；继续使用平台级 feed 即可 |
+
+> macOS 当前未签名、未公证，Squirrel.Mac 实际不会执行自动更新；上述分架构清单在启用签名后才会成为真实升级路径。在此之前，分架构主要影响安装包体积、手动下载与 GitHub Release 产物。
+
+### 5.5 GitHub Release 产物命名
+
+GitHub Release 是面向用户的长期下载入口。为了让用户直接区分平台与架构，`github-release` 任务在附件上传前把 electron-builder 产物复制为统一命名，不改动 AppHub 侧已登记的包名：
+
+| 平台 / 架构 | 附件名 |
+| --- | --- |
+| Windows x64 | `mark-it-<version>-windows-x64-setup.exe`（+ `.blockmap`） |
+| macOS x64 | `mark-it-<version>-macos-x64.dmg`、`mark-it-<version>-macos-x64.zip`（+ `.blockmap`） |
+| macOS arm64 | `mark-it-<version>-macos-arm64.dmg`、`mark-it-<version>-macos-arm64.zip`（+ `.blockmap`） |
+| Linux x64 | `mark-it-<version>-linux-x64.AppImage`（+ `.blockmap`）、`mark-it-<version>-linux-x64.deb` |
 
 ## 6. OSS multipart 并行分片设计
 
@@ -366,11 +401,12 @@ apphub.mjs upload \
 
 ### 11.1 功能验证
 
-- 三平台分别只有对应 artifact 被下载和上传。
-- Windows、macOS、Linux 包均登记成功，包记录中的平台和架构正确。
-- `publish` 只在三个平台全部成功后执行。
-- `verify` 对三平台均返回目标版本。
-- GitHub Release 仍带正确的 prerelease 标记，附件集合不减少。
+- 四个上传槽位分别只有对应 artifact 被下载和上传。
+- `windows x64`、`macos x64`、`macos arm64`、`linux x64` 包均登记成功，包记录中的平台和架构正确。
+- `publish` 只在四个槽位全部成功后执行。
+- `verify` 对四个槽位均返回目标版本。
+- 平台级 `latest-mac.yml` 同时列出 x64 与 arm64 条目，且 `arm64` / `x64` 文件名标记符合平台校验。
+- GitHub Release 仍带正确的 prerelease 标记，附件集合不减少，且每个附件名包含平台与架构。
 - stable 和 Beta 配置都能使用同一工作流模板。
 
 ### 11.2 故障注入
@@ -378,7 +414,7 @@ apphub.mjs upload \
 - 人为中断单个分片连接，确认只重试该分片。
 - 让某个分片持续无响应，确认在超时阈值附近报告故障。
 - 模拟 AppHub 登记失败，确认不会进入发布阶段。
-- 模拟一个平台失败，确认另外两个平台仍完成且 job 状态清晰。
+- 模拟一个平台失败，确认另外三个槽位仍完成且 job 状态清晰。
 - 重跑已部分成功的版本，确认不会重复创建版本或产生不可解释的包记录。
 - 校验对象最终大小和 SHA-256 / SHA-512，阻止损坏产物登记。
 
@@ -392,7 +428,7 @@ apphub.mjs upload \
 | 单平台上传     | multipart 相对单 PUT 基线提升；若未提升，记录并转入线路优化评估           |
 | 无进度静默     | 正常运行中不超过 30 秒；停滞在单分片超时阈值内被识别                      |
 | 失败定位       | 日志能明确指出平台、阶段、分片和重试次数                                  |
-| 完整性         | 三平台包记录、大小、哈希和更新检测全部通过                                |
+| 完整性         | 四个包槽位的记录、大小、哈希和更新检测全部通过                            |
 
 性能结论必须基于同一时段的多次真实运行，不能仅凭一次快跑判断已经稳定。
 
@@ -412,6 +448,9 @@ apphub.mjs upload \
 当前真实最大样本为 257,061,588 字节（约 245.2 MiB）。超过 500 MiB 的产物、Abort 权限及失败中止路径
 仍待验证；AppHub CLI 上游也尚未合并原生 multipart。
 
+上述记录对应 universal 时代的三平台验证。macOS 拆分为 `x64` / `arm64` 后，下一次真实 Beta 需要补充验收：
+两个槽位均成功登记、`latest-mac.yml` 同时包含两种架构、四个 `verify` 全部通过、GitHub Release 附件名符合第 5.5 节约定。
+
 ## 12. 回退方案
 
 1. 工作流并行化导致发布编排异常时，可临时恢复现有单 `draft` job，不影响已发布版本。
@@ -426,3 +465,4 @@ apphub.mjs upload \
 3. GitHub 托管 runner 的实测吞吐是否足以在分片后满足目标，还是必须引入国内 runner。
 4. 是否需要跨 workflow 重跑恢复未完成上传；若需要，应单独设计会话持久化和清理。
 5. 未完成 multipart upload 的 OSS 生命周期规则由客户端 Abort、AppHub 服务端清理还是 bucket 生命周期负责。
+6. macOS 分架构发布尚未经过真实 Beta 验证；同时需确认 Apple Silicon 与 Intel 机器上 `latest-mac.yml` 的架构筛选行为符合预期。

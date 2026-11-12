@@ -177,7 +177,7 @@ npm run build:linux
 
 ### 多平台自动发版（GitHub Actions）
 
-[.github/workflows/release.yml](.github/workflows/release.yml) 会在 Windows / macOS / Linux 三个原生 runner 上并行构建，再由三个独立上传任务并行把产物写入 apphub 的同一个草稿版本；全部上传成功后自动发布并验证。
+[.github/workflows/release.yml](.github/workflows/release.yml) 会在 Windows / macOS / Linux 三个原生 runner 上并行构建，再由四个独立上传任务（Windows x64、macOS x64、macOS arm64、Linux x64）并行把产物写入 apphub 的同一个草稿版本；全部上传成功后自动发布并验证。
 
 触发方式：
 
@@ -188,11 +188,13 @@ npm run build:linux
 
 产物约定：
 
-| 平台    | 架构      | 上传到 apphub           | 同时保留          |
-| ------- | --------- | ----------------------- | ----------------- |
-| Windows | x64       | NSIS 安装包 + blockmap  | —                 |
-| macOS   | universal | zip（自动更新只认 zip） | dmg（首次安装用） |
-| Linux   | x64       | AppImage + blockmap     | deb               |
+| 平台    | 架构        | 上传到 apphub           | 同时保留                                  |
+| ------- | ----------- | ----------------------- | ----------------------------------------- |
+| Windows | x64         | NSIS 安装包 + blockmap  | —                                         |
+| macOS   | x64 / arm64 | zip（自动更新只认 zip） | dmg（首次安装用），按架构分别打包         |
+| Linux   | x64         | AppImage + blockmap     | deb                                       |
+
+GitHub Release 的附件名会带上平台与架构（如 `mark-it-1.6.0-macos-arm64.zip`），方便手动下载时识别。
 
 发版 CLI 已收进 [scripts/release/apphub.mjs](scripts/release/apphub.mjs)，CI 使用的无凭据配置为 [.apphub-release.ci.json](.apphub-release.ci.json)。本地发版仍可使用仓库根目录下被 gitignore 的 `.apphub-release.json`。
 

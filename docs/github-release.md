@@ -12,22 +12,25 @@ flowchart TD
     V --> UT["test<br/>单元测试"]
     UT --> B["build<br/>matrix 三平台并行构建"]
     B --> W["windows-latest<br/>NSIS exe + blockmap"]
-    B --> M["macos-latest<br/>dmg + universal zip"]
+    B --> M["macos-latest<br/>x64 + arm64 的 dmg / zip"]
     B --> L["ubuntu-latest<br/>AppImage + deb"]
     B --> PR["prepare<br/>生成更新说明<br/>create-version 建草稿"]
     PR --> UW["upload windows-x64<br/>apphub-upload.mjs<br/>大文件自动分片"]
-    PR --> UM["upload macos-universal<br/>apphub-upload.mjs<br/>大文件自动分片"]
+    PR --> MX["upload macos-x64<br/>apphub-upload.mjs<br/>只传 zip"]
+    PR --> MA["upload macos-arm64<br/>apphub-upload.mjs<br/>只传 zip"]
     PR --> UL["upload linux-x64<br/>apphub-upload.mjs<br/>大文件自动分片"]
     W --> UW
-    M --> UM
+    M --> MX
+    M --> MA
     L --> UL
-    UW --> P["publish<br/>三平台上传全部成功后<br/>自动发布 → 逐平台 verify"]
-    UM --> P
+    UW --> P["publish<br/>四个槽位上传全部成功后<br/>自动发布 → 逐槽位 verify"]
+    MX --> P
+    MA --> P
     UL --> P
-    P --> G["github-release<br/>创建 / 更新 vX.Y.Z 的 GitHub Release<br/>并把同一批产物作为 Release 附件上传"]
+    P --> G["github-release<br/>创建 / 更新 vX.Y.Z 的 GitHub Release<br/>附件名补平台与架构后上传"]
 ```
 
-发布没有人工审批环节：草稿上传完成后立即对客户端可见；GitHub Release 在 apphub 发布并验证通过后生成。`prepare` 只执行一次且不下载产物；三个 `upload` job 使用 `fail-fast: false` 并行运行，某个平台失败不会取消其他平台，但 `publish` 仍要求三个平台全部成功。上传默认使用 `multipart=auto`，超过 64 MiB 的安装包和 blockmap 走 OSS 分片；单次上传兼容问题可显式切换为 `multipart=off`。
+发布没有人工审批环节：草稿上传完成后立即对客户端可见；GitHub Release 在 apphub 发布并验证通过后生成。`prepare` 只执行一次且不下载产物；四个 `upload` job（Windows x64、macOS x64、macOS arm64、Linux x64）使用 `fail-fast: false` 并行运行，某个平台失败不会取消其他槽位，但 `publish` 仍要求四个槽位全部成功。上传默认使用 `multipart=auto`，超过 64 MiB 的安装包和 blockmap 走 OSS 分片；单次上传兼容问题可显式切换为 `multipart=off`。
 
 ## 2. 前置条件
 
@@ -160,19 +163,24 @@ gh workflow run release.yml --ref master \
 
 | 平台            | Runner           | 构建命令                                              | 上传到 apphub               | 上传到 GitHub Release                    |
 | --------------- | ---------------- | ----------------------------------------------------- | --------------------------- | ---------------------------------------- |
-| Windows x64     | `windows-latest` | `npm run build:win`                                   | `*-setup.exe` + `.blockmap` | `*-setup.exe` + `.blockmap`              |
-| macOS universal | `macos-latest`   | `npm run build && electron-builder --mac --universal` | `*-universal.zip`           | `.dmg` + `*-universal.zip` + `.blockmap` |
-| Linux x64       | `ubuntu-latest`  | `npm run build && electron-builder --linux`           | `*.AppImage` + `.blockmap`  | `*.AppImage` + `.blockmap` + `.deb`      |
+| Windows x64     | `windows-latest` | `npm run build:win`                                 | `*-setup.exe` + `.blockmap` | `*-windows-x64-setup.exe` + `.blockmap`               |
+| macOS x64       | `macos-latest`   | `npm run build && electron-builder --mac --x64`     | `*-x64.zip` + `.blockmap`   | `*-macos-x64.dmg`、`*-macos-x64.zip` + `.blockmap`    |
+| macOS arm64     | `macos-latest`   | `npm run build && electron-builder --mac --arm64`   | `*-arm64.zip` + `.blockmap` | `*-macos-arm64.dmg`、`*-macos-arm64.zip` + `.blockmap` |
+| Linux x64       | `ubuntu-latest`  | `npm run build && electron-builder --linux`         | `*.AppImage` + `.blockmap`  | `*-linux-x64.AppImage` + `.blockmap`、`*-linux-x64.deb` |
 
 说明：
 
 - `build` 阶段的 workflow artifact 仍保留 14 天，作为构建缓存与排障副本；GitHub Release 附件是长期分发的正式产物。
-- macOS 自动更新（Squirrel.Mac）只接受 zip，dmg 仅用于首次安装。
+- CI 的 macOS 构建任务用 `npx electron-builder --mac --x64 --arm64` 一次产出两套 dmg / zip；上传阶段拆成 `macos-x64` 与 `macos-arm64` 两个独立 job，分别登记到 apphub 的对应架构槽位。
+- macOS 自动更新（Squirrel.Mac）只接受 zip，dmg 仅用于首次安装；更新平台只上传 zip，dmg 只进入 GitHub Release。
+- apphub 要求 macOS 包名与登记架构一致：`arm64` 包必须包含 `arm64`，`x64` 包不得包含 `arm64`；当前 `${arch}` 命名满足该约束。
+- 平台级 `latest-mac.yml` 会聚合 x64 与 arm64 条目，electron-updater ≥ 6.8.8 按本机架构筛选；本项目依赖下限已固定为 6.8.8。
 - Linux 只有 AppImage 支持自动更新，deb 供手动安装。
 - `snap` 已从默认 target 移除（GitHub 托管 runner 无 snapcraft）。
 - GitHub Release 的正文复用 `prepare` 阶段生成的更新说明；`1.4.0-beta.1` 这类带后缀的版本会标记为 prerelease，不会被当作 latest。
-- 三个平台的安装包由独立 `upload` job 并行上传；每个 job 只下载并处理对应平台的 workflow artifact。
-- 上传入口为 `scripts/release/apphub-upload.mjs`，默认 `multipart=auto`；macOS universal zip 等大文件会显示分片、字节进度、速度和 ETA。
+- 四个平台 / 架构槽位的安装包由独立 `upload` job 并行上传；每个 job 只下载并处理对应的 workflow artifact。
+- 上传入口为 `scripts/release/apphub-upload.mjs`，默认 `multipart=auto`；macOS zip 等大文件会显示分片、字节进度、速度和 ETA。
+- GitHub Release 附件在上传前统一重命名为 `<name>-<version>-<platform>-<arch>.<ext>`，方便用户手动选择；apphub 侧仍使用 electron-builder 原始文件名。
 - `multipart=off` 只回退文件传输方式，不改变 AppHub 认证、版本、包登记、发布与验证接口，也不会删除已上传对象。
 - beta 版本的产物路径、上传平台与命名规则与正式版完全一致，只是写入 `beta` 通道；客户端是否接收由用户开关决定（见 [发版通道与 Beta 更新](./发版通道.md)）。
 
@@ -237,7 +245,8 @@ git push origin :refs/tags/v1.6.0-beta.3
 - 标签触发：Release 使用已推送的 `vX.Y.Z` tag
 - 手动触发且尚无 tag：自动在当次运行的提交上补建 `vX.Y.Z` tag 后再建 Release
 - Release 已存在（重跑）：刷新标题与更新说明，并用 `--clobber` 覆盖同名附件
-- 附件为当次三平台全部产物（exe / dmg / zip / AppImage / deb 及 blockmap）
+- 附件为当次四套平台 / 架构产物（Windows x64、macOS x64、macOS arm64、Linux x64 的 exe / dmg / zip / AppImage / deb 及 blockmap）
+- 附件名在上传前统一补上平台与架构，例如 `mark-it-1.6.0-macos-arm64.zip`、`mark-it-1.6.0-windows-x64-setup.exe`
 
 该任务只使用 workflow 内置的 `GITHUB_TOKEN`（job 级 `permissions: contents: write`），不需要额外 Secrets。
 
@@ -316,6 +325,26 @@ node scripts/release/apphub.mjs verify \
 
 macOS / Linux 本地构建分别使用 `npm run build:mac`、`npm run build:linux`，上传参数按第 5 节产物约定替换。
 
+macOS 本地发版需要两个架构分别上传；`npm run build:mac` 只产出当前主机架构，建议直接执行：
+
+```bash
+# 同时产出 Intel 与 Apple Silicon 包
+npm run build && npx electron-builder --mac --x64 --arm64
+
+# 分别登记到 apphub 的对应槽位（zip 用于更新，dmg 只随 GitHub Release 分发）
+node scripts/release/apphub-upload.mjs upload \
+  --version 1.6.0 --platform macos --arch x64 \
+  --file dist/mark-it-1.6.0-x64.zip \
+  --blockmap dist/mark-it-1.6.0-x64.zip.blockmap \
+  --multipart auto
+
+node scripts/release/apphub-upload.mjs upload \
+  --version 1.6.0 --platform macos --arch arm64 \
+  --file dist/mark-it-1.6.0-arm64.zip \
+  --blockmap dist/mark-it-1.6.0-arm64.zip.blockmap \
+  --multipart auto
+```
+
 ## 9. Secrets 配置与轮换
 
 网页：仓库 Settings → Secrets and variables → Actions → New repository secret。
@@ -333,9 +362,10 @@ gh secret set APPHUB_SIGN_SECRET --repo Harley-xk/mark-it
 ## 10. 平台限制
 
 - **macOS 签名**：当前未配置 Apple Developer 证书与公证。未签名应用会被 Gatekeeper 拦截，Squirrel.Mac 也不会执行自动更新；启用签名前 macOS 只能手动安装。
+- **macOS 架构**：x64 与 arm64 分别打包、分别上传。apphub 要求包名与登记架构一致（arm64 包含 `arm64`，x64 不含 `arm64`），dmg / zip 均由 `${arch}` 命名；平台级 `latest-mac.yml` 聚合两种架构，客户端需要 electron-updater ≥ 6.8.8 才能按本机架构筛选。
 - **Linux 自动更新**：仅 AppImage 支持；deb 供手动安装。
 - **Windows**：未配置代码签名证书，安装时可能出现 SmartScreen 提示；自动更新与 blockmap 差分正常。
-- **首次多平台发布**：需确认 `verify` 对 `macos` / `linux` 均返回通过，以验证 apphub 更新端点的平台支持。
+- **首次多平台发布**：需确认 `verify` 对 `windows x64`、`macos x64`、`macos arm64`、`linux x64` 均返回通过，以验证 apphub 更新端点的平台与架构支持。
 
 ## 11. 故障排查
 
@@ -354,13 +384,14 @@ gh secret set APPHUB_SIGN_SECRET --repo Harley-xk/mark-it
 | multipart 初始化 / 分片 / 完成返回 403     | STS 缺少 OSS multipart 权限          | 核对服务端最小权限；确认兼容问题后显式使用 `multipart=off` 重跑                 |
 | multipart 分片持续无进展                   | 跨境链路停滞或连接质量差             | 查看分片号与重试日志；必要时以 `multipart=off` 对照，或进入线路优化评估         |
 | `verify` 返回无更新                        | 发布未生效 / 通道停用                | 核对版本状态与通道状态后重验                                                    |
+| macOS 发布提示包名架构不符                 | 文件名缺少 `arm64`，或 x64 包误含 `arm64` | 确认 dmg / zip 使用 `${arch}` 命名，x64 与 arm64 分别上传                  |
 | 构建失败                                   | 依赖、签名或平台工具问题             | 查看对应 matrix job 日志；mac/linux 首次运行重点关注                            |
 
 ## 12. 相关文件
 
 | 文件                                                                      | 作用                                                                   |
 | ------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| [.github/workflows/release.yml](../.github/workflows/release.yml)         | 三平台构建与并行上传 apphub、发布验证、同步 GitHub Release 的 workflow |
+| [.github/workflows/release.yml](../.github/workflows/release.yml)         | 三平台构建、四槽位并行上传 apphub、发布验证、同步 GitHub Release       |
 | [scripts/release/apphub.mjs](../scripts/release/apphub.mjs)               | apphub 上游 CLI 技能快照（零依赖，不得修改）                           |
 | [scripts/release/apphub-upload.mjs](../scripts/release/apphub-upload.mjs) | 上传适配入口：单次 / 分片选择、STS、包登记                             |
 | [scripts/release/oss-multipart.mjs](../scripts/release/oss-multipart.mjs) | OSS 分片计划、签名、并发、重试、进度、完成与中止                       |
@@ -368,5 +399,7 @@ gh secret set APPHUB_SIGN_SECRET --repo Harley-xk/mark-it
 | [.apphub-release.ci.json](../.apphub-release.ci.json)                     | CI 使用的 stable 无凭据配置（baseUrl / appKey / channel）              |
 | [.apphub-release.beta.ci.json](../.apphub-release.beta.ci.json)           | CI 使用的 beta 无凭据配置                                              |
 | [docs/发版通道.md](./发版通道.md)                                         | 双通道模型、版本号规则、发版节点与 Beta 开关语义                       |
+| [docs/AppHub发布上传链路优化.md](./AppHub发布上传链路优化.md)             | 并行上传、macOS 分架构与 GitHub Release 产物命名                       |
+| [docs/AppHub OSS分片上传.md](./AppHub%20OSS分片上传.md)                   | OSS 分片上传适配层边界、协议与验收记录                                 |
 | [electron-builder.yml](../electron-builder.yml)                           | 三平台打包配置与凭据文件排除                                           |
 | `.apphub-release.json`                                                    | 本地发版凭据（gitignore，不提交）                                      |

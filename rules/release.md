@@ -35,14 +35,15 @@
 4. **不得修改 `scripts/release/apphub.mjs`**：它是会自更新的技能快照，本地改动会被覆盖。需要通道差异时新增配置文件。
 5. 发布 beta 前确认 apphub 已存在 `beta` 通道；更新端点返回 404 表示通道暂无发布，属正常状态，不是故障。
 6. 发布后必须核对：
-   - `verify` 在三平台均通过；
+   - `verify` 在 `windows x64`、`macos x64`、`macos arm64`、`linux x64` 四个槽位均通过；
    - beta 的 GitHub Release 带 `prerelease` 标记，不会被当作 latest；
    - stable 的更新说明包含 beta 期间的全部改动；
    - 更新说明与 apphub 上的说明口径一致。
 7. 首批上线可以先用正式版带出 Beta 开关，也可以先发 beta；无论哪种顺序，beta 都必须满足第 1 节的版本规则，且旧客户端只会看到 stable。
-8. CI 发布必须使用 `prepare` + 三平台并行 `upload` 编排：`prepare` 只创建或复用一次草稿，三个上传任务必须 `fail-fast: false`，`publish` 只能在全部平台上传成功后执行。单平台失败时保留草稿，修复后按同一版本重跑并按需启用 `replace`；重跑时已有平台包替换，不存在的平台包按新增登记。
+8. CI 发布必须使用 `prepare` + 并行 `upload` 编排：`prepare` 只创建或复用一次草稿，四个上传任务（`windows x64`、`macos x64`、`macos arm64`、`linux x64`）必须 `fail-fast: false`，`publish` 只能在全部槽位上传成功后执行。单槽位失败时保留草稿，修复后按同一版本重跑并按需启用 `replace`；重跑时已有槽位包替换，不存在的槽位包按新增登记。
 9. `upload` 的统一入口是 `scripts/release/apphub-upload.mjs`，默认 `multipart=auto`；小文件委托原 CLI，大文件使用 OSS 分片。权限或兼容问题必须显式选择 `multipart=off` 后重跑，不得自动降级。
 10. 上述适配层不得修改 `scripts/release/apphub.mjs`。分片重试只保证单次 job 内有效，不承诺跨 job 断点续传。
+11. macOS 必须按 `x64` / `arm64` 分架构发布，不再构建 universal 包；更新平台只上传 zip + blockmap，dmg 只进入 GitHub Release。包名必须与登记架构一致（`arm64` 包含 `arm64`，`x64` 包不得含 `arm64`）。平台级 `latest-mac.yml` 由 apphub 聚合两种架构，客户端依赖 electron-updater ≥ 6.8.8，不得降级到更早版本。
 
 ## 4. 客户端契约（不可随意改）
 

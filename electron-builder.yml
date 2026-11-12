@@ -66,7 +66,8 @@ mac:
     - NSDownloadsFolderUsageDescription: Application requests access to the user's Downloads folder.
   notarize: false
 dmg:
-  artifactName: ${name}-${version}.${ext}
+  # 分架构打包时 dmg 也必须带架构，否则 x64 与 arm64 产物重名
+  artifactName: ${name}-${version}-${arch}.${ext}
 linux:
   # snap 需要 snapcraft，GitHub 托管 runner 上不可用；如需 snap 请在本地单独构建
   target:

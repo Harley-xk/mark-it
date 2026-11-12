@@ -1,7 +1,8 @@
 name: Release
 
-# 三平台并行构建 → prepare 创建 apphub 草稿 → 三平台并行上传（OSS multipart 自适应）
-#            → 自动发布并验证 → 同步产物到同版本 GitHub Release
+# 三平台并行构建 → prepare 创建 apphub 草稿 → 四槽位并行上传（Windows x64 / macOS x64
+# / macOS arm64 / Linux x64，OSS multipart 自适应）→ 自动发布并验证
+# → 同步产物到同版本 GitHub Release（附件名补平台与架构）
 #
 # 触发方式：
 #   1. 推送 v* 标签（推荐，版本号来自标签）
@@ -134,12 +135,16 @@ jobs:
               dist/*-setup.exe
               dist/*-setup.exe.blockmap
           - os: macos-latest
-            name: macos-universal
-            command: npm run build && npx electron-builder --mac --universal
+            name: macos
+            # 按 apphub 最新设计分架构发布：一次构建同时产出 Intel 与 Apple Silicon 两套 dmg / zip
+            command: npm run build && npx electron-builder --mac --x64 --arm64
             paths: |
-              dist/*.dmg
-              dist/*-universal.zip
-              dist/*-universal.zip.blockmap
+              dist/*-x64.dmg
+              dist/*-arm64.dmg
+              dist/*-x64.zip
+              dist/*-arm64.zip
+              dist/*-x64.zip.blockmap
+              dist/*-arm64.zip.blockmap
           - os: ubuntu-latest
             name: linux-x64
             command: npm run build && npx electron-builder --linux
@@ -283,17 +288,21 @@ jobs:
     timeout-minutes: 30
     strategy:
       fail-fast: false
-      max-parallel: 3
+      max-parallel: 4
       matrix:
         include:
           - name: windows-x64
             platform: windows
             arch: x64
             artifact: windows-x64
-          - name: macos-universal
+          - name: macos-x64
             platform: macos
-            arch: universal
-            artifact: macos-universal
+            arch: x64
+            artifact: macos
+          - name: macos-arm64
+            platform: macos
+            arch: arm64
+            artifact: macos
           - name: linux-x64
             platform: linux
             arch: x64
@@ -334,9 +343,10 @@ jobs:
               map=$(find dist -type f -name '*-setup.exe.blockmap' -print -quit)
               ;;
             macos)
-              # macOS 自动更新（electron-updater/Squirrel.Mac）只认 zip，dmg 仅保留为构建产物
-              file=$(find dist -type f -name '*-universal.zip' -print -quit)
-              map=$(find dist -type f -name '*-universal.zip.blockmap' -print -quit)
+              # macOS 自动更新（electron-updater/Squirrel.Mac）只认 zip，dmg 仅保留为构建产物；
+              # 按架构精确取包，避免 x64 job 误传 arm64 产物
+              file=$(find dist -type f -name "*-${ARCH}.zip" -print -quit)
+              map=$(find dist -type f -name "*-${ARCH}.zip.blockmap" -print -quit)
               ;;
             linux)
               file=$(find dist -type f -name '*.AppImage' -print -quit)
@@ -381,7 +391,7 @@ jobs:
       - name: Verify update detection
         run: |
           set -euo pipefail
-          for spec in "windows x64" "macos universal" "linux x64"; do
+          for spec in "windows x64" "macos x64" "macos arm64" "linux x64"; do
             read -r platform arch <<< "$spec"
             echo "----- verify $platform/$arch -----"
             node scripts/release/apphub.mjs verify --config "$CONFIG" --expect "$VERSION" --platform "$platform" --arch "$arch"
@@ -413,6 +423,31 @@ jobs:
       - name: List artifacts
         run: ls -lh dist
 
+      # 用户从 GitHub Release 手动下载时需要直接区分平台与架构；
+      # apphub 侧仍使用 electron-builder 原始文件名，这里只复制为带标识的附件名。
+      - name: Label release assets with platform and arch
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+          copy() {
+            if [ ! -f "$1" ]; then
+              echo "::error::Missing release asset: $1"
+              exit 1
+            fi
+            cp "$1" "release-assets/$2"
+          }
+          copy "dist/mark-it-$VERSION-setup.exe" "mark-it-$VERSION-windows-x64-setup.exe"
+          copy "dist/mark-it-$VERSION-setup.exe.blockmap" "mark-it-$VERSION-windows-x64-setup.exe.blockmap"
+          for arch in x64 arm64; do
+            copy "dist/mark-it-$VERSION-$arch.dmg" "mark-it-$VERSION-macos-$arch.dmg"
+            copy "dist/mark-it-$VERSION-$arch.zip" "mark-it-$VERSION-macos-$arch.zip"
+            copy "dist/mark-it-$VERSION-$arch.zip.blockmap" "mark-it-$VERSION-macos-$arch.zip.blockmap"
+          done
+          copy "dist/mark-it-$VERSION.AppImage" "mark-it-$VERSION-linux-x64.AppImage"
+          copy "dist/mark-it-$VERSION.AppImage.blockmap" "mark-it-$VERSION-linux-x64.AppImage.blockmap"
+          copy "dist/mark-it_${VERSION}_amd64.deb" "mark-it-$VERSION-linux-x64.deb"
+          ls -lh release-assets
+
       - name: Create or update GitHub Release
         env:
           NOTES: ${{ needs.prepare.outputs.notes }}
@@ -427,15 +462,15 @@ jobs:
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "Release $TAG 已存在：刷新说明并覆盖同名产物"
             gh release edit "$TAG" --title "$TAG" --notes "$NOTES" "${flags[@]}"
-            gh release upload "$TAG" dist/* --clobber
+            gh release upload "$TAG" release-assets/* --clobber
             exit 0
           fi
 
           echo "创建 Release $TAG"
           # 手动触发时通常还没有 tag，由 gh 在目标提交上补建
           if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" >/dev/null 2>&1; then
-            gh release create "$TAG" dist/* --title "$TAG" --notes "$NOTES" "${flags[@]}"
+            gh release create "$TAG" release-assets/* --title "$TAG" --notes "$NOTES" "${flags[@]}"
           else
-            gh release create "$TAG" dist/* --title "$TAG" --notes "$NOTES" \
+            gh release create "$TAG" release-assets/* --title "$TAG" --notes "$NOTES" \
               --target "$GITHUB_SHA" "${flags[@]}"
           fi
