@@ -1,6 +1,6 @@
 # AI 工作规则 —— 发版通道
 
-> 优先级仅次于 [base.md](base.md)。本规则约束 stable / beta 双通道的版本号、发版节点、更新说明与发布操作，所有涉及发版的改动与操作都必须遵守。完整设计、客户端行为与发版步骤见 [docs/发版通道.md](../docs/发版通道.md)。
+> 优先级仅次于 [base.md](base.md)。本规则约束 stable / beta 双通道的版本号、发版节点、更新说明与发布操作，所有涉及发版的改动与操作都必须遵守。完整设计、客户端行为与发版步骤见 [docs/更新与发布/发版通道.md](../docs/更新与发布/发版通道.md)。
 
 ## 1. 通道与版本号
 
@@ -25,7 +25,7 @@
 4. 发版前必须运行 `node scripts/release/channel-state.mjs status`，确认两个通道的节点与待收录提交。
 5. 发版前必须运行 `node scripts/release/channel-state.mjs validate --version <版本号>`；CI 的 `validate` 阶段会执行同一校验。
 6. 如果某个 tag 已创建但发布被放弃，必须删除该 tag 后再发下一个版本，否则下一个版本会漏收录这段提交。
-7. 更新说明仍按 [docs/github-release.md 3.1](../docs/github-release.md#31-更新说明撰写规则) 提炼：面向用户、去除技术细节、合并同类项、控制在 3–8 条。
+7. 更新说明仍按 [docs/更新与发布/github-release.md 3.1](../docs/更新与发布/github-release.md#31-更新说明撰写规则) 提炼：面向用户、去除技术细节、合并同类项、控制在 3–8 条。
 
 ## 3. 发布操作
 
@@ -47,7 +47,7 @@
 
 ## 4. 客户端契约（不可随意改）
 
-1. `UpdateChannel`、`UpdateState.betaUpdatesEnabled` / `currentChannel` / `latestChannel` 是跨进程契约；修改时必须同步主进程、preload、渲染层，并更新 [docs/自动更新.md](../docs/自动更新.md)、[docs/状态与数据模型.md](../docs/状态与数据模型.md)、[docs/发版通道.md](../docs/发版通道.md)。
+1. `UpdateChannel`、`UpdateState.betaUpdatesEnabled` / `currentChannel` / `latestChannel` 是跨进程契约；修改时必须同步主进程、preload、渲染层，并更新 [docs/更新与发布/自动更新.md](../docs/更新与发布/自动更新.md)、[docs/架构与契约/状态与数据模型.md](../docs/架构与契约/状态与数据模型.md)、[docs/更新与发布/发版通道.md](../docs/更新与发布/发版通道.md)。
 2. Beta 开关持久化在主进程 `userData/update-preference.json`，默认关闭。不得改为 localStorage，不得改变默认值。
 3. 关闭 Beta 只停止接收 beta，**不得自动降级**已安装的 beta；不得提供常驻降级通道。用户可在设置页主动发起一次回退到 stable 当前最新版本，回退前必须关闭 Beta 开关；下一个正式版发布后仍按正常升级自动归队。
 4. beta 通道 404 必须按「没有 beta」处理，不能把开关开启变成错误状态。
@@ -56,7 +56,7 @@
 
 ## 5. 发版相关完成定义
 
-1. 业务改动先更新 `docs/` 与内置用户手册（[base.md](base.md) 第 4 节）；发版规则或流程变化同步更新本文件与 [docs/发版通道.md](../docs/发版通道.md)。
+1. 业务改动先更新 `docs/` 与内置用户手册（[base.md](base.md) 第 4 节）；发版规则或流程变化同步更新本文件与 [docs/更新与发布/发版通道.md](../docs/更新与发布/发版通道.md)。
 2. 发版前：`npm run lint`、`npm run typecheck`、`npm test` 通过；涉及 workflow、发版配置或打包配置时执行 `npm run build`。
 3. 涉及主进程 / IPC / 更新流程的改动，必须按 [testing.md](testing.md) 执行 `npm run dev` 与打包产物验证。
-4. 发版后按 [docs/测试与质量保障.md](../docs/测试与质量保障.md) 的 MV-27 / MV-27A / MV-27B 核对更新状态与 Beta 开关。
+4. 发版后按 [docs/工程与质量/测试与质量保障.md](../docs/工程与质量/测试与质量保障.md) 的 MV-27 / MV-27A / MV-27B 核对更新状态与 Beta 开关。

@@ -13,7 +13,7 @@ export interface TextMatch {
 /**
  * 单次搜索最多定位的匹配数量。
  * 常见单字符在超长文档里可能命中数万次，全部生成装饰 / Range 会明显拖慢输入。
- * 超出部分不标注、不可导航，计数也停在上限（见 docs/搜索与替换.md 第 4 节）。
+ * 超出部分不标注、不可导航，计数也停在上限（见 docs/编辑与预览/搜索与替换.md 第 4 节）。
  */
 export const SEARCH_MATCH_LIMIT = 2000
 
