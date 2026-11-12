@@ -470,10 +470,11 @@ jobs:
           fi
 
           echo "创建 Release $TAG"
-          # 手动触发时通常还没有 tag，由 gh 在目标提交上补建
-          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" >/dev/null 2>&1; then
-            gh release create "$TAG" release-assets/* --title "$TAG" --notes "$NOTES" "${flags[@]}"
-          else
-            gh release create "$TAG" release-assets/* --title "$TAG" --notes "$NOTES" \
-              --target "$GITHUB_SHA" "${flags[@]}"
+          # 手动触发时通常还没有 tag，先通过 Git References API 补建：只需 contents: write。
+          # 不能用 gh release create --target：当目标提交的 workflow 文件与默认分支不一致时，
+          # releases API 会额外要求 workflows: write，GITHUB_TOKEN 无法获得。
+          if ! gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" >/dev/null 2>&1; then
+            gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+              -f ref="refs/tags/$TAG" -f sha="$GITHUB_SHA"
           fi
+          gh release create "$TAG" release-assets/* --title "$TAG" --notes "$NOTES" "${flags[@]}"

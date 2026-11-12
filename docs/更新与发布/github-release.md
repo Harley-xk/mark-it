@@ -243,7 +243,7 @@ git push origin :refs/tags/v1.6.0-beta.3
 `github-release` 任务在 apphub 发布并验证通过后执行，行为如下：
 
 - 标签触发：Release 使用已推送的 `vX.Y.Z` tag
-- 手动触发且尚无 tag：自动在当次运行的提交上补建 `vX.Y.Z` tag 后再建 Release
+- 手动触发且尚无 tag：先通过 Git References API 在当次运行的提交上补建 `vX.Y.Z` tag，再基于该 tag 创建 Release。不要用 `gh release create --target` 补建 tag：当目标提交上的 workflow 文件与默认分支不一致时，releases API 会额外要求 `workflows: write`，而 `GITHUB_TOKEN` 无法获得该权限，会返回 403
 - Release 已存在（重跑）：刷新标题与更新说明，并用 `--clobber` 覆盖同名附件
 - 附件为当次四套平台 / 架构产物（Windows x64、macOS x64、macOS arm64、Linux x64 的 exe / dmg / zip / AppImage / deb；Windows 与 macOS 另含 blockmap，AppImage 当前不生成 blockmap）
 - 附件名在上传前统一补上平台与架构，例如 `mark-it-1.6.0-macos-arm64.zip`、`mark-it-1.6.0-windows-x64-setup.exe`
