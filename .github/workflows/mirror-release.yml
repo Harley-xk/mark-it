@@ -1,6 +1,6 @@
 name: Mirror Release
 
-# 一次性补救流程：只把既有 run 的构建产物补建为 GitHub Release，
+# 一次性补救流程：只把既有 run 的构建产物上传到已创建的 GitHub Release，
 # 不重新构建、不重新上传 apphub。使用完成后删除本文件与触发标签。
 #
 # 触发（workflow_dispatch 无法从非默认分支解析本文件，改用标签触发）：
@@ -25,11 +25,6 @@ jobs:
       SOURCE_RUN: '43172578682'
       VERSION: '1.6.0-beta.12'
       TAG: v1.6.0-beta.12
-      TARGET_SHA: 'ac866a2e47dd0f69dc447d72cac8502438db948e'
-      NOTES: |
-        - 优化：切换标签时复用已渲染的预览，长文档来回切换更流畅
-        - 优化：长文档输入更顺畅，输入时大纲刷新不再拖慢编辑
-        - 优化：macOS 安装包按 Intel 与 Apple 芯片分别提供，下载体积更小
     steps:
       # gh release create 需要 git 仓库上下文，否则报 “not a git repository”
       - uses: actions/checkout@v7
@@ -68,27 +63,14 @@ jobs:
           copy "flat/mark-it_${VERSION}_amd64.deb" "mark-it-$VERSION-linux-x64.deb"
           ls -lh release-assets
 
-      - name: Create or update GitHub Release
+      - name: Upload assets to existing GitHub Release
         run: |
           set -euo pipefail
-          flags=()
-          if [[ "$VERSION" == *-* ]]; then
-            flags+=(--prerelease)
+          # tag 与 Release 由维护者预先创建：GITHUB_TOKEN 无法创建指向
+          # workflow 文件偏离默认分支的提交的 tag（需要 workflows: write）。
+          # 本步骤只上传附件，只需 contents: write。
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            echo "::error::Release $TAG 不存在，请先创建 tag 与 Release"
+            exit 1
           fi
-
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "Release $TAG 已存在：刷新说明并覆盖同名产物"
-            gh release edit "$TAG" --title "$TAG" --notes "$NOTES" "${flags[@]}"
-            gh release upload "$TAG" release-assets/* --clobber
-            exit 0
-          fi
-
-          echo "创建 Release $TAG"
-          # 通过 Git References API 建 tag：只需 contents: write。
-          # 不能用 gh release create --target：当目标提交的 workflow 文件与默认分支
-          # 不一致时，releases API 会额外要求 workflows: write，GITHUB_TOKEN 无法获得。
-          if ! gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" >/dev/null 2>&1; then
-            gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
-              -f ref="refs/tags/$TAG" -f sha="$TARGET_SHA"
-          fi
-          gh release create "$TAG" release-assets/* --title "$TAG" --notes "$NOTES" "${flags[@]}"
+          gh release upload "$TAG" release-assets/* --clobber
