@@ -1,15 +1,17 @@
-# AppHub OSS 分片上传适配层设计
+# AppHub OSS 分片上传
 
-> **状态：并行分片、实时进度和包登记已在 `1.6.0-beta.9` 真实验证；当前最大样本约 245 MiB。超过 500 MiB 的产物与 Abort 失败路径仍待验证。**
+> **当前状态：已实施。** 并行分片、实时进度、分片重试和包登记已在 `1.6.0-beta.9` 真实验证；Abort 失败路径由自动化测试覆盖。已知边界见第 7 节。
 >
-> 文档定位：在不修改会自更新的 `scripts/release/apphub.mjs` 的前提下，为大安装包增加 OSS multipart（分片上传）能力。
+> 文档定位：记录在不修改会自更新的 `scripts/release/apphub.mjs` 的前提下，为大安装包提供 OSS multipart（分片上传）能力的实现边界、协议与验收结果。操作手册见 [构建与发布](./构建与发布.md) 与 [GitHub Actions 发版说明](./github-release.md)。
 >
-> 上游优先原则与整体优化背景见 [AppHub 发布上传链路优化设计](./AppHub发布上传链路优化设计.md)。
+> 上游优先原则与整体优化背景见 [AppHub 发布上传链路优化](./AppHub发布上传链路优化.md)。
+>
+> 最后核对：2026-11-12。
 
 ## 1. 改造边界
 
 AppHub CLI 当前 `upload` 子命令把哈希、STS 申请、OSS 整文件 `PUT` 和包登记串在一个流程中，并已通过
-[`scripts/release/apphub.mjs`](../../scripts/release/apphub.mjs) 导出 `ApphubClient`、`hashFile` 和
+[`scripts/release/apphub.mjs`](../scripts/release/apphub.mjs) 导出 `ApphubClient`、`hashFile` 和
 `ossPutObject`。这些能力可以在外部脚本中复用，且导入该文件不会启动 CLI 主流程。
 
 上游尚未提供 multipart 参数，因此本仓库新增一个受控适配入口：
@@ -124,8 +126,8 @@ OSS 错误只提取安全的 `Code` / `Message` 和 HTTP 状态，不回显请�
 - STS 已证明初始化、UploadPart 和 Complete 可用；HEAD 返回 403 后记录警告并跳过只读大小复核。
 - AppHub 包登记、替换、发布和三平台 `verify` 均成功，同版本重跑与 `replace` 流程可用。
 
-仍需继续验证的边界：
+已知边界与后续跟踪：
 
-- 超过 500 MiB 的产物；当前真实最大样本约 245 MiB；
-- Abort 权限及失败中止路径；目前只有自动化 mock 覆盖；
-- AppHub CLI 上游原生 multipart 合并与迁移。
+- 超过 500 MiB 的产物尚未在真实发版中出现；当前真实最大样本约 245 MiB；
+- Abort 权限及失败中止路径目前由自动化 mock 覆盖，尚未在真实 OSS 中触发；
+- AppHub CLI 上游原生 multipart 尚未合并；合并后应迁移到上游参数并移除仓库适配层。

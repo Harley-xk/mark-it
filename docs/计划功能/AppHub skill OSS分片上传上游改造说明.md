@@ -471,6 +471,6 @@ MarkIt 仓库当前实现可供上游移植和对照：
 - [oss-multipart.spec.ts](../../scripts/release/oss-multipart.spec.ts)：分片计划、签名、完成报文、重试、Abort、脱敏和 HEAD 边界测试。
 - [apphub-upload.mjs](../../scripts/release/apphub-upload.mjs)：上游不支持期间的兼容适配入口，可作为把传输选择嵌入 `cmdUpload` 的参考。
 - [apphub-upload.spec.ts](../../scripts/release/apphub-upload.spec.ts)：小文件 / `off` 委托、混合传输、失败不登记和日志脱敏测试。
-- [AppHub OSS 分片上传适配层设计](./AppHub%20OSS分片上传适配层设计.md)：MarkIt 本地的适配层边界与真实验收记录。
+- [AppHub OSS 分片上传](../AppHub%20OSS分片上传.md)：MarkIt 本地的适配层边界与真实验收记录。
 
 参考实现采用 MIT 许可，可直接作为上游改造基础；合并时应按上游现有代码风格、命令帮助、测试框架和发布流程适配，而不是复制 MarkIt 的临时入口依赖关系。
