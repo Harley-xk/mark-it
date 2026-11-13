@@ -20,7 +20,12 @@ import { closeUpdateWindow, initAutoUpdater } from './updater'
 import { isAppUrl, registerHandle, registerOn } from './ipc-guard'
 import { normalizeSessionTab, parseSessionData, parseSessionFile } from './session-store'
 import { capHistoryEntries, parseEditorHistoryFile } from './editor-history-store'
-import { closeSettingsWindow, isSettingsWindowSender, openSettingsWindow } from './settings-window'
+import {
+  closeSettingsWindow,
+  getSettingsWindow,
+  isSettingsWindowSender,
+  openSettingsWindow
+} from './settings-window'
 import {
   normalizeZoomFactor,
   parseWindowStateFile,
@@ -96,7 +101,6 @@ interface EditorWindowContext {
   watchedContent: string | null
   watchSeq: number
   externalChangeTimer: ReturnType<typeof setTimeout> | null
-  zoomFactor: number
   allowClose: boolean
   saveStateTimer: ReturnType<typeof setTimeout> | null
   pendingTransferId: string | null
@@ -133,11 +137,13 @@ let tabDragPreviewWindow: BrowserWindow | null = null
 const sessionWindows = new Map<string, SessionData>()
 let sessionFileData: SessionFile = { version: 2, windows: [] }
 const editorHistoryFileData: EditorHistoryFile = { version: 1, windows: {} }
-let windowStateFileData: WindowStateFile = { version: 2, windows: {} }
+let windowStateFileData: WindowStateFile = { version: 3, zoomFactor: 1, windows: {} }
 
 // --- 整窗缩放 ---
 
 const ZOOM_STEP = 0.1
+/** Chromium 缩放按 origin 生效，同源窗口共享比例，因此全应用维护唯一缩放值 */
+let globalZoomFactor = 1
 const windowStateFile = join(app.getPath('userData'), 'window-state.json')
 /** 上次打开的标签页（含未保存内容），更新重启后据此恢复文档 */
 const sessionFile = join(app.getPath('userData'), 'session.json')
@@ -146,8 +152,7 @@ const vscodeIntegrationConfigFile = join(app.getPath('userData'), 'vscode-integr
 const DEFAULT_WINDOW_STATE: WindowState = {
   width: 1280,
   height: 800,
-  isMaximized: false,
-  zoomFactor: 1
+  isMaximized: false
 }
 const EDITOR_MIN_WIDTH = 800
 const EDITOR_MIN_HEIGHT = 600
@@ -281,6 +286,7 @@ function initializePersistedState(): void {
   } catch (err) {
     console.error('Failed to load window state:', err)
   }
+  globalZoomFactor = windowStateFileData.zoomFactor
 
   lastFocusedWindowId =
     windowStateFileData.lastFocusedWindowId ??
@@ -346,18 +352,25 @@ function createExportProgressReporter(
   }
 }
 
-/** 应用缩放比例（整个页面一起缩放）并通知渲染进程、持久化 */
-function applyZoomFactor(context: EditorWindowContext, factor: number): void {
-  context.zoomFactor = normalizeZoomFactor(factor)
-  if (!context.win.isDestroyed()) {
-    context.win.webContents.setZoomFactor(context.zoomFactor)
-    context.win.webContents.send('window:zoom-changed', context.zoomFactor)
+/** 应用全局缩放比例：所有编辑窗口与设置窗口同步缩放，并持久化 */
+function applyZoomFactor(factor: number): void {
+  globalZoomFactor = normalizeZoomFactor(factor)
+  windowStateFileData.zoomFactor = globalZoomFactor
+  for (const context of editorWindows.values()) {
+    if (context.win.isDestroyed()) continue
+    context.win.webContents.setZoomFactor(globalZoomFactor)
+    context.win.webContents.send('window:zoom-changed', globalZoomFactor)
   }
-  queueSaveWindowState(context)
+  const settings = getSettingsWindow()
+  if (settings && !settings.isDestroyed()) {
+    settings.webContents.setZoomFactor(globalZoomFactor)
+    settings.webContents.send('window:zoom-changed', globalZoomFactor)
+  }
+  queuePersistWindowStateFile()
 }
 
-function zoomBy(context: EditorWindowContext, delta: number): void {
-  applyZoomFactor(context, context.zoomFactor + delta)
+function zoomBy(delta: number): void {
+  applyZoomFactor(globalZoomFactor + delta)
 }
 
 /**
@@ -607,7 +620,6 @@ function saveWindowState(context: EditorWindowContext): void {
     height: bounds.height,
     x: bounds.x,
     y: bounds.y,
-    zoomFactor: context.zoomFactor,
     isMaximized: context.win.isMaximized()
   }
   queuePersistWindowStateFile()
@@ -689,7 +701,6 @@ function createEditorWindow(options: CreateEditorWindowOptions = {}): EditorWind
     watchedContent: null,
     watchSeq: 0,
     externalChangeTimer: null,
-    zoomFactor: windowState.zoomFactor,
     allowClose: false,
     saveStateTimer: null,
     pendingTransferId: options.pendingTransfer?.transferId ?? null,
@@ -731,13 +742,13 @@ function createEditorWindow(options: CreateEditorWindowOptions = {}): EditorWind
 
     if (input.key === '+' || input.key === '=') {
       event.preventDefault()
-      zoomBy(context, ZOOM_STEP)
+      zoomBy(ZOOM_STEP)
     } else if (input.key === '-' || input.key === '_') {
       event.preventDefault()
-      zoomBy(context, -ZOOM_STEP)
+      zoomBy(-ZOOM_STEP)
     } else if (input.key === '0' && !input.shift) {
       event.preventDefault()
-      applyZoomFactor(context, 1)
+      applyZoomFactor(1)
     }
   })
 
@@ -827,8 +838,8 @@ function createEditorWindow(options: CreateEditorWindowOptions = {}): EditorWind
 
   win.webContents.on('did-finish-load', () => {
     if (context.win.isDestroyed()) return
-    context.win.webContents.setZoomFactor(context.zoomFactor)
-    context.win.webContents.send('window:zoom-changed', context.zoomFactor)
+    context.win.webContents.setZoomFactor(globalZoomFactor)
+    context.win.webContents.send('window:zoom-changed', globalZoomFactor)
   })
 
   return context
@@ -1749,8 +1760,15 @@ registerHandle('window:is-fullscreen', (event) => {
   return context?.win.isFullScreen() ?? false
 })
 registerHandle('window:get-zoom', (event) => {
-  const context = getEditorWindowBySender(event.sender)
-  return context?.zoomFactor ?? 1
+  if (!getEditorWindowBySender(event.sender) && !isSettingsWindowSender(event.sender)) return 1
+  return globalZoomFactor
+})
+/** 设置全局缩放比例；由状态栏或设置页调用，归一与夹取仍由主进程负责 */
+registerHandle('window:set-zoom', (event, factor: unknown) => {
+  if (!getEditorWindowBySender(event.sender) && !isSettingsWindowSender(event.sender)) return false
+  if (typeof factor !== 'number' || !Number.isFinite(factor)) return false
+  applyZoomFactor(factor)
+  return true
 })
 /**
  * 同步原生外观主题。Chromium 依据 nativeTheme 的明暗选择窗口按钮的
@@ -1959,10 +1977,9 @@ if (!gotTheLock) {
       for (const context of editorWindows.values()) {
         if (context.win.isDestroyed() || !context.win.isVisible()) continue
         const bounds = context.win.getContentBounds()
-        const zoom = context.win.webContents.getZoomFactor()
         context.win.webContents.send('cursor-pos', {
-          x: (cursor.x - bounds.x) / zoom,
-          y: (cursor.y - bounds.y) / zoom
+          x: (cursor.x - bounds.x) / globalZoomFactor,
+          y: (cursor.y - bounds.y) / globalZoomFactor
         })
       }
     }, 300)

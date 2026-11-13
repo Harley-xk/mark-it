@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { useEditorStore } from '../../stores/editor'
 import { useAppStore } from '../../stores/app'
+import ZoomControl from './ZoomControl.vue'
 
 const editor = useEditorStore()
 const app = useAppStore()
@@ -113,7 +114,7 @@ const exportAriaLabel = computed(() => {
       }}</span>
       <template v-if="app.zoomPercent !== 100">
         <span class="status-sep">|</span>
-        <span class="status-item" title="Ctrl/Cmd + 0 恢复 100%">缩放 {{ app.zoomPercent }}%</span>
+        <ZoomControl />
       </template>
     </div>
   </div>

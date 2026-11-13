@@ -61,10 +61,10 @@
 
 | 方向                                  | 数量   | 说明                                                                      |
 | ------------------------------------- | ------ | ------------------------------------------------------------------------- |
-| renderer → main `invoke`（请求-响应） | 37     | 文件 5、对话框 3、窗口 11、系统 1、会话 2、历史 2、导出 2、更新 8、集成 3 |
+| renderer → main `invoke`（请求-响应） | 38     | 文件 5、对话框 3、窗口 12、系统 1、会话 2、历史 2、导出 2、更新 8、集成 3 |
 | renderer → main `send`（单向）        | 7      | 就绪、窗口关闭、迁移确认 / 拒绝、拖拽开始 / 结束、退出协调                |
 | main → renderer `send`（事件推送）    | 11     | 见 3.8                                                                    |
-| **合计**                              | **55** | 全部经 `window.api` 白名单暴露                                            |
+| **合计**                              | **56** | 全部经 `window.api` 白名单暴露                                            |
 
 > 计数口径：按 `registerHandle` / `registerOn` / `webContents.send` 中实际出现的通道名去重统计。`window:zoom-changed` 在两个位置发送但只算一个通道。
 
@@ -107,7 +107,8 @@
 | `window:tab-drag-end`          | R→M send   | `endTabDrag()`                             | 无                                            | 无                                     | [`src/main/index.ts`](../../src/main/index.ts)     | 结束拖拽、销毁悬浮提示并清除所有目标高亮                                                   |
 | `window:close`                 | R→M invoke | `close(quit?)`                             | `quit?: boolean`（兼容保留）                  | `Promise<boolean>`                     | [`src/main/index.ts`](../../src/main/index.ts)     | 只置发送方窗口 `allowClose = true` 并关闭该窗口；调用前必须已完成未保存内容确认            |
 | `window:is-fullscreen`         | R→M invoke | `isFullscreen()`                           | 无                                            | `Promise<boolean>`                     | [`src/main/index.ts`](../../src/main/index.ts)     | 返回发送方窗口的全屏状态；只接受编辑窗口                                                   |
-| `window:get-zoom`              | R→M invoke | `getZoom()`                                | 无                                            | `Promise<number>`                      | [`src/main/index.ts`](../../src/main/index.ts)     | 返回发送方窗口上下文的缩放比例（1 = 100%）                                                 |
+| `window:get-zoom`              | R→M invoke | `getZoom()`                                | 无                                            | `Promise<number>`                      | [`src/main/index.ts`](../../src/main/index.ts)     | 返回全局缩放比例（1 = 100%）；编辑窗口与设置窗口可调用，其余发送方返回 1                   |
+| `window:set-zoom`              | R→M invoke | `setZoom(factor)`                          | `factor: number`（1 = 100%）                  | `Promise<boolean>`                     | [`src/main/index.ts`](../../src/main/index.ts)     | 状态栏与设置页使用；主进程归一到 10% 步长并夹取 0.5–3 后同步全部窗口、持久化；非法入参返回 `false` |
 | `window:set-native-theme`      | R→M invoke | `setNativeTheme(theme)`                    | `theme: 'light' \| 'dark' \| 'system'`        | `Promise<void>`                        | [`src/main/index.ts`](../../src/main/index.ts)     | 写入全局 `nativeTheme.themeSource`；允许任意编辑窗口和设置窗口调用                         |
 | `shell:openExternal`           | R→M invoke | `openExternal(url)`                        | `url: string`                                 | `Promise<boolean>`                     | [`src/main/index.ts:553`](../../src/main/index.ts) | 仅放行 `http` / `https` / `mailto`；`file:` 转为定位文件；其余协议忽略并返回 `false`       |
 
@@ -164,7 +165,7 @@
 | `open-file-from-argv`         | M→R send | `onOpenFile(cb)`              | `{ path: string; content: string }`                         | 启动命令行参数 / 二次启动 / macOS `open-file` | [`src/main/index.ts:211`](../../src/main/index.ts)                                 | 渲染进程未就绪时先排队；VSCode 扩展与 Finder 共用同一队列                      |
 | `renderer:ready`              | R→M send | `onOpenFile` 内部自动发送     | 无                                                          | 渲染进程首次注册 `open-file-from-argv` 监听后 | [`src/main/index.ts`](../../src/main/index.ts)                                     | 每个页面只发送一次；主进程只置发送方窗口的 `rendererReady` 并放行该窗口队列    |
 | `file:external-change`        | M→R send | `onExternalFileChange(cb)`    | `{ path: string; content: string }`                         | 监视文件内容真实变化                          | [`src/main/index.ts:255`](../../src/main/index.ts)                                 | 只在内容与 `watchedContent` 不同时发送；**返回取消监听函数**                   |
-| `window:zoom-changed`         | M→R send | `onZoomChange(cb)`            | `number`（缩放比例）                                        | 应用缩放、页面加载完成恢复缩放                | [`src/main/index.ts:160`](../../src/main/index.ts)、[`:437`](../../src/main/index.ts) | 页面重载会重置缩放，`did-finish-load` 后重发                                   |
+| `window:zoom-changed`         | M→R send | `onZoomChange(cb)`            | `number`（全局缩放比例）                                    | 应用缩放、页面加载完成恢复缩放                | [`src/main/index.ts:160`](../../src/main/index.ts)、[`:437`](../../src/main/index.ts) | 广播到全部编辑窗口与设置窗口；页面重载会重置缩放，`did-finish-load` 后重发     |
 | `window:fullscreen`           | M→R send | `onFullscreenChange(cb)`      | `boolean`                                                   | 进入 / 退出全屏                               | [`src/main/index.ts:374`](../../src/main/index.ts)                                 | 标题栏据此移除两侧留白                                                         |
 | `window:close-request`        | M→R send | `onCloseRequest(cb)`          | `{ quit: boolean }`                                         | 编辑窗口 `close` 事件被拦截时                 | [`src/main/index.ts`](../../src/main/index.ts)                                     | 只发送给触发关闭的编辑窗口；应用退出统一走 `app:prepare-exit`                  |
 | `shortcut:close-tab`          | M→R send | `onCloseTabShortcut(cb)`      | 无                                                          | macOS `Cmd+W` 被 `before-input-event` 拦截    | [`src/main/index.ts:353`](../../src/main/index.ts)                                 | 仅 macOS；其他平台由渲染进程键盘处理                                           |

@@ -2,7 +2,7 @@
  * 作者: Harley-xk
  * 创建: 2026-11-10
  *
- * 描述: 多窗口几何状态的结构校验与旧版单窗口迁移
+ * 描述: 多窗口几何状态与全局缩放的结构校验、旧版文件迁移
  */
 
 export interface WindowState {
@@ -11,11 +11,12 @@ export interface WindowState {
   x?: number
   y?: number
   isMaximized: boolean
-  zoomFactor: number
 }
 
 export interface WindowStateFile {
-  version: 2
+  version: 3
+  /** 全应用统一的整窗缩放比例（1 表示 100%）；Chromium 缩放按 origin 生效，只能全局保存 */
+  zoomFactor: number
   windows: Record<string, WindowState>
   lastFocusedWindowId?: string
 }
@@ -47,7 +48,6 @@ export function normalizeWindowState(value: unknown): WindowState | null {
   const result: WindowState = {
     width: Math.max(800, state.width),
     height: Math.max(600, state.height),
-    zoomFactor: normalizeZoomFactor(finiteNumber(state.zoomFactor) ? state.zoomFactor : 1),
     isMaximized: state.isMaximized === true
   }
   if (finiteNumber(state.x)) result.x = state.x
@@ -90,8 +90,33 @@ export function centerWindowOnWorkArea(
   })
 }
 
+function readLegacyZoomFactor(value: unknown): number | null {
+  if (!value || typeof value !== 'object') return null
+  const zoom = (value as Record<string, unknown>).zoomFactor
+  return finiteNumber(zoom) ? normalizeZoomFactor(zoom) : null
+}
+
+function normalizeWindows(source: Record<string, unknown>): Record<string, WindowState> {
+  const windows: Record<string, WindowState> = {}
+  for (const [id, state] of Object.entries(source)) {
+    const normalized = normalizeWindowState(state)
+    if (id && normalized) windows[id] = normalized
+  }
+  return windows
+}
+
+function resolveLastFocusedId(
+  data: Record<string, unknown>,
+  windows: Record<string, WindowState>
+): string | undefined {
+  return typeof data.lastFocusedWindowId === 'string' && windows[data.lastFocusedWindowId]
+    ? data.lastFocusedWindowId
+    : undefined
+}
+
 /**
  * 解析窗口状态文件。
+ * v3 起缩放为全局值；v2 的按窗口缩放迁移时取最后聚焦窗口（缺失则首个有效窗口）的比例。
  * 旧版单窗口对象会迁移给调用方指定的首个窗口；损坏切片被丢弃。
  */
 export function parseWindowStateFile(
@@ -101,23 +126,38 @@ export function parseWindowStateFile(
   if (!value || typeof value !== 'object') return null
   const data = value as Record<string, unknown>
 
-  if (data.version === 2 && data.windows && typeof data.windows === 'object') {
-    const windows: Record<string, WindowState> = {}
-    for (const [id, state] of Object.entries(data.windows as Record<string, unknown>)) {
-      const normalized = normalizeWindowState(state)
-      if (id && normalized) windows[id] = normalized
+  if (data.version === 3 && data.windows && typeof data.windows === 'object') {
+    const windows = normalizeWindows(data.windows as Record<string, unknown>)
+    return {
+      version: 3,
+      zoomFactor: finiteNumber(data.zoomFactor) ? normalizeZoomFactor(data.zoomFactor) : 1,
+      windows,
+      lastFocusedWindowId: resolveLastFocusedId(data, windows)
     }
-    const lastFocused =
-      typeof data.lastFocusedWindowId === 'string' && windows[data.lastFocusedWindowId]
-        ? data.lastFocusedWindowId
-        : undefined
-    return { version: 2, windows, lastFocusedWindowId: lastFocused }
+  }
+
+  if (data.version === 2 && data.windows && typeof data.windows === 'object') {
+    const rawWindows = data.windows as Record<string, unknown>
+    const windows = normalizeWindows(rawWindows)
+    const lastFocused = resolveLastFocusedId(data, windows)
+    const rawIds = Object.keys(windows)
+    const preferred = lastFocused ? [lastFocused, ...rawIds] : rawIds
+    let zoomFactor = 1
+    for (const id of preferred) {
+      const zoom = readLegacyZoomFactor(rawWindows[id])
+      if (zoom !== null) {
+        zoomFactor = zoom
+        break
+      }
+    }
+    return { version: 3, zoomFactor, windows, lastFocusedWindowId: lastFocused }
   }
 
   const legacy = normalizeWindowState(data)
   if (!legacy || !legacyWindowId) return null
   return {
-    version: 2,
+    version: 3,
+    zoomFactor: readLegacyZoomFactor(data) ?? 1,
     windows: { [legacyWindowId]: legacy },
     lastFocusedWindowId: legacyWindowId
   }

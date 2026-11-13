@@ -10,6 +10,8 @@ import appIconUrl from '@resources/icon.png'
 import { MAX_CUSTOM_STYLE_CHARS, useStyleStore } from '../stores/style'
 import { useAppStore } from '../stores/app'
 import { useUpdateStore } from '../stores/update'
+import { useWindowZoom } from '../composables/useWindowZoom'
+import { useGlobalZoom } from '../composables/useGlobalZoom'
 import type { ThemeMode } from '../types'
 import ConfirmDialog from '../components/common/ConfirmDialog.vue'
 import VSCodeIntegration from '../components/settings/VSCodeIntegration.vue'
@@ -33,6 +35,19 @@ const searchInput = ref<HTMLInputElement | null>(null)
 const showRollbackConfirm = ref(false)
 const searchShortcutLabel = platform === 'darwin' ? '⌘ K' : 'Ctrl K'
 
+// 设置窗口与编辑窗口共享同一全局缩放，这里同步主进程广播的比例并提供操作入口
+useWindowZoom()
+const {
+  percent: zoomPercent,
+  atMin: zoomAtMin,
+  atMax: zoomAtMax,
+  presets: zoomPresets,
+  percentOf: zoomPercentOf,
+  setZoom,
+  stepZoom,
+  resetZoom
+} = useGlobalZoom()
+
 const tabs: { id: SettingsTab; label: string; icon: string }[] = [
   { id: 'appearance', label: '外观', icon: 'palette' },
   { id: 'editor', label: '编辑与预览', icon: 'layout' },
@@ -44,7 +59,7 @@ const tabs: { id: SettingsTab; label: string; icon: string }[] = [
 const pageCopy: Record<SettingsTab, { title: string; description: string }> = {
   appearance: {
     title: '外观',
-    description: '选择界面主题。更改会立即应用，并同步到所有 MarkIt 窗口。'
+    description: '选择界面主题与缩放比例。更改会立即应用，并同步到所有 MarkIt 窗口。'
   },
   editor: {
     title: '编辑与预览',
@@ -70,6 +85,12 @@ const searchEntries: SearchEntry[] = [
     label: '主题模式',
     hint: '跟随系统、浅色或深色',
     keywords: 'theme system light dark 外观 深色 浅色'
+  },
+  {
+    tab: 'appearance',
+    label: '界面缩放',
+    hint: '调整所有窗口的显示比例',
+    keywords: 'zoom scale 缩放 比例 界面'
   },
   {
     tab: 'editor',
@@ -462,6 +483,64 @@ onUnmounted(() => {
               <span>
                 “跟随系统”会随操作系统主题自动切换。这里的选择属于全局设置，多窗口打开时也会保持一致。
               </span>
+            </div>
+          </div>
+
+          <div class="section">
+            <div class="section-heading">
+              <div>
+                <h2>界面缩放</h2>
+                <p>缩放整个界面，包括编辑器、预览与设置窗口；所有窗口保持一致。</p>
+              </div>
+            </div>
+
+            <div class="setting-card">
+              <div class="setting-row">
+                <div class="setting-copy">
+                  <div class="setting-title-line">
+                    <h3>缩放比例</h3>
+                    <span class="status-badge">全局</span>
+                  </div>
+                  <p>等价于 Ctrl/Cmd + = / -，范围 50%–300%；点击中间百分比立即恢复 100%。</p>
+                </div>
+                <div class="zoom-stepper">
+                  <button
+                    class="zoom-step"
+                    :disabled="zoomAtMin"
+                    title="缩小"
+                    aria-label="缩小"
+                    @click="stepZoom(-1)"
+                  >
+                    −
+                  </button>
+                  <button class="zoom-value" title="恢复 100%" @click="resetZoom">
+                    {{ zoomPercent }}%
+                  </button>
+                  <button
+                    class="zoom-step"
+                    :disabled="zoomAtMax"
+                    title="放大"
+                    aria-label="放大"
+                    @click="stepZoom(1)"
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
+              <div class="zoom-preset-row">
+                <span class="zoom-preset-label">快速选择</span>
+                <div class="zoom-presets">
+                  <button
+                    v-for="factor in zoomPresets"
+                    :key="factor"
+                    class="zoom-preset"
+                    :class="{ 'is-current': zoomPercent === zoomPercentOf(factor) }"
+                    @click="setZoom(factor)"
+                  >
+                    {{ zoomPercentOf(factor) }}%
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </section>
@@ -1825,6 +1904,98 @@ input[type='range']:disabled {
   min-height: 57px;
 }
 
+.zoom-stepper {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+}
+
+.zoom-step,
+.zoom-value {
+  height: 30px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--inset-bg);
+  color: var(--text);
+  font-size: 11px;
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.zoom-step {
+  width: 34px;
+  font-size: 15px;
+  line-height: 1;
+}
+
+.zoom-value {
+  min-width: 76px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.zoom-step:hover:not(:disabled),
+.zoom-value:hover {
+  border-color: var(--accent-border);
+  color: var(--accent);
+}
+
+.zoom-step:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.zoom-preset-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 0 18px 16px;
+}
+
+.zoom-preset-label {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+  font-size: 10.5px;
+}
+
+.zoom-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.zoom-preset {
+  min-width: 46px;
+  height: 26px;
+  padding: 0 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    color 0.15s ease,
+    background 0.15s ease;
+}
+
+.zoom-preset:hover {
+  border-color: var(--accent-border);
+  color: var(--text);
+}
+
+.zoom-preset.is-current {
+  border-color: var(--accent-border);
+  background: var(--accent-bg);
+  color: var(--accent);
+  font-weight: 600;
+}
+
 @media (max-width: 820px) {
   .settings-window {
     grid-template-columns: 205px minmax(0, 1fr);
@@ -1936,6 +2107,20 @@ input[type='range']:disabled {
 
   .mode-segment button {
     flex: 1;
+  }
+
+  .zoom-stepper {
+    width: 100%;
+  }
+
+  .zoom-value {
+    flex: 1;
+  }
+
+  .zoom-preset-row {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 10px;
   }
 }
 </style>

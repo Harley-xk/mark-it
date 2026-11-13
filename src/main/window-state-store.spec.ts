@@ -31,18 +31,19 @@ describe('多窗口几何状态', () => {
     })
   })
 
-  it('应将旧版单窗口状态迁移给首个窗口', () => {
+  it('应将旧版单窗口状态迁移给首个窗口，并把缩放提升为全局值', () => {
     const data = parseWindowStateFile(
       { width: 1200, height: 760, x: 40, y: 60, isMaximized: true, zoomFactor: 1.25 },
       'window-a'
     )
+    expect(data?.version).toBe(3)
+    expect(data?.zoomFactor).toBe(1.3)
     expect(data?.windows['window-a']).toMatchObject({
       width: 1200,
       height: 760,
       x: 40,
       y: 60,
-      isMaximized: true,
-      zoomFactor: 1.3
+      isMaximized: true
     })
   })
 
@@ -59,8 +60,32 @@ describe('多窗口几何状态', () => {
     )
     expect(data?.windows.a.width).toBe(800)
     expect(data?.windows.a.height).toBe(600)
-    expect(data?.windows.a.zoomFactor).toBe(3)
     expect(data?.windows.broken).toBeUndefined()
+    expect(data?.zoomFactor).toBe(3)
+  })
+
+  it('v2 迁移应优先采用最后聚焦窗口的缩放比例', () => {
+    const data = parseWindowStateFile({
+      version: 2,
+      windows: {
+        a: { width: 1200, height: 800, zoomFactor: 1.5 },
+        b: { width: 1200, height: 800, zoomFactor: 0.75 }
+      },
+      lastFocusedWindowId: 'b'
+    })
+    expect(data?.zoomFactor).toBe(0.8)
+  })
+
+  it('v3 应以顶层缩放为准并忽略残留的按窗口缩放', () => {
+    const data = parseWindowStateFile({
+      version: 3,
+      zoomFactor: 1.4,
+      windows: {
+        a: { width: 1200, height: 800, zoomFactor: 2 }
+      }
+    })
+    expect(data?.zoomFactor).toBe(1.4)
+    expect(data?.windows.a).not.toHaveProperty('zoomFactor')
   })
 
   it('最后聚焦窗口不存在于结果中时应丢弃该字段', () => {

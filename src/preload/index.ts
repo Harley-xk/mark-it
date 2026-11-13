@@ -144,6 +144,8 @@ const api = {
   isFullscreen: (): Promise<boolean> => ipcRenderer.invoke('window:is-fullscreen'),
   /** 当前整窗缩放比例（1 表示 100%） */
   getZoom: (): Promise<number> => ipcRenderer.invoke('window:get-zoom'),
+  /** 设置整窗缩放比例（1 表示 100%）；主进程会归一并广播变化 */
+  setZoom: (factor: number): Promise<boolean> => ipcRenderer.invoke('window:set-zoom', factor),
   /**
    * 同步原生外观主题（nativeTheme.themeSource）。
    * 系统窗口按钮的 hover 对比色按它计算，浅色 UI 在深色系统下需要显式传 light
