@@ -3,7 +3,12 @@ import { defineConfig } from 'electron-vite'
 import vue from '@vitejs/plugin-vue'
 
 export default defineConfig({
-  main: {},
+  main: {
+    define: {
+      // 活跃度上报的 appSecret 只在构建时注入，不写入源码与公开仓库
+      __MARKIT_APPHUB_APP_SECRET__: JSON.stringify(process.env.MARKIT_APPHUB_APP_SECRET ?? '')
+    }
+  },
   preload: {},
   renderer: {
     resolve: {

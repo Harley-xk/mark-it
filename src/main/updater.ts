@@ -18,6 +18,7 @@ import {
 import { registerHandle, registerOn } from './ipc-guard'
 import { isSettingsWindowSender } from './settings-window'
 import { activateWindow, applyWindowPlacement, resolveWindowPlacement } from './window-placement'
+import { APPHUB_APP_KEY, APPHUB_BASE_URL } from './apphub-config'
 
 /**
  * apphub 应用管理平台更新通道。
@@ -25,8 +26,6 @@ import { activateWindow, applyWindowPlacement, resolveWindowPlacement } from './
  * electron-updater 按 generic provider 协议拉取 `latest*.yml`；
  * stable 为正式版，beta 为预发布版，检测范围由用户偏好决定。
  */
-const APPHUB_BASE_URL = 'https://appcenter.witice.top'
-const APPHUB_APP_KEY = 'ah_q100pquj6kxxj9at'
 const FEED_URLS: Record<UpdateChannel, string> = {
   stable: `${APPHUB_BASE_URL}/api/update/${APPHUB_APP_KEY}/stable/electron`,
   beta: `${APPHUB_BASE_URL}/api/update/${APPHUB_APP_KEY}/beta/electron`

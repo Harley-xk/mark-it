@@ -17,6 +17,7 @@ import {
   resolveImageCaptureScale
 } from './image-export'
 import { closeUpdateWindow, initAutoUpdater } from './updater'
+import { initActivityReporter, notifyActivityWindowShown } from './activity-reporter'
 import { isAppUrl, registerHandle, registerOn } from './ipc-guard'
 import { normalizeSessionTab, parseSessionData, parseSessionFile } from './session-store'
 import { capHistoryEntries, parseEditorHistoryFile } from './editor-history-store'
@@ -775,6 +776,8 @@ function createEditorWindow(options: CreateEditorWindowOptions = {}): EditorWind
 
   win.on('ready-to-show', () => {
     if (!context.win.isDestroyed()) context.win.show()
+    // 首个编辑窗口可见时记录一次 start + activate；后台窗口不会触发
+    notifyActivityWindowShown()
   })
 
   win.on('resize', () => queueSaveWindowState(context))
@@ -2062,6 +2065,7 @@ if (!gotTheLock) {
     })
 
     initializePersistedState()
+    initActivityReporter()
     createInitialEditorWindows()
 
     void writeVSCodeIntegrationConfig(getVSCodeIntegrationRuntime()).catch((error) => {

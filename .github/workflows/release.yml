@@ -10,6 +10,7 @@ name: Release
 #
 # 首次使用前需在仓库 Settings 中配置 Secrets：
 #   APPHUB_USERNAME / APPHUB_PASSWORD / APPHUB_SIGN_SECRET
+#   APPHUB_APP_SECRET（应用活跃度上报；未配置时构建仍可完成，但客户端不上报活跃度）
 # 发布无人工审批门：草稿上传完成后立即对客户端可见。
 
 on:
@@ -170,7 +171,20 @@ jobs:
       - name: Set version
         run: npm version "${{ needs.validate.outputs.version }}" --no-git-tag-version --allow-same-version
 
+      - name: Check activity reporting secret
+        shell: bash
+        env:
+          # 只在需要的步骤注入，缩小密钥暴露面
+          MARKIT_APPHUB_APP_SECRET: ${{ secrets.APPHUB_APP_SECRET }}
+        run: |
+          if [ -z "${MARKIT_APPHUB_APP_SECRET:-}" ]; then
+            echo "::warning::未配置 APPHUB_APP_SECRET，本次构建的客户端不会上报活跃度"
+          fi
+
       - name: Build
+        env:
+          # 构建时由 electron.vite.config.ts 编译进主进程，不落仓库文件
+          MARKIT_APPHUB_APP_SECRET: ${{ secrets.APPHUB_APP_SECRET }}
         run: ${{ matrix.command }}
 
       - name: Ensure release credentials are not packaged

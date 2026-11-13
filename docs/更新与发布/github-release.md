@@ -39,6 +39,7 @@ flowchart TD
   - `APPHUB_USERNAME`
   - `APPHUB_PASSWORD`
   - `APPHUB_SIGN_SECRET`
+  - `APPHUB_APP_SECRET`（应用活跃度上报签名密钥；未配置时构建仍可完成，但客户端不上报活跃度）
 
 Secrets 只在 workflow 运行时注入，不写入仓库文件。
 
@@ -161,12 +162,12 @@ gh workflow run release.yml --ref master \
 
 ## 5. 流水线阶段与产物
 
-| 平台            | Runner           | 构建命令                                              | 上传到 apphub               | 上传到 GitHub Release                    |
-| --------------- | ---------------- | ----------------------------------------------------- | --------------------------- | ---------------------------------------- |
-| Windows x64     | `windows-latest` | `npm run build:win`                                 | `*-setup.exe` + `.blockmap` | `*-windows-x64-setup.exe` + `.blockmap`               |
-| macOS x64       | `macos-latest`   | `npm run build && electron-builder --mac --x64`     | `*-x64.zip` + `.blockmap`   | `*-macos-x64.dmg`、`*-macos-x64.zip` + `.blockmap`    |
-| macOS arm64     | `macos-latest`   | `npm run build && electron-builder --mac --arm64`   | `*-arm64.zip` + `.blockmap` | `*-macos-arm64.dmg`、`*-macos-arm64.zip` + `.blockmap` |
-| Linux x64       | `ubuntu-latest`  | `npm run build && electron-builder --linux`         | `*.AppImage`（无 blockmap） | `*-linux-x64.AppImage`、`*-linux-x64.deb`               |
+| 平台        | Runner           | 构建命令                                          | 上传到 apphub               | 上传到 GitHub Release                                  |
+| ----------- | ---------------- | ------------------------------------------------- | --------------------------- | ------------------------------------------------------ |
+| Windows x64 | `windows-latest` | `npm run build:win`                               | `*-setup.exe` + `.blockmap` | `*-windows-x64-setup.exe` + `.blockmap`                |
+| macOS x64   | `macos-latest`   | `npm run build && electron-builder --mac --x64`   | `*-x64.zip` + `.blockmap`   | `*-macos-x64.dmg`、`*-macos-x64.zip` + `.blockmap`     |
+| macOS arm64 | `macos-latest`   | `npm run build && electron-builder --mac --arm64` | `*-arm64.zip` + `.blockmap` | `*-macos-arm64.dmg`、`*-macos-arm64.zip` + `.blockmap` |
+| Linux x64   | `ubuntu-latest`  | `npm run build && electron-builder --linux`       | `*.AppImage`（无 blockmap） | `*-linux-x64.AppImage`、`*-linux-x64.deb`              |
 
 说明：
 
@@ -377,9 +378,12 @@ node scripts/release/apphub-upload.mjs upload \
 gh secret set APPHUB_USERNAME --repo Harley-xk/mark-it
 gh secret set APPHUB_PASSWORD --repo Harley-xk/mark-it
 gh secret set APPHUB_SIGN_SECRET --repo Harley-xk/mark-it
+gh secret set APPHUB_APP_SECRET --repo Harley-xk/mark-it
 ```
 
 命令会提示输入值（不会回显）。轮换 apphub 账号密码后，重新执行以上命令覆盖即可，无需改代码。
+
+`APPHUB_APP_SECRET` 是 MarkIt 应用本身的 appSecret（管理端可查看 / 重置），与发版账号的 `APPHUB_SIGN_SECRET` 不是同一个值。平台重置 Secret 后，旧客户端的上报会 401，但更新检测豁免签名；配置新密钥并发布新版本即可完成切换，详见[应用活跃度上报](./应用活跃度上报.md)第 6 节。
 
 ## 10. 平台限制
 
@@ -391,37 +395,37 @@ gh secret set APPHUB_SIGN_SECRET --repo Harley-xk/mark-it
 
 ## 11. 故障排查
 
-| 现象 / 错误码                              | 含义                                 | 处理                                                                            |
-| ------------------------------------------ | ------------------------------------ | ------------------------------------------------------------------------------- |
-| `401 签名校验失败`                         | 签名密钥缺失或错误                   | 检查 `APPHUB_SIGN_SECRET`                                                       |
-| `401` 且重登仍失败                         | 账号或权限问题                       | 核对 `APPHUB_USERNAME` / `APPHUB_PASSWORD`                                      |
-| `300300002`                                | 版本号非 semver                      | 修正版本号后重跑                                                                |
-| `300300003`                                | 通道内版本号重复                     | 草稿会自动复用；已发布则递增版本号                                              |
-| `validate` 提示版本不大于已发布版本        | 违反严格单序列，或想复用已存在版本号 | 按 [发版通道](./发版通道.md) 递增版本；同版本重跑用 `replace`，不要改版本号绕过 |
-| `validate` 提示 beta base 不大于最后正式版 | beta 版本号选错了 base               | 改用大于最后一个正式版的 base，例如 `1.5.1-beta.1`                              |
-| `300300005`                                | 发布校验失败（无可用包）             | 至少一个非 web 平台 upload 成功后再发布                                         |
-| `300400002`                                | 平台 / 架构槽位重复                  | 重跑时勾选 `replace`                                                            |
-| `300400003`                                | 框架产物缺失                         | 检查 electron sha512 与 `latest.yml` 是否一致                                   |
-| `300400007`                                | `--replace` 指向的槽位不存在         | 适配入口会自动按新增包继续；`multipart=off` 时去掉 `replace` 后重跑              |
-| multipart 初始化 / 分片 / 完成返回 403     | STS 缺少 OSS multipart 权限          | 核对服务端最小权限；确认兼容问题后显式使用 `multipart=off` 重跑                 |
-| multipart 分片持续无进展                   | 跨境链路停滞或连接质量差             | 查看分片号与重试日志；必要时以 `multipart=off` 对照，或进入线路优化评估         |
-| `verify` 返回无更新                        | 发布未生效 / 通道停用                | 核对版本状态与通道状态后重验                                                    |
-| macOS 发布提示包名架构不符                 | 文件名缺少 `arm64`，或 x64 包误含 `arm64` | 确认 dmg / zip 使用 `${arch}` 命名，x64 与 arm64 分别上传                  |
-| 构建失败                                   | 依赖、签名或平台工具问题             | 查看对应 matrix job 日志；mac/linux 首次运行重点关注                            |
+| 现象 / 错误码                              | 含义                                      | 处理                                                                            |
+| ------------------------------------------ | ----------------------------------------- | ------------------------------------------------------------------------------- |
+| `401 签名校验失败`                         | 签名密钥缺失或错误                        | 检查 `APPHUB_SIGN_SECRET`                                                       |
+| `401` 且重登仍失败                         | 账号或权限问题                            | 核对 `APPHUB_USERNAME` / `APPHUB_PASSWORD`                                      |
+| `300300002`                                | 版本号非 semver                           | 修正版本号后重跑                                                                |
+| `300300003`                                | 通道内版本号重复                          | 草稿会自动复用；已发布则递增版本号                                              |
+| `validate` 提示版本不大于已发布版本        | 违反严格单序列，或想复用已存在版本号      | 按 [发版通道](./发版通道.md) 递增版本；同版本重跑用 `replace`，不要改版本号绕过 |
+| `validate` 提示 beta base 不大于最后正式版 | beta 版本号选错了 base                    | 改用大于最后一个正式版的 base，例如 `1.5.1-beta.1`                              |
+| `300300005`                                | 发布校验失败（无可用包）                  | 至少一个非 web 平台 upload 成功后再发布                                         |
+| `300400002`                                | 平台 / 架构槽位重复                       | 重跑时勾选 `replace`                                                            |
+| `300400003`                                | 框架产物缺失                              | 检查 electron sha512 与 `latest.yml` 是否一致                                   |
+| `300400007`                                | `--replace` 指向的槽位不存在              | 适配入口会自动按新增包继续；`multipart=off` 时去掉 `replace` 后重跑             |
+| multipart 初始化 / 分片 / 完成返回 403     | STS 缺少 OSS multipart 权限               | 核对服务端最小权限；确认兼容问题后显式使用 `multipart=off` 重跑                 |
+| multipart 分片持续无进展                   | 跨境链路停滞或连接质量差                  | 查看分片号与重试日志；必要时以 `multipart=off` 对照，或进入线路优化评估         |
+| `verify` 返回无更新                        | 发布未生效 / 通道停用                     | 核对版本状态与通道状态后重验                                                    |
+| macOS 发布提示包名架构不符                 | 文件名缺少 `arm64`，或 x64 包误含 `arm64` | 确认 dmg / zip 使用 `${arch}` 命名，x64 与 arm64 分别上传                       |
+| 构建失败                                   | 依赖、签名或平台工具问题                  | 查看对应 matrix job 日志；mac/linux 首次运行重点关注                            |
 
 ## 12. 相关文件
 
-| 文件                                                                      | 作用                                                                   |
-| ------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| [.github/workflows/release.yml](../../.github/workflows/release.yml)         | 三平台构建、四槽位并行上传 apphub、发布验证、同步 GitHub Release       |
-| [scripts/release/apphub.mjs](../../scripts/release/apphub.mjs)               | apphub 上游 CLI 技能快照（零依赖，不得修改）                           |
-| [scripts/release/apphub-upload.mjs](../../scripts/release/apphub-upload.mjs) | 上传适配入口：单次 / 分片选择、STS、包登记                             |
-| [scripts/release/oss-multipart.mjs](../../scripts/release/oss-multipart.mjs) | OSS 分片计划、签名、并发、重试、进度、完成与中止                       |
-| [scripts/release/channel-state.mjs](../../scripts/release/channel-state.mjs) | 双通道发版节点查询、版本校验与建议                                     |
-| [.apphub-release.ci.json](../../.apphub-release.ci.json)                     | CI 使用的 stable 无凭据配置（baseUrl / appKey / channel）              |
-| [.apphub-release.beta.ci.json](../../.apphub-release.beta.ci.json)           | CI 使用的 beta 无凭据配置                                              |
-| [docs/更新与发布/发版通道.md](./发版通道.md)                                         | 双通道模型、版本号规则、发版节点与 Beta 开关语义                       |
-| [docs/更新与发布/AppHub发布上传链路优化.md](./AppHub发布上传链路优化.md)             | 并行上传、macOS 分架构与 GitHub Release 产物命名                       |
-| [docs/更新与发布/AppHub OSS分片上传.md](./AppHub%20OSS分片上传.md)                   | OSS 分片上传适配层边界、协议与验收记录                                 |
-| [electron-builder.yml](../../electron-builder.yml)                           | 三平台打包配置与凭据文件排除                                           |
-| `.apphub-release.json`                                                    | 本地发版凭据（gitignore，不提交）                                      |
+| 文件                                                                         | 作用                                                             |
+| ---------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| [.github/workflows/release.yml](../../.github/workflows/release.yml)         | 三平台构建、四槽位并行上传 apphub、发布验证、同步 GitHub Release |
+| [scripts/release/apphub.mjs](../../scripts/release/apphub.mjs)               | apphub 上游 CLI 技能快照（零依赖，不得修改）                     |
+| [scripts/release/apphub-upload.mjs](../../scripts/release/apphub-upload.mjs) | 上传适配入口：单次 / 分片选择、STS、包登记                       |
+| [scripts/release/oss-multipart.mjs](../../scripts/release/oss-multipart.mjs) | OSS 分片计划、签名、并发、重试、进度、完成与中止                 |
+| [scripts/release/channel-state.mjs](../../scripts/release/channel-state.mjs) | 双通道发版节点查询、版本校验与建议                               |
+| [.apphub-release.ci.json](../../.apphub-release.ci.json)                     | CI 使用的 stable 无凭据配置（baseUrl / appKey / channel）        |
+| [.apphub-release.beta.ci.json](../../.apphub-release.beta.ci.json)           | CI 使用的 beta 无凭据配置                                        |
+| [docs/更新与发布/发版通道.md](./发版通道.md)                                 | 双通道模型、版本号规则、发版节点与 Beta 开关语义                 |
+| [docs/更新与发布/AppHub发布上传链路优化.md](./AppHub发布上传链路优化.md)     | 并行上传、macOS 分架构与 GitHub Release 产物命名                 |
+| [docs/更新与发布/AppHub OSS分片上传.md](./AppHub%20OSS分片上传.md)           | OSS 分片上传适配层边界、协议与验收记录                           |
+| [electron-builder.yml](../../electron-builder.yml)                           | 三平台打包配置与凭据文件排除                                     |
+| `.apphub-release.json`                                                       | 本地发版凭据（gitignore，不提交）                                |
