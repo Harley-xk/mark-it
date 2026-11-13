@@ -130,9 +130,23 @@ const pendingTabTransfers = new Map<string, PendingTabTransfer>()
 let lastFocusedWindowId: string | null = null
 const preReadyFilePaths: string[] = []
 let activeTabDrag: ActiveTabDrag | null = null
-let tabDragHighlightTimer: ReturnType<typeof setInterval> | null = null
+let tabDragFallbackTimer: ReturnType<typeof setInterval> | null = null
+let tabDragTargetTimer: ReturnType<typeof setInterval> | null = null
 let highlightedTabDragWindowId: string | null = null
 let tabDragPreviewWindow: BrowserWindow | null = null
+let tabDragPreviewReady = false
+let tabDragLastMoveAt = 0
+let tabDragLastPreviewPosition: ScreenPoint | null = null
+let tabDragDisplayId: number | null = null
+
+/** 位置兜底轮询间隔；仅在指针事件断流时真正移动提示窗 */
+const TAB_DRAG_FALLBACK_INTERVAL = 16
+/** 超过该时长未收到 window:tab-drag-move 即视为事件断流 */
+const TAB_DRAG_EVENT_STALE_MS = 50
+/** 目标窗口命中与高亮广播不必跟帧 */
+const TAB_DRAG_TARGET_INTERVAL = 120
+/** 校验提示窗实际 bounds 与期望值允许的 DIP 误差 */
+const TAB_DRAG_BOUNDS_TOLERANCE = 1
 
 const sessionWindows = new Map<string, SessionData>()
 let sessionFileData: SessionFile = { version: 2, windows: [] }
@@ -983,6 +997,7 @@ function broadcastTabDragTarget(state: TabDragTargetState): void {
 function closeTabDragPreview(): void {
   const preview = tabDragPreviewWindow
   tabDragPreviewWindow = null
+  tabDragPreviewReady = false
   if (preview && !preview.isDestroyed()) preview.destroy()
 }
 
@@ -994,6 +1009,8 @@ function createTabDragPreview(tabName: string, theme: 'light' | 'dark'): void {
     height: TAB_DRAG_PREVIEW_HEIGHT,
     frame: false,
     transparent: true,
+    // 透明窗必须显式指定全透明背景，否则首帧可能闪白
+    backgroundColor: '#00000000',
     resizable: false,
     movable: false,
     minimizable: false,
@@ -1007,26 +1024,42 @@ function createTabDragPreview(tabName: string, theme: 'light' | 'dark'): void {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: true
+      sandbox: true,
+      backgroundThrottling: false
     }
   })
   tabDragPreviewWindow = preview
+  tabDragPreviewReady = false
   preview.setIgnoreMouseEvents(true)
   preview.setAlwaysOnTop(true, 'screen-saver')
   preview.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   preview.on('closed', () => {
-    if (tabDragPreviewWindow === preview) tabDragPreviewWindow = null
+    if (tabDragPreviewWindow === preview) {
+      tabDragPreviewWindow = null
+      tabDragPreviewReady = false
+    }
   })
+
+  /** 首帧绘制完成后再定位并显示，避免空透明窗口先闪现 */
+  const showWhenReady = (): void => {
+    if (tabDragPreviewWindow !== preview || !activeTabDrag) {
+      if (!preview.isDestroyed()) preview.destroy()
+      return
+    }
+    if (tabDragPreviewReady) return
+    tabDragPreviewReady = true
+    // 加载期间位置可能已更新过，显示前强制重新定位一次
+    tabDragLastPreviewPosition = null
+    updateTabDragPreviewPosition(screen.getCursorScreenPoint())
+  }
+  preview.once('ready-to-show', showWhenReady)
 
   const html = buildTabDragPreviewHtml(tabName, theme)
   void preview
     .loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
     .then(() => {
-      if (tabDragPreviewWindow !== preview || !activeTabDrag) {
-        if (!preview.isDestroyed()) preview.destroy()
-        return
-      }
-      updateTabDragPreviewPosition(screen.getCursorScreenPoint())
+      // ready-to-show 是首选路径；个别平台不触发时由加载完成兜底
+      showWhenReady()
     })
     .catch((err) => {
       if (preview.isDestroyed()) return
@@ -1035,50 +1068,105 @@ function createTabDragPreview(tabName: string, theme: 'light' | 'dark'): void {
     })
 }
 
+/**
+ * 每次按光标位置重新取显示器，不缓存 workArea。
+ * 混合缩放显示器下 DIP 坐标可能与缓存 bounds 出现偏差，缓存会让提示窗被夹取到错误屏幕。
+ */
+function resolveTabDragDisplay(cursor: ScreenPoint): {
+  workArea: { x: number; y: number; width: number; height: number }
+  displayChanged: boolean
+} {
+  const display = screen.getDisplayNearestPoint(cursor)
+  const displayChanged = tabDragDisplayId !== null && tabDragDisplayId !== display.id
+  tabDragDisplayId = display.id
+  return { workArea: display.workArea, displayChanged }
+}
+
 function updateTabDragPreviewPosition(cursor: ScreenPoint): void {
   if (!activeTabDrag || activeTabDrag.source.win.isDestroyed()) return
   createTabDragPreview(activeTabDrag.tabName, activeTabDrag.theme)
   const preview = tabDragPreviewWindow
   if (!preview || preview.isDestroyed()) return
 
-  const display = screen.getDisplayNearestPoint(cursor)
+  const { workArea, displayChanged } = resolveTabDragDisplay(cursor)
   const position = placeTabDragPreview(
     cursor,
     { width: TAB_DRAG_PREVIEW_WIDTH, height: TAB_DRAG_PREVIEW_HEIGHT },
-    display.workArea
+    workArea
   )
-  preview.setBounds(
-    {
-      ...position,
-      width: TAB_DRAG_PREVIEW_WIDTH,
-      height: TAB_DRAG_PREVIEW_HEIGHT
-    },
-    false
-  )
-  if (!preview.isVisible()) preview.showInactive()
+  const moved =
+    !tabDragLastPreviewPosition ||
+    tabDragLastPreviewPosition.x !== position.x ||
+    tabDragLastPreviewPosition.y !== position.y
+  if (moved || displayChanged) {
+    tabDragLastPreviewPosition = position
+    // 始终传完整 bounds：混合缩放显示器下构造函数参数可能被二次换算，只改坐标会保留错误尺寸
+    preview.setBounds(
+      {
+        ...position,
+        width: TAB_DRAG_PREVIEW_WIDTH,
+        height: TAB_DRAG_PREVIEW_HEIGHT
+      },
+      false
+    )
+    // 透明窗跨 DPI 显示器后可能丢失合成内容，强制重绘恢复图标
+    if (displayChanged) preview.webContents.invalidate()
+  }
+  if (tabDragPreviewReady && !preview.isVisible()) preview.showInactive()
 }
 
 function clearTabDragHighlight(): void {
-  if (tabDragHighlightTimer) clearInterval(tabDragHighlightTimer)
-  tabDragHighlightTimer = null
+  if (tabDragFallbackTimer) clearInterval(tabDragFallbackTimer)
+  if (tabDragTargetTimer) clearInterval(tabDragTargetTimer)
+  tabDragFallbackTimer = null
+  tabDragTargetTimer = null
   const hadHighlight = highlightedTabDragWindowId !== null
   const sourceWindowId = activeTabDrag?.source.id ?? ''
   const tabName = activeTabDrag?.tabName ?? ''
   activeTabDrag = null
   highlightedTabDragWindowId = null
+  tabDragLastMoveAt = 0
+  tabDragLastPreviewPosition = null
+  tabDragDisplayId = null
   closeTabDragPreview()
   if (hadHighlight) {
     broadcastTabDragTarget({ active: false, tabName, sourceWindowId })
   }
 }
 
-function updateTabDragHighlight(): void {
+/** 跨屏 DPI 切换后窗口可能被系统移位或改尺寸，定期校正并触发重绘 */
+function ensureTabDragPreviewBounds(): void {
+  const preview = tabDragPreviewWindow
+  const desired = tabDragLastPreviewPosition
+  if (!preview || preview.isDestroyed() || !desired) return
+  const actual = preview.getBounds()
+  if (
+    Math.abs(actual.x - desired.x) <= TAB_DRAG_BOUNDS_TOLERANCE &&
+    Math.abs(actual.y - desired.y) <= TAB_DRAG_BOUNDS_TOLERANCE &&
+    Math.abs(actual.width - TAB_DRAG_PREVIEW_WIDTH) <= TAB_DRAG_BOUNDS_TOLERANCE &&
+    Math.abs(actual.height - TAB_DRAG_PREVIEW_HEIGHT) <= TAB_DRAG_BOUNDS_TOLERANCE
+  ) {
+    return
+  }
+  preview.setBounds(
+    {
+      ...desired,
+      width: TAB_DRAG_PREVIEW_WIDTH,
+      height: TAB_DRAG_PREVIEW_HEIGHT
+    },
+    false
+  )
+  preview.webContents.invalidate()
+}
+
+/** 目标检测与跟随解耦：只在命中窗口变化时广播，避免每帧遍历窗口 */
+function updateTabDragTarget(): void {
   if (!activeTabDrag || activeTabDrag.source.win.isDestroyed()) {
     clearTabDragHighlight()
     return
   }
+  ensureTabDragPreviewBounds()
   const cursor = screen.getCursorScreenPoint()
-  updateTabDragPreviewPosition(cursor)
   const target = findEditorWindowAtCursor(activeTabDrag.source, cursor)
   const nextWindowId = target?.id ?? null
   if (nextWindowId === highlightedTabDragWindowId) return
@@ -1094,12 +1182,33 @@ function updateTabDragHighlight(): void {
   }
 }
 
+/** 指针事件断流时的位置兜底；事件正常时每个 tick 只做一次时间比较 */
+function updateTabDragFallback(): void {
+  if (!activeTabDrag || activeTabDrag.source.win.isDestroyed()) {
+    clearTabDragHighlight()
+    return
+  }
+  if (Date.now() - tabDragLastMoveAt < TAB_DRAG_EVENT_STALE_MS) return
+  updateTabDragPreviewPosition(screen.getCursorScreenPoint())
+}
+
+/** 事件驱动跟随：以主进程读取的系统光标为准，避开页面缩放与跨屏 DPI 换算 */
+function handleTabDragMove(source: EditorWindowContext): void {
+  if (!activeTabDrag || activeTabDrag.source.id !== source.id) return
+  tabDragLastMoveAt = Date.now()
+  updateTabDragPreviewPosition(screen.getCursorScreenPoint())
+}
+
 function startTabDrag(source: EditorWindowContext, tabName: string, theme: 'light' | 'dark'): void {
   clearTabDragHighlight()
   activeTabDrag = { source, tabName: tabName.slice(0, 200), theme }
+  tabDragLastMoveAt = 0
+  tabDragLastPreviewPosition = null
+  tabDragDisplayId = null
   createTabDragPreview(activeTabDrag.tabName, theme)
-  updateTabDragHighlight()
-  tabDragHighlightTimer = setInterval(updateTabDragHighlight, 60)
+  updateTabDragPreviewPosition(screen.getCursorScreenPoint())
+  tabDragFallbackTimer = setInterval(updateTabDragFallback, TAB_DRAG_FALLBACK_INTERVAL)
+  tabDragTargetTimer = setInterval(updateTabDragTarget, TAB_DRAG_TARGET_INTERVAL)
 }
 
 function startTabTransfer(
@@ -1863,6 +1972,11 @@ registerOn('window:tab-drag-start', (event, tabName: unknown, theme: unknown) =>
   const source = getEditorWindowBySender(event.sender)
   if (!source || typeof tabName !== 'string') return
   startTabDrag(source, tabName, theme === 'light' ? 'light' : 'dark')
+})
+registerOn('window:tab-drag-move', (event) => {
+  const source = getEditorWindowBySender(event.sender)
+  if (!source) return
+  handleTabDragMove(source)
 })
 registerOn('window:tab-drag-end', (event) => {
   if (!getEditorWindowBySender(event.sender)) return

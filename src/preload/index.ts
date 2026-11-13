@@ -85,6 +85,10 @@ const api = {
   startTabDrag: (tabName: string, theme: 'light' | 'dark'): void => {
     ipcRenderer.send('window:tab-drag-start', tabName, theme)
   },
+  /** 拖拽中每帧通知主进程同步悬浮提示位置（空载荷，主进程直接读取系统光标） */
+  notifyTabDragMove: (): void => {
+    ipcRenderer.send('window:tab-drag-move')
+  },
   /** 结束拖拽并清除目标高亮 */
   endTabDrag: (): void => {
     ipcRenderer.send('window:tab-drag-end')

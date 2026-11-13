@@ -191,6 +191,8 @@ function onPointerMove(e: PointerEvent): void {
   }
   if (!dragging) return
 
+  // 先同步悬浮提示，再处理插入位置，避免渲染更新拖慢跟随
+  window.api.notifyTabDragMove()
   e.preventDefault()
   dragClientX = e.clientX
   const inTitlebarZone = pointerInTabStrip(e)
