@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useAppStore } from '../../stores/app'
+import { useI18n } from '../../i18n'
 import type { DiffLine } from '../../utils/text-diff'
 
 defineProps<{
@@ -25,6 +26,7 @@ const emit = defineEmits<{
 }>()
 
 const app = useAppStore()
+const { t } = useI18n()
 
 /** 差异行的前缀符号 */
 function diffSign(type: DiffLine['type']): string {
@@ -43,20 +45,22 @@ function diffSign(type: DiffLine['type']): string {
           :class="[{ 'with-diff': diff && diff.length > 0 }, app.resolvedTheme]"
         >
           <div class="confirm-header">
-            <span class="confirm-title">{{ title || '未保存的修改' }}</span>
+            <span class="confirm-title">{{ title || t('app.unsavedTitle') }}</span>
             <button class="close-btn" @click="emit('cancel')">&times;</button>
           </div>
           <div class="confirm-body">
-            {{ message || '当前文件有未保存的修改，是否保存？' }}
+            {{ message || t('app.unsavedMessage') }}
           </div>
           <div v-if="diff && diff.length > 0" class="diff-panel">
             <div class="diff-legend">
-              <span class="legend-remove">− 磁盘上的内容</span>
-              <span class="legend-add">+ 本地未保存的内容</span>
+              <span class="legend-remove">− {{ t('common.diffDisk') }}</span>
+              <span class="legend-add">+ {{ t('common.diffLocal') }}</span>
             </div>
             <div class="diff-body">
               <div v-for="(line, index) in diff" :key="index" class="diff-line" :class="line.type">
-                <template v-if="line.type === 'gap'">… 省略 {{ line.count }} 行 …</template>
+                <template v-if="line.type === 'gap'">{{
+                  t('common.diffGap', { count: line.count ?? 0 })
+                }}</template>
                 <template v-else>{{ diffSign(line.type) }} {{ line.text }}</template>
               </div>
             </div>
@@ -66,7 +70,7 @@ function diffSign(type: DiffLine['type']): string {
               {{ cancelText }}
             </button>
             <button v-if="!hideDiscard" class="btn btn-danger" @click="emit('discard')">
-              {{ discardText || '放弃修改' }}
+              {{ discardText || t('common.discard') }}
             </button>
             <button
               v-if="!hideSave"
@@ -74,7 +78,7 @@ function diffSign(type: DiffLine['type']): string {
               :class="primaryDanger ? 'btn-danger' : 'btn-primary'"
               @click="emit('save')"
             >
-              {{ saveText || '保存' }}
+              {{ saveText || t('common.save') }}
             </button>
           </div>
         </div>

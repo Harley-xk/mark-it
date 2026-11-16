@@ -11,10 +11,12 @@ import { useSearchStore } from '../../stores/search'
 import { useEditorStore } from '../../stores/editor'
 import { useDocumentsStore } from '../../stores/documents'
 import { findTextMatches } from '../../utils/search'
+import { useI18n } from '../../i18n'
 
 const search = useSearchStore()
 const editor = useEditorStore()
 const docs = useDocumentsStore()
+const { t } = useI18n()
 
 const queryInput = ref<HTMLInputElement>()
 
@@ -22,7 +24,7 @@ const canReplace = computed(() => search.surface === 'editor' && docs.activeDoc?
 
 const countText = computed(() => {
   if (search.query.length === 0) return ''
-  if (search.total === 0) return '无结果'
+  if (search.total === 0) return t('search.noResult')
   return `${search.index + 1}/${search.total}`
 })
 
@@ -104,7 +106,7 @@ function replaceAll(): void {
   if (!canReplace.value) return
   const current = currentMatches()
   if (!current || current.matches.length === 0) {
-    search.showHud('没有匹配项')
+    search.showHud(t('search.noMatches'))
     return
   }
 
@@ -115,7 +117,7 @@ function replaceAll(): void {
       insert: search.replaceText
     }))
   })
-  search.showHud(`已替换 ${current.matches.length} 处`)
+  search.showHud(t('search.replaced', { count: current.matches.length }))
 }
 </script>
 
@@ -127,7 +129,7 @@ function replaceAll(): void {
         v-model="search.query"
         class="search-input"
         type="text"
-        placeholder="查找"
+        :placeholder="t('search.findPlaceholder')"
         spellcheck="false"
         autocomplete="off"
         @keydown="onQueryKeydown"
@@ -136,7 +138,7 @@ function replaceAll(): void {
       <button
         class="sp-btn sp-case"
         :class="{ active: search.caseSensitive }"
-        :title="search.caseSensitive ? '区分大小写（点击忽略）' : '忽略大小写（点击区分）'"
+        :title="t(search.caseSensitive ? 'search.caseSensitiveOn' : 'search.caseSensitiveOff')"
         @mousedown.prevent
         @click="search.toggleCaseSensitive"
       >
@@ -146,15 +148,15 @@ function replaceAll(): void {
         v-if="canReplace"
         class="sp-btn"
         :class="{ active: search.showReplace }"
-        title="显示替换 (Ctrl+H)"
+        :title="t('search.showReplace')"
         @mousedown.prevent
         @click="search.toggleReplace"
       >
-        替换
+        {{ t('search.replaceAction') }}
       </button>
       <button
         class="sp-btn sp-icon"
-        title="上一个 (Shift+Enter / Shift+F3)"
+        :title="t('search.previous')"
         @mousedown.prevent
         @click="search.previous"
       >
@@ -162,13 +164,18 @@ function replaceAll(): void {
       </button>
       <button
         class="sp-btn sp-icon"
-        title="下一个 (Enter / F3)"
+        :title="t('search.next')"
         @mousedown.prevent
         @click="search.next"
       >
         ↓
       </button>
-      <button class="sp-btn sp-icon" title="关闭 (Esc)" @mousedown.prevent @click="search.close">
+      <button
+        class="sp-btn sp-icon"
+        :title="t('search.close')"
+        @mousedown.prevent
+        @click="search.close"
+      >
         ×
       </button>
     </div>
@@ -178,21 +185,26 @@ function replaceAll(): void {
         v-model="search.replaceText"
         class="search-input"
         type="text"
-        placeholder="替换为"
+        :placeholder="t('search.replaceWith')"
         spellcheck="false"
         autocomplete="off"
         @keydown="onReplaceKeydown"
       />
       <button
         class="sp-btn sp-action"
-        title="替换当前项 (Enter)"
+        :title="t('search.replaceCurrent')"
         @mousedown.prevent
         @click="replaceCurrent"
       >
-        替换
+        {{ t('search.replaceAction') }}
       </button>
-      <button class="sp-btn sp-action" title="全部替换" @mousedown.prevent @click="replaceAll">
-        全部
+      <button
+        class="sp-btn sp-action"
+        :title="t('search.replaceAll')"
+        @mousedown.prevent
+        @click="replaceAll"
+      >
+        {{ t('search.replaceAllAction') }}
       </button>
     </div>
   </div>

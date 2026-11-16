@@ -1,10 +1,21 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import appIconUrl from '@resources/icon.png'
 import { useUpdateStore } from '../stores/update'
+import { useI18n } from '../i18n'
 
 const update = useUpdateStore()
+const { locale, t } = useI18n()
 update.init()
+
+watch(
+  locale,
+  (value) => {
+    document.title = t('window.updateTitle')
+    document.documentElement.lang = value
+  },
+  { immediate: true }
+)
 
 const state = computed(() => update.state)
 const isRollback = computed(() => state.value.isRollback === true)
@@ -38,8 +49,8 @@ const speedText = computed(() => {
 })
 
 const downloadLabel = computed(() => {
-  if (state.value.status === 'error') return '重新下载'
-  return isRollback.value ? '下载回退版本' : '下载更新'
+  if (state.value.status === 'error') return t('updateWindow.redownload')
+  return isRollback.value ? t('updateWindow.downloadRollback') : t('updateWindow.download')
 })
 
 async function handleDownload(): Promise<void> {
@@ -85,9 +96,9 @@ onUnmounted(() => {
     <header class="window-header">
       <div class="window-title">
         <img class="brand-mark" :src="appIconUrl" alt="" aria-hidden="true" />
-        <span>软件更新</span>
+        <span>{{ t('window.updateBrand') }}</span>
       </div>
-      <button class="window-close" title="关闭" @click="handleClose">
+      <button class="window-close" :title="t('updateWindow.close')" @click="handleClose">
         <svg
           width="12"
           height="12"
@@ -105,34 +116,42 @@ onUnmounted(() => {
 
     <main class="window-body">
       <section class="version-hero">
-        <span v-if="forced" class="force-badge">重要更新</span>
+        <span v-if="forced" class="force-badge">{{ t('updateWindow.important') }}</span>
         <span v-if="isBeta" class="beta-badge">Beta</span>
         <h1>
           <template v-if="state.latestVersion">
-            {{ isRollback ? '回退到正式版' : '发现新版本' }}
+            {{ isRollback ? t('updateWindow.rollback') : t('updateWindow.found') }}
             <span class="version-number">v{{ state.latestVersion }}</span>
           </template>
-          <template v-else>软件更新</template>
+          <template v-else>{{ t('window.updateBrand') }}</template>
         </h1>
         <p v-if="state.currentVersion" class="current-version">
-          当前版本 v{{ state.currentVersion
-          }}<span v-if="state.currentChannel === 'beta'"> · Beta</span>
+          {{
+            t('updateWindow.currentVersion', {
+              version: state.currentVersion,
+              channel: state.currentChannel === 'beta' ? ' · Beta' : ''
+            })
+          }}
         </p>
       </section>
 
       <section class="notes-card">
-        <div class="notes-title">更新内容</div>
+        <div class="notes-title">{{ t('updateWindow.notesTitle') }}</div>
         <div v-if="notes" class="notes-content">{{ notes }}</div>
-        <div v-else class="notes-empty">该版本未提供更新说明。</div>
+        <div v-else class="notes-empty">{{ t('updateWindow.notesEmpty') }}</div>
         <div v-if="isRollback" class="rollback-note">
-          回退后当前 Beta 版本的新功能将不可用，并且不会自动回到 Beta。
+          {{ t('updateWindow.rollbackNotice') }}
         </div>
       </section>
 
       <section v-if="isDownloading || isDownloaded" class="progress-section">
         <div class="progress-header">
           <span>{{
-            isDownloaded ? '下载完成' : isRollback ? '正在下载回退版本' : '正在下载更新'
+            isDownloaded
+              ? t('updateWindow.downloadComplete')
+              : isRollback
+                ? t('updateWindow.downloadingRollback')
+                : t('updateWindow.downloading')
           }}</span>
           <span v-if="!isDownloaded" class="progress-percent">{{ percentText }}</span>
         </div>
@@ -148,32 +167,39 @@ onUnmounted(() => {
           <span>{{ speedText }}</span>
         </div>
         <p v-else class="progress-done">
-          {{
-            isRollback
-              ? '回退版本已下载，重启应用即可完成回退。'
-              : '新版本已下载，重启应用即可完成安装。'
-          }}
+          {{ isRollback ? t('updateWindow.rollbackDownloaded') : t('updateWindow.downloaded') }}
         </p>
       </section>
 
       <p v-if="state.status === 'error'" class="error-text">
-        {{ isRollback ? '回退失败' : '更新失败' }}：{{ state.error || '未知错误' }}
+        {{
+          t('updateWindow.errorLine', {
+            title: isRollback ? t('updateWindow.rollbackFailed') : t('updateWindow.updateFailed'),
+            error: state.error || t('updateWindow.unknownError')
+          })
+        }}
       </p>
       <p v-else-if="state.status === 'checking'" class="muted-text">
-        {{ isRollback ? '正在查找可回退的正式版…' : '正在检查更新…' }}
+        {{ isRollback ? t('updateWindow.checkingRollback') : t('updateWindow.checking') }}
       </p>
-      <p v-else-if="state.status === 'not-available'" class="muted-text">当前已是最新版本。</p>
+      <p v-else-if="state.status === 'not-available'" class="muted-text">
+        {{ t('updateWindow.upToDate') }}
+      </p>
     </main>
 
     <footer class="window-footer">
-      <button v-if="!forced" class="btn btn-ghost" @click="handleClose">稍后</button>
+      <button v-if="!forced" class="btn btn-ghost" @click="handleClose">
+        {{ t('updateWindow.later') }}
+      </button>
       <button v-if="canDownload" class="btn btn-primary" @click="handleDownload">
         {{ downloadLabel }}
       </button>
       <button v-else-if="isDownloaded" class="btn btn-primary" @click="handleInstall">
-        {{ isRollback ? '立即重启回退' : '立即重启安装' }}
+        {{ isRollback ? t('updateWindow.rollbackNow') : t('updateWindow.installNow') }}
       </button>
-      <button v-else-if="isDownloading" class="btn btn-primary" disabled>正在下载…</button>
+      <button v-else-if="isDownloading" class="btn btn-primary" disabled>
+        {{ t('updateWindow.downloadingButton') }}
+      </button>
     </footer>
   </div>
 </template>

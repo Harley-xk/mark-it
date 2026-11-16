@@ -50,7 +50,8 @@ export async function launchApp(
   options: LaunchAppOptions = {}
 ): Promise<ElectronApplication> {
   const app = await electron.launch({
-    args,
+    // 固定界面语言，避免 CI 系统语言不同导致中文断言失效
+    args: [...args, '--lang=zh-CN'],
     cwd: options.cwd ?? projectRoot,
     env: getLaunchEnv()
   })

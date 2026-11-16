@@ -13,6 +13,9 @@ import { useUpdateStore } from '../stores/update'
 import { useWindowZoom } from '../composables/useWindowZoom'
 import { useGlobalZoom } from '../composables/useGlobalZoom'
 import type { ThemeMode } from '../types'
+import type { Locale, LocalePreference } from '../../../shared/locale-types'
+import { SUPPORTED_LOCALES, type MessageKey } from '../../../i18n'
+import { useI18n } from '../i18n'
 import ConfirmDialog from '../components/common/ConfirmDialog.vue'
 import VSCodeIntegration from '../components/settings/VSCodeIntegration.vue'
 
@@ -28,6 +31,7 @@ interface SearchEntry {
 const app = useAppStore()
 const styleStore = useStyleStore()
 const update = useUpdateStore()
+const { locale, preference, t, setLocalePreference } = useI18n()
 const platform = window.api.platform
 const activeTab = ref<SettingsTab>('appearance')
 const searchQuery = ref('')
@@ -50,117 +54,145 @@ const {
   resetZoom
 } = useGlobalZoom()
 
-const tabs: { id: SettingsTab; label: string; icon: string }[] = [
-  { id: 'appearance', label: '外观', icon: 'palette' },
-  { id: 'editor', label: '编辑与预览', icon: 'layout' },
-  { id: 'integration', label: '编辑器集成', icon: 'plug' },
-  { id: 'updates', label: '更新', icon: 'refresh' },
-  { id: 'about', label: '关于', icon: 'info' }
-]
+const tabs = computed<{ id: SettingsTab; label: string; icon: string }[]>(() => [
+  { id: 'appearance', label: t('settings.tab.appearance'), icon: 'palette' },
+  { id: 'editor', label: t('settings.tab.editor'), icon: 'layout' },
+  { id: 'integration', label: t('settings.tab.integration'), icon: 'plug' },
+  { id: 'updates', label: t('settings.tab.updates'), icon: 'refresh' },
+  { id: 'about', label: t('settings.tab.about'), icon: 'info' }
+])
 
-const pageCopy: Record<SettingsTab, { title: string; description: string }> = {
+const pageCopy = computed<Record<SettingsTab, { title: string; description: string }>>(() => ({
   appearance: {
-    title: '外观',
-    description: '选择界面主题与缩放比例。更改会立即应用，并同步到所有 MarkIt 窗口。'
+    title: t('settings.tab.appearance'),
+    description: t('settings.page.appearance.description')
   },
   editor: {
-    title: '编辑与预览',
-    description: '调整预览样式和正文宽度，让 Markdown 的阅读体验更符合你的习惯。'
+    title: t('settings.tab.editor'),
+    description: t('settings.page.editor.description')
   },
   integration: {
-    title: '编辑器集成',
-    description: '把 MarkIt 接入常用的代码编辑器，在资源管理器中直接打开 Markdown 文件。'
+    title: t('settings.tab.integration'),
+    description: t('settings.page.integration.description')
   },
   updates: {
-    title: '更新',
-    description: '管理更新通道并检查新版本；更新详情会在独立窗口中打开。'
+    title: t('settings.tab.updates'),
+    description: t('settings.page.updates.description')
   },
   about: {
-    title: '关于',
-    description: '当前版本、运行通道和 MarkIt 的基本信息。'
+    title: t('settings.tab.about'),
+    description: t('settings.page.about.description')
   }
-}
+}))
 
-const searchEntries: SearchEntry[] = [
+const searchEntries = computed<SearchEntry[]>(() => [
   {
     tab: 'appearance',
-    label: '主题模式',
-    hint: '跟随系统、浅色或深色',
-    keywords: 'theme system light dark 外观 深色 浅色'
+    label: t('settings.search.themeLabel'),
+    hint: t('settings.search.themeHint'),
+    keywords: t('settings.search.themeKeywords')
   },
   {
     tab: 'appearance',
-    label: '界面缩放',
-    hint: '调整所有窗口的显示比例',
-    keywords: 'zoom scale 缩放 比例 界面'
+    label: t('settings.search.languageLabel'),
+    hint: t('settings.search.languageHint'),
+    keywords: t('settings.search.languageKeywords')
+  },
+  {
+    tab: 'appearance',
+    label: t('settings.search.zoomLabel'),
+    hint: t('settings.search.zoomHint'),
+    keywords: t('settings.search.zoomKeywords')
   },
   {
     tab: 'editor',
-    label: '预览样式',
-    hint: 'GitHub、Academic、Minimal',
-    keywords: 'preview style css 预览 样式'
+    label: t('settings.search.styleLabel'),
+    hint: t('settings.search.styleHint'),
+    keywords: t('settings.search.styleKeywords')
   },
   {
     tab: 'editor',
-    label: '导入自定义 CSS',
-    hint: '为预览增加本地样式',
-    keywords: 'preview custom css import 自定义'
+    label: t('settings.search.cssLabel'),
+    hint: t('settings.search.cssHint'),
+    keywords: t('settings.search.cssKeywords')
   },
   {
     tab: 'editor',
-    label: '预览宽度',
-    hint: '固定宽度或自动适应',
-    keywords: 'width preview 固定 自适应 宽度'
+    label: t('settings.search.widthLabel'),
+    hint: t('settings.search.widthHint'),
+    keywords: t('settings.search.widthKeywords')
   },
   {
     tab: 'integration',
-    label: 'VS Code 资源管理器',
-    hint: '安装或卸载 MarkIt 扩展',
-    keywords: 'vscode code integration 编辑器 集成'
+    label: t('settings.search.vscodeLabel'),
+    hint: t('settings.search.vscodeHint'),
+    keywords: t('settings.search.vscodeKeywords')
   },
   {
     tab: 'updates',
-    label: '接收 Beta 版更新',
-    hint: '提前体验新功能',
-    keywords: 'beta channel update 更新 通道'
+    label: t('settings.search.betaLabel'),
+    hint: t('settings.search.betaHint'),
+    keywords: t('settings.search.betaKeywords')
   },
   {
     tab: 'updates',
-    label: '检查更新',
-    hint: '检测新版本并打开更新详情',
-    keywords: 'check update version 检查 版本'
+    label: t('settings.search.checkLabel'),
+    hint: t('settings.search.checkHint'),
+    keywords: t('settings.search.checkKeywords')
   },
   {
     tab: 'about',
-    label: '版本与项目信息',
-    hint: '版本、许可证和项目主页',
-    keywords: 'about version license github 关于 版本'
+    label: t('settings.search.aboutLabel'),
+    hint: t('settings.search.aboutHint'),
+    keywords: t('settings.search.aboutKeywords')
   },
   {
     tab: 'about',
-    label: '导出诊断日志',
-    hint: '保存运行日志与系统信息，便于反馈问题',
-    keywords: 'diagnostics log crash 诊断 日志 崩溃 反馈'
+    label: t('settings.search.diagnosticsLabel'),
+    hint: t('settings.search.diagnosticsHint'),
+    keywords: t('settings.search.diagnosticsKeywords')
   }
-]
+])
 
-const currentPage = computed(() => pageCopy[activeTab.value])
+const currentPage = computed(() => pageCopy.value[activeTab.value])
 const isDark = computed(() => app.resolvedTheme === 'dark')
 const filteredSettings = computed(() => {
   const query = searchQuery.value.trim().toLowerCase()
   if (!query) return []
-  return searchEntries.filter((entry) =>
+  return searchEntries.value.filter((entry) =>
     `${entry.label} ${entry.hint} ${entry.keywords}`.toLowerCase().includes(query)
   )
 })
 
-const themeOptions: { value: ThemeMode; label: string; preview: string }[] = [
-  { value: 'system', label: '跟随系统', preview: 'system' },
-  { value: 'light', label: '浅色', preview: 'light' },
-  { value: 'dark', label: '深色', preview: 'dark' }
-]
+const themeOptions = computed<{ value: ThemeMode; label: string; preview: string }[]>(() => [
+  { value: 'system', label: t('settings.theme.system'), preview: 'system' },
+  { value: 'light', label: t('settings.theme.light'), preview: 'light' },
+  { value: 'dark', label: t('settings.theme.dark'), preview: 'dark' }
+])
 
-const betaSuffix = computed(() => (update.state.latestChannel === 'beta' ? '（Beta）' : ''))
+/** 新增语言时只需扩展 SUPPORTED_LOCALES 与对应标签消息 */
+const LOCALE_LABEL_KEYS: Record<Locale, MessageKey> = {
+  'zh-CN': 'settings.language.zh',
+  'en-US': 'settings.language.en'
+}
+
+const languageOptions = computed<{ value: LocalePreference; label: string }[]>(() => [
+  { value: 'system', label: t('settings.language.followSystem') },
+  ...SUPPORTED_LOCALES.map((locale) => ({
+    value: locale,
+    label: t(LOCALE_LABEL_KEYS[locale])
+  }))
+])
+
+const languageMenuOpen = ref(false)
+const languageMenuRef = ref<HTMLElement | null>(null)
+const currentLanguageLabel = computed(
+  () => languageOptions.value.find((option) => option.value === preference.value)?.label ?? ''
+)
+
+const betaSuffix = computed(() =>
+  update.state.latestChannel === 'beta' ? t('settings.updateStatus.betaSuffix') : ''
+)
 const showRollbackButton = computed(
   () => update.state.currentChannel === 'beta' && platform !== 'darwin'
 )
@@ -169,42 +201,56 @@ const updateCheckStatus = computed(() => {
   const state = update.state
   switch (state.status) {
     case 'disabled':
-      return '开发模式，不检测更新'
+      return t('settings.updateStatus.disabled')
     case 'idle':
-      return '检查是否有新版本'
+      return t('settings.updateStatus.idle')
     case 'checking':
-      return state.isRollback ? '正在查找可回退的正式版…' : '正在检查更新…'
+      return state.isRollback
+        ? t('settings.updateStatus.checkingRollback')
+        : t('settings.updateStatus.checking')
     case 'not-available':
-      return '当前已是最新版本'
+      return t('settings.updateStatus.upToDate')
     case 'available':
       return state.isRollback
-        ? `可回退到正式版 v${state.latestVersion}`
-        : `发现新版本 v${state.latestVersion}${betaSuffix.value}`
+        ? t('settings.updateStatus.availableRollback', { version: state.latestVersion ?? '' })
+        : t('settings.updateStatus.available', {
+            version: state.latestVersion ?? '',
+            betaSuffix: betaSuffix.value
+          })
     case 'downloading':
-      return state.isRollback ? '回退版本正在更新窗口中下载' : '新版本正在更新窗口中下载'
+      return state.isRollback
+        ? t('settings.updateStatus.downloadingRollback')
+        : t('settings.updateStatus.downloading')
     case 'downloaded':
       return state.isRollback
-        ? '回退版本已下载，可在更新窗口中安装'
-        : '新版本已下载，可在更新窗口中安装'
+        ? t('settings.updateStatus.downloadedRollback')
+        : t('settings.updateStatus.downloaded')
     case 'error':
       return state.isRollback
-        ? `回退失败：${state.error ?? '未知错误'}`
-        : `更新检查失败：${state.error ?? '未知错误'}`
+        ? t('settings.updateStatus.errorRollback', {
+            error: state.error ?? t('updateWindow.unknownError')
+          })
+        : t('settings.updateStatus.error', {
+            error: state.error ?? t('updateWindow.unknownError')
+          })
     default:
       return ''
   }
 })
 
 const updateCheckButtonText = computed(() => {
-  if (update.state.status === 'checking') return '正在检查…'
-  if (update.state.status === 'error' && !update.state.isRollback) return '重试'
-  return '检查更新'
+  if (update.state.status === 'checking') return t('settings.updates.checking')
+  if (update.state.status === 'error' && !update.state.isRollback)
+    return t('settings.updates.retry')
+  return t('settings.updates.check')
 })
 
 const rollbackActionText = computed(() => {
-  if (update.state.status === 'error' && update.state.isRollback) return '重试回退'
-  if (update.rollbackInProgress) return '回退中…'
-  return '回退到正式版'
+  if (update.state.status === 'error' && update.state.isRollback) {
+    return t('settings.updates.rollbackRetry')
+  }
+  if (update.rollbackInProgress) return t('settings.updates.rollbackInProgress')
+  return t('settings.updates.rollback')
 })
 
 function openSettingsTab(tab: SettingsTab): void {
@@ -273,7 +319,11 @@ function handleFileImport(): void {
     if (!file) return
     const text = await file.text()
     if (text.length > MAX_CUSTOM_STYLE_CHARS) {
-      window.alert(`CSS 文件过大，上限为 ${Math.floor(MAX_CUSTOM_STYLE_CHARS / 1000)} KB。`)
+      window.alert(
+        t('settings.editor.cssTooLarge', {
+          size: Math.floor(MAX_CUSTOM_STYLE_CHARS / 1000)
+        })
+      )
       return
     }
     const name = file.name.replace(/\.css$/i, '')
@@ -302,14 +352,59 @@ async function handleExportDiagnostics(): Promise<void> {
   diagnosticsMessage.value = ''
   try {
     const path = await window.api.exportDiagnostics()
-    diagnosticsMessage.value = path ? '已导出诊断日志' : '已取消'
+    diagnosticsMessage.value = path
+      ? t('settings.about.diagnosticsExported')
+      : t('settings.about.diagnosticsCanceled')
   } catch (err) {
     console.error('Failed to export diagnostics:', err)
-    diagnosticsMessage.value = '导出失败，请查看日志'
+    diagnosticsMessage.value = t('settings.about.diagnosticsFailed')
   } finally {
     exportingDiagnostics.value = false
   }
 }
+
+function selectLanguage(value: LocalePreference): void {
+  setLocalePreference(value)
+  languageMenuOpen.value = false
+}
+
+/** 点击语言下拉以外的区域或按 Esc 时收起 */
+function onLanguageMenuPointerDown(event: PointerEvent): void {
+  if (!languageMenuOpen.value) return
+  if (languageMenuRef.value?.contains(event.target as Node)) return
+  languageMenuOpen.value = false
+}
+
+function onLanguageMenuKeydown(event: KeyboardEvent): void {
+  if (!languageMenuOpen.value || event.key !== 'Escape') return
+  event.stopPropagation()
+  languageMenuOpen.value = false
+}
+
+watch(languageMenuOpen, (open) => {
+  if (open) {
+    document.addEventListener('pointerdown', onLanguageMenuPointerDown, true)
+    document.addEventListener('keydown', onLanguageMenuKeydown, true)
+  } else {
+    document.removeEventListener('pointerdown', onLanguageMenuPointerDown, true)
+    document.removeEventListener('keydown', onLanguageMenuKeydown, true)
+  }
+})
+
+onUnmounted(() => {
+  document.removeEventListener('pointerdown', onLanguageMenuPointerDown, true)
+  document.removeEventListener('keydown', onLanguageMenuKeydown, true)
+})
+
+// 窗口标题与页面语言跟随界面语言
+watch(
+  locale,
+  (value) => {
+    document.title = t('window.settingsTitle')
+    document.documentElement.lang = value
+  },
+  { immediate: true }
+)
 
 watch(
   () => app.themeMode,
@@ -337,7 +432,7 @@ onUnmounted(() => {
         <img :src="appIconUrl" alt="" />
         <span>MarkIt</span>
         <span class="title-separator">/</span>
-        <span>设置</span>
+        <span>{{ t('settings.titleShort') }}</span>
       </div>
     </header>
 
@@ -351,8 +446,8 @@ onUnmounted(() => {
           ref="searchInput"
           v-model="searchQuery"
           type="search"
-          placeholder="搜索设置"
-          aria-label="搜索设置"
+          :placeholder="t('settings.search.placeholder')"
+          :aria-label="t('settings.search.placeholder')"
           @keydown="handleSearchKeydown"
         />
         <span class="search-shortcut">{{ searchShortcutLabel }}</span>
@@ -368,12 +463,14 @@ onUnmounted(() => {
           <span class="search-result-label">{{ entry.label }}</span>
           <span class="search-result-hint">{{ entry.hint }}</span>
         </button>
-        <div v-if="filteredSettings.length === 0" class="search-empty">没有找到匹配的设置</div>
+        <div v-if="filteredSettings.length === 0" class="search-empty">
+          {{ t('settings.search.empty') }}
+        </div>
       </div>
 
-      <nav class="nav" aria-label="设置分类">
+      <nav class="nav" :aria-label="t('settings.search.nav')">
         <div class="nav-group">
-          <div class="nav-group-label">应用</div>
+          <div class="nav-group-label">{{ t('settings.search.navApplication') }}</div>
           <button
             v-for="tab in tabs.slice(0, 2)"
             :key="tab.id"
@@ -421,7 +518,7 @@ onUnmounted(() => {
         </div>
 
         <div class="nav-group">
-          <div class="nav-group-label">系统</div>
+          <div class="nav-group-label">{{ t('settings.search.navSystem') }}</div>
           <button
             v-for="tab in tabs.slice(2, 5)"
             :key="tab.id"
@@ -471,8 +568,8 @@ onUnmounted(() => {
           <div class="section">
             <div class="section-heading">
               <div>
-                <h2>主题模式</h2>
-                <p>界面、编辑器和预览会保持一致的主题方向。</p>
+                <h2>{{ t('settings.theme.title') }}</h2>
+                <p>{{ t('settings.theme.description') }}</p>
               </div>
             </div>
 
@@ -503,17 +600,93 @@ onUnmounted(() => {
                 <circle cx="12" cy="12" r="9"></circle>
                 <path d="M12 11v5M12 8h.01"></path>
               </svg>
-              <span>
-                “跟随系统”会随操作系统主题自动切换。这里的选择属于全局设置，多窗口打开时也会保持一致。
-              </span>
+              <span>{{ t('settings.theme.info') }}</span>
             </div>
           </div>
 
           <div class="section">
             <div class="section-heading">
               <div>
-                <h2>界面缩放</h2>
-                <p>缩放整个界面，包括编辑器、预览与设置窗口；所有窗口保持一致。</p>
+                <h2>{{ t('settings.language.title') }}</h2>
+                <p>{{ t('settings.language.description') }}</p>
+              </div>
+            </div>
+
+            <div class="setting-card language-card">
+              <div class="setting-row">
+                <div class="setting-copy">
+                  <div class="setting-title-line">
+                    <h3>{{ t('settings.language.title') }}</h3>
+                    <span class="status-badge">{{ t('settings.language.global') }}</span>
+                  </div>
+                  <p>{{ t('settings.language.hint') }}</p>
+                </div>
+                <div ref="languageMenuRef" class="language-select">
+                  <button
+                    class="language-trigger"
+                    type="button"
+                    :aria-label="t('settings.language.title')"
+                    aria-haspopup="listbox"
+                    :aria-expanded="languageMenuOpen"
+                    @click="languageMenuOpen = !languageMenuOpen"
+                  >
+                    <span>{{ currentLanguageLabel }}</span>
+                    <svg
+                      class="language-chevron"
+                      :class="{ open: languageMenuOpen }"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      aria-hidden="true"
+                    >
+                      <path d="m6 9 6 6 6-6" />
+                    </svg>
+                  </button>
+                  <div
+                    v-if="languageMenuOpen"
+                    class="language-menu"
+                    role="listbox"
+                    :aria-label="t('settings.language.title')"
+                  >
+                    <button
+                      v-for="option in languageOptions"
+                      :key="option.value"
+                      class="language-option"
+                      :class="{ active: preference === option.value }"
+                      type="button"
+                      role="option"
+                      :aria-selected="preference === option.value"
+                      @click="selectLanguage(option.value)"
+                    >
+                      <span>{{ option.label }}</span>
+                      <svg
+                        v-if="preference === option.value"
+                        class="language-check"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2.2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        aria-hidden="true"
+                      >
+                        <path d="m5 12 4 4L19 6" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="section">
+            <div class="section-heading">
+              <div>
+                <h2>{{ t('settings.zoom.title') }}</h2>
+                <p>{{ t('settings.zoom.description') }}</p>
               </div>
             </div>
 
@@ -521,29 +694,29 @@ onUnmounted(() => {
               <div class="setting-row">
                 <div class="setting-copy">
                   <div class="setting-title-line">
-                    <h3>缩放比例</h3>
-                    <span class="status-badge">全局</span>
+                    <h3>{{ t('settings.zoom.label') }}</h3>
+                    <span class="status-badge">{{ t('settings.zoom.global') }}</span>
                   </div>
-                  <p>等价于 Ctrl/Cmd + = / -，范围 50%–300%；点击中间百分比立即恢复 100%。</p>
+                  <p>{{ t('settings.zoom.hint') }}</p>
                 </div>
                 <div class="zoom-stepper">
                   <button
                     class="zoom-step"
                     :disabled="zoomAtMin"
-                    title="缩小"
-                    aria-label="缩小"
+                    :title="t('settings.zoom.zoomOut')"
+                    :aria-label="t('settings.zoom.zoomOut')"
                     @click="stepZoom(-1)"
                   >
                     −
                   </button>
-                  <button class="zoom-value" title="恢复 100%" @click="resetZoom">
+                  <button class="zoom-value" :title="t('settings.zoom.reset')" @click="resetZoom">
                     {{ zoomPercent }}%
                   </button>
                   <button
                     class="zoom-step"
                     :disabled="zoomAtMax"
-                    title="放大"
-                    aria-label="放大"
+                    :title="t('settings.zoom.zoomIn')"
+                    :aria-label="t('settings.zoom.zoomIn')"
                     @click="stepZoom(1)"
                   >
                     +
@@ -551,7 +724,7 @@ onUnmounted(() => {
                 </div>
               </div>
               <div class="zoom-preset-row">
-                <span class="zoom-preset-label">快速选择</span>
+                <span class="zoom-preset-label">{{ t('settings.zoom.quickSelect') }}</span>
                 <div class="zoom-presets">
                   <button
                     v-for="factor in zoomPresets"
@@ -572,15 +745,15 @@ onUnmounted(() => {
           <div class="section">
             <div class="section-heading">
               <div>
-                <h2>预览样式</h2>
-                <p>控制 Markdown 预览中的字体、间距、表格和代码块外观。</p>
+                <h2>{{ t('settings.editor.styleTitle') }}</h2>
+                <p>{{ t('settings.editor.styleDescription') }}</p>
               </div>
               <button class="text-button" @click="handleFileImport">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
                   <path d="M12 16V4M7 9l5-5 5 5"></path>
                   <path d="M5 15v4h14v-4"></path>
                 </svg>
-                导入 CSS
+                {{ t('settings.editor.importCss') }}
               </button>
             </div>
 
@@ -604,14 +777,18 @@ onUnmounted(() => {
                 <span class="style-copy">
                   <span class="style-name">{{ style.name }}</span>
                   <span class="style-description">
-                    {{ style.isBuiltin ? '内置预览样式' : '自定义 CSS' }}
+                    {{
+                      style.isBuiltin
+                        ? t('settings.editor.builtinStyle')
+                        : t('settings.editor.customCss')
+                    }}
                   </span>
                 </span>
                 <span class="style-trailing">
                   <button
                     v-if="!style.isBuiltin"
                     class="remove-style"
-                    aria-label="删除自定义样式"
+                    :aria-label="t('settings.editor.removeStyle')"
                     @click="removeStyle($event, style.id)"
                   >
                     ×
@@ -635,8 +812,8 @@ onUnmounted(() => {
           <div class="section">
             <div class="section-heading">
               <div>
-                <h2>预览宽度</h2>
-                <p>固定宽度更适合阅读；自动模式会跟随当前预览区域伸缩。</p>
+                <h2>{{ t('settings.editor.widthTitle') }}</h2>
+                <p>{{ t('settings.editor.widthDescription') }}</p>
               </div>
             </div>
 
@@ -644,32 +821,32 @@ onUnmounted(() => {
               <div class="setting-row">
                 <div class="setting-copy">
                   <div class="setting-title-line">
-                    <h3>正文宽度模式</h3>
-                    <span class="status-badge">全局</span>
+                    <h3>{{ t('settings.editor.widthMode') }}</h3>
+                    <span class="status-badge">{{ t('settings.editor.widthGlobal') }}</span>
                   </div>
-                  <p>多窗口场景下保持一致的正文阅读宽度。</p>
+                  <p>{{ t('settings.editor.widthModeHint') }}</p>
                 </div>
-                <div class="mode-segment" aria-label="正文宽度模式">
+                <div class="mode-segment" :aria-label="t('settings.editor.widthMode')">
                   <button
                     :class="{ active: app.previewWidthMode === 'fixed' }"
                     @click="app.previewWidthMode = 'fixed'"
                   >
-                    固定宽度
+                    {{ t('settings.editor.widthFixed') }}
                   </button>
                   <button
                     :class="{ active: app.previewWidthMode === 'auto' }"
                     @click="app.previewWidthMode = 'auto'"
                   >
-                    自动适应
+                    {{ t('settings.editor.widthAuto') }}
                   </button>
                 </div>
               </div>
               <div class="setting-row">
                 <div class="setting-copy">
                   <div class="setting-title-line">
-                    <h3>固定宽度</h3>
+                    <h3>{{ t('settings.editor.widthFixed') }}</h3>
                   </div>
-                  <p>建议在 720–960 px 之间，长段落更容易扫读。</p>
+                  <p>{{ t('settings.editor.widthFixedHint') }}</p>
                 </div>
                 <div class="width-control" :class="{ disabled: app.previewWidthMode !== 'fixed' }">
                   <input
@@ -716,8 +893,8 @@ onUnmounted(() => {
           <div class="section">
             <div class="section-heading">
               <div>
-                <h2>更新通道</h2>
-                <p>正式版更稳定；Beta 版会更早获得新功能，也可能出现回归问题。</p>
+                <h2>{{ t('settings.updates.channelTitle') }}</h2>
+                <p>{{ t('settings.updates.channelDescription') }}</p>
               </div>
             </div>
 
@@ -725,14 +902,10 @@ onUnmounted(() => {
               <div class="setting-row">
                 <div class="setting-copy">
                   <div class="setting-title-line">
-                    <h3>接收 Beta 版更新</h3>
-                    <span class="status-badge warning">实验特性</span>
+                    <h3>{{ t('settings.updates.betaTitle') }}</h3>
+                    <span class="status-badge warning">{{ t('settings.updates.betaBadge') }}</span>
                   </div>
-                  <p>
-                    关闭后仅接收正式版。当前 Beta
-                    版本不会自动降级，并会在下一个正式版发布后自动归队。
-                    如需立即退出，可使用“回退到正式版”。
-                  </p>
+                  <p>{{ t('settings.updates.betaDescription') }}</p>
                 </div>
                 <button
                   class="switch"
@@ -751,8 +924,8 @@ onUnmounted(() => {
           <div class="section">
             <div class="section-heading">
               <div>
-                <h2>版本状态</h2>
-                <p>检查到新版本后会打开更新详情窗口。</p>
+                <h2>{{ t('settings.updates.statusTitle') }}</h2>
+                <p>{{ t('settings.updates.statusDescription') }}</p>
               </div>
             </div>
 
@@ -776,8 +949,15 @@ onUnmounted(() => {
                     </span>
                   </div>
                   <p>
-                    MarkIt v{{ update.state.currentVersion }} · 当前安装
-                    {{ update.state.currentChannel === 'beta' ? 'Beta 版本' : '正式版本' }}
+                    {{
+                      t('settings.updates.currentInstall', {
+                        version: update.state.currentVersion ?? '',
+                        channel:
+                          update.state.currentChannel === 'beta'
+                            ? t('settings.updates.betaVersion')
+                            : t('settings.updates.stableVersion')
+                      })
+                    }}
                   </p>
                 </div>
                 <button
@@ -796,8 +976,8 @@ onUnmounted(() => {
                 :class="{ disabled: !update.canRollback }"
               >
                 <div class="setting-copy">
-                  <h3>退出 Beta 版本</h3>
-                  <p>关闭 Beta 通道并下载当前最新的正式版。</p>
+                  <h3>{{ t('settings.updates.rollbackTitle') }}</h3>
+                  <p>{{ t('settings.updates.rollbackDescription') }}</p>
                 </div>
                 <button
                   class="secondary-button"
@@ -814,10 +994,10 @@ onUnmounted(() => {
         <section v-else class="panel">
           <div class="section">
             <div class="setting-card about-hero">
-              <img :src="appIconUrl" alt="MarkIt 图标" />
+              <img :src="appIconUrl" :alt="t('settings.about.iconAlt')" />
               <div>
                 <h2>MarkIt</h2>
-                <p>轻量、专注的本地 Markdown 编辑器</p>
+                <p>{{ t('settings.about.heroDescription') }}</p>
                 <div class="about-meta">
                   <span class="version-code">v{{ update.state.currentVersion }}</span>
                   <span
@@ -834,54 +1014,54 @@ onUnmounted(() => {
           <div class="section">
             <div class="section-heading">
               <div>
-                <h2>应用信息</h2>
+                <h2>{{ t('settings.about.appInfo') }}</h2>
               </div>
             </div>
 
             <div class="setting-card about-rows">
               <div class="setting-row">
                 <div class="setting-copy">
-                  <h3>更新通道</h3>
+                  <h3>{{ t('settings.about.updateChannel') }}</h3>
                   <p>
                     {{
                       update.state.betaUpdatesEnabled
-                        ? '同时接收 Beta 与正式版中较新的版本。'
-                        : '当前只接收正式版更新。'
+                        ? t('settings.about.updateChannelOn')
+                        : t('settings.about.updateChannelOff')
                     }}
                   </p>
                 </div>
-                <button class="link-button" @click="openSettingsTab('updates')">管理更新</button>
+                <button class="link-button" @click="openSettingsTab('updates')">
+                  {{ t('settings.about.manageUpdates') }}
+                </button>
               </div>
               <div class="setting-row">
                 <div class="setting-copy">
-                  <h3>开源许可</h3>
-                  <p>MarkIt 以 MIT 许可证开源。</p>
+                  <h3>{{ t('settings.about.licenseTitle') }}</h3>
+                  <p>{{ t('settings.about.licenseDescription') }}</p>
                 </div>
                 <button
                   class="link-button"
                   @click="openExternal('https://github.com/Harley-xk/mark-it/blob/master/LICENSE')"
                 >
-                  查看许可证
+                  {{ t('settings.about.viewLicense') }}
                 </button>
               </div>
               <div class="setting-row">
                 <div class="setting-copy">
-                  <h3>项目主页</h3>
-                  <p>获取使用手册、更新记录与问题反馈入口。</p>
+                  <h3>{{ t('settings.about.homepageTitle') }}</h3>
+                  <p>{{ t('settings.about.homepageDescription') }}</p>
                 </div>
                 <button
                   class="link-button"
                   @click="openExternal('https://github.com/Harley-xk/mark-it')"
                 >
-                  打开 GitHub
+                  {{ t('settings.about.openGithub') }}
                 </button>
               </div>
               <div class="setting-row">
                 <div class="setting-copy">
-                  <h3>诊断日志</h3>
-                  <p>
-                    导出最近的运行日志与系统信息，便于反馈问题时排查。日志不包含文档正文，但可能包含本地文件路径。
-                  </p>
+                  <h3>{{ t('settings.about.diagnosticsTitle') }}</h3>
+                  <p>{{ t('settings.about.diagnosticsDescription') }}</p>
                 </div>
                 <div class="diagnostics-action">
                   <span v-if="diagnosticsMessage" class="diagnostics-message">
@@ -892,7 +1072,11 @@ onUnmounted(() => {
                     :disabled="exportingDiagnostics"
                     @click="handleExportDiagnostics"
                   >
-                    {{ exportingDiagnostics ? '导出中…' : '导出诊断日志' }}
+                    {{
+                      exportingDiagnostics
+                        ? t('settings.about.exportingDiagnostics')
+                        : t('settings.about.exportDiagnostics')
+                    }}
                   </button>
                 </div>
               </div>
@@ -904,10 +1088,12 @@ onUnmounted(() => {
 
     <ConfirmDialog
       :visible="showRollbackConfirm"
-      title="回退到正式版"
-      :message="`将关闭 Beta 更新并安装 stable 通道的当前最新正式版。当前 Beta 版本为 v${update.state.currentVersion}，回退后不会自动回到 Beta；下载完成后退出应用也会安装。是否继续？`"
-      save-text="继续回退"
-      cancel-text="取消"
+      :title="t('settings.updates.rollbackConfirmTitle')"
+      :message="
+        t('settings.updates.rollbackConfirmMessage', { version: update.state.currentVersion })
+      "
+      :save-text="t('settings.updates.rollbackConfirmSave')"
+      :cancel-text="t('common.cancel')"
       hide-discard
       primary-danger
       @save="confirmRollback"
@@ -928,7 +1114,9 @@ body,
 }
 
 body {
-  font-family: 'Segoe UI', 'Microsoft YaHei UI', 'Microsoft YaHei', 'PingFang SC', sans-serif;
+  /* Windows 默认使用微软雅黑，避免 Segoe UI 与中文回退字体混排显得发虚 */
+  font-family:
+    'Microsoft YaHei UI', 'Microsoft YaHei', 'PingFang SC', 'Segoe UI', system-ui, sans-serif;
 }
 </style>
 
@@ -1031,7 +1219,7 @@ button {
   align-items: center;
   gap: 8px;
   color: var(--text-secondary);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
 }
 
@@ -1088,7 +1276,7 @@ button {
   outline: 0;
   background: transparent;
   color: var(--text);
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .search-box input::placeholder {
@@ -1098,7 +1286,7 @@ button {
 .search-shortcut {
   flex: 0 0 auto;
   color: var(--text-faint);
-  font-size: 9px;
+  font-size: 12px;
 }
 
 .search-results {
@@ -1132,14 +1320,14 @@ button {
 
 .search-result-label {
   color: var(--text);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
 }
 
 .search-result-hint,
 .search-empty {
   color: var(--text-muted);
-  font-size: 9.5px;
+  font-size: 12px;
 }
 
 .search-empty {
@@ -1166,7 +1354,7 @@ button {
   justify-content: space-between;
   padding: 0 10px 7px;
   color: var(--text-faint);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 680;
   letter-spacing: 0.09em;
   text-transform: uppercase;
@@ -1177,7 +1365,7 @@ button {
   border-radius: 999px;
   background: var(--warning-bg);
   color: var(--warning);
-  font-size: 9px;
+  font-size: 12px;
   letter-spacing: 0.03em;
 }
 
@@ -1192,7 +1380,7 @@ button {
   border-radius: 8px;
   background: transparent;
   color: var(--text-secondary);
-  font-size: 12.5px;
+  font-size: 13.5px;
   text-align: left;
   cursor: pointer;
 }
@@ -1233,7 +1421,7 @@ button {
   border: 1px solid var(--border);
   border-radius: 999px;
   color: var(--text-faint);
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 600;
 }
 
@@ -1265,7 +1453,7 @@ button {
 .main-header p {
   margin: 7px 0 0;
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.6;
 }
 
@@ -1304,7 +1492,7 @@ button {
 .section-heading p {
   margin: 4px 0 0;
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.55;
 }
 
@@ -1416,7 +1604,7 @@ button {
 }
 
 .theme-card-name {
-  font-size: 11.5px;
+  font-size: 12.5px;
   font-weight: 620;
 }
 
@@ -1451,7 +1639,7 @@ button {
   border-radius: 10px;
   background: var(--inset-bg);
   color: var(--text-muted);
-  font-size: 10.5px;
+  font-size: 12px;
   line-height: 1.65;
 }
 
@@ -1476,8 +1664,8 @@ button {
   align-items: center;
   justify-content: space-between;
   gap: 22px;
-  min-height: 72px;
-  padding: 16px 18px;
+  min-height: 60px;
+  padding: 12px 14px;
 }
 
 .setting-row + .setting-row {
@@ -1506,7 +1694,7 @@ button {
   max-width: 480px;
   margin: 5px 0 0;
   color: var(--text-muted);
-  font-size: 10.5px;
+  font-size: 12px;
   line-height: 1.65;
 }
 
@@ -1516,7 +1704,7 @@ button {
   border-radius: 999px;
   background: var(--accent-bg);
   color: var(--accent);
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 650;
 }
 
@@ -1549,7 +1737,7 @@ button {
   border-radius: 6px;
   background: transparent;
   color: var(--text-muted);
-  font-size: 10.5px;
+  font-size: 12px;
   cursor: pointer;
 }
 
@@ -1557,6 +1745,107 @@ button {
   background: var(--raised-bg);
   color: var(--text);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+}
+
+/* 下拉弹层需要溢出卡片边界，不能被 .setting-card 的 overflow: hidden 裁掉 */
+.language-card {
+  overflow: visible;
+}
+
+.language-select {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.language-trigger {
+  min-width: 168px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 10px 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--inset-bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    background-color 0.15s ease;
+}
+
+.language-trigger:hover {
+  border-color: var(--border-strong);
+  background: var(--card-hover);
+}
+
+.language-trigger:focus-visible {
+  outline: 2px solid var(--accent-border);
+  outline-offset: 1px;
+}
+
+.language-chevron {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  color: var(--text-muted);
+  transition: transform 0.15s ease;
+}
+
+.language-chevron.open {
+  transform: rotate(180deg);
+}
+
+.language-menu {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 100%;
+  padding: 4px;
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  background: var(--card-bg);
+  box-shadow: var(--shadow);
+}
+
+.language-option {
+  width: 100%;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 8px 0 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.language-option:hover {
+  background: var(--card-hover);
+  color: var(--text);
+}
+
+.language-option.active {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.language-check {
+  width: 13px;
+  height: 13px;
+  flex: 0 0 auto;
+  color: var(--accent);
 }
 
 .text-button,
@@ -1568,7 +1857,7 @@ button {
   border: 0;
   background: transparent;
   color: var(--accent);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 620;
   white-space: nowrap;
   cursor: pointer;
@@ -1651,7 +1940,7 @@ button {
 
 .style-name {
   color: var(--text);
-  font-size: 11.5px;
+  font-size: 12.5px;
   font-weight: 600;
 }
 
@@ -1659,7 +1948,7 @@ button {
   display: block;
   margin-top: 3px;
   color: var(--text-muted);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .style-trailing {
@@ -1723,7 +2012,7 @@ button {
   justify-content: space-between;
   margin-top: 9px;
   color: var(--text-faint);
-  font-size: 9.5px;
+  font-size: 12px;
 }
 
 .width-value {
@@ -1827,7 +2116,7 @@ input[type='range']:disabled {
   display: flex;
   align-items: center;
   gap: 14px;
-  padding: 17px 18px;
+  padding: 12px 14px;
 }
 
 .update-mark {
@@ -1862,7 +2151,7 @@ input[type='range']:disabled {
   min-height: 32px;
   padding: 0 13px;
   border-radius: 8px;
-  font-size: 10.5px;
+  font-size: 12px;
   font-weight: 620;
   white-space: nowrap;
   cursor: pointer;
@@ -1895,7 +2184,7 @@ input[type='range']:disabled {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 15px 18px;
+  padding: 12px 14px;
   border-top: 1px solid var(--border);
 }
 
@@ -1927,7 +2216,7 @@ input[type='range']:disabled {
 .about-hero p {
   margin: 5px 0 0;
   color: var(--text-muted);
-  font-size: 10.5px;
+  font-size: 12px;
 }
 
 .about-meta {
@@ -1940,7 +2229,7 @@ input[type='range']:disabled {
 .version-code {
   color: var(--text-secondary);
   font-family: 'Cascadia Code', 'JetBrains Mono', Consolas, monospace;
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .about-rows .setting-row {
@@ -1956,7 +2245,7 @@ input[type='range']:disabled {
 
 .diagnostics-message {
   color: var(--text-muted);
-  font-size: 10px;
+  font-size: 12px;
   white-space: nowrap;
 }
 
@@ -1974,7 +2263,7 @@ input[type='range']:disabled {
   border-radius: 7px;
   background: var(--inset-bg);
   color: var(--text);
-  font-size: 11px;
+  font-size: 12px;
   cursor: pointer;
   transition:
     border-color 0.15s ease,
@@ -1983,12 +2272,13 @@ input[type='range']:disabled {
 
 .zoom-step {
   width: 34px;
-  font-size: 15px;
+  font-size: 16px;
   line-height: 1;
 }
 
 .zoom-value {
   min-width: 76px;
+  font-size: 12px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
@@ -2008,13 +2298,13 @@ input[type='range']:disabled {
   display: flex;
   align-items: center;
   gap: 16px;
-  padding: 0 18px 16px;
+  padding: 0 14px 12px;
 }
 
 .zoom-preset-label {
   flex: 0 0 auto;
   color: var(--text-muted);
-  font-size: 10.5px;
+  font-size: 12px;
 }
 
 .zoom-presets {
@@ -2031,7 +2321,7 @@ input[type='range']:disabled {
   border-radius: 999px;
   background: transparent;
   color: var(--text-muted);
-  font-size: 10.5px;
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
   cursor: pointer;
   transition:

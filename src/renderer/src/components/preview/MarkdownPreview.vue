@@ -28,6 +28,8 @@ import { createMarkdownRenderer } from '../../utils/markdown'
 import { sanitizeMarkdownHtml } from '../../utils/sanitize'
 import { collectPreviewRanges } from '../../utils/search'
 import { LruCache } from '../../utils/lru-cache'
+import { useI18n } from '../../i18n'
+import type { Locale } from '../../../../shared/locale-types'
 import SearchPanel from '../common/SearchPanel.vue'
 import DiagramPreviewModal from './DiagramPreviewModal.vue'
 
@@ -35,6 +37,7 @@ import DiagramPreviewModal from './DiagramPreviewModal.vue'
 interface CachedPreviewHtml {
   content: string
   path: string | null
+  locale: Locale
   html: string
 }
 
@@ -58,6 +61,7 @@ const editorStore = useEditorStore()
 const appStore = useAppStore()
 const styleStore = useStyleStore()
 const search = useSearchStore()
+const { locale, t } = useI18n()
 const { suspendSync, registerPreview, unregisterPreview } = useScrollSync()
 const previewRef = ref<HTMLDivElement>()
 const spacerRef = ref<HTMLDivElement>()
@@ -100,6 +104,8 @@ interface PreviewLayer {
   source: string
   /** 渲染时的文档路径（相对图片已按此解析） */
   path: string | null
+  /** 渲染时的界面语言（frontmatter 表格等静态文案据此生成） */
+  locale: Locale
   /** 图表按哪一版主题渲染；与当前主题不同才需要重绘 */
   themeRevision: number
   /** 最近一次激活的序号，用于淘汰最久未使用的层 */
@@ -123,14 +129,21 @@ function previewContentEl(): HTMLElement | null {
 /** 取该标签的预览 HTML：内容与路径都没变时直接复用上次渲染结果 */
 function previewHtmlFor(doc: DocumentTab): string {
   const cached = htmlCache.get(doc.id)
-  if (cached && cached.content === doc.content && cached.path === doc.path) return cached.html
+  if (
+    cached &&
+    cached.content === doc.content &&
+    cached.path === doc.path &&
+    cached.locale === locale.value
+  ) {
+    return cached.html
+  }
 
   const { entries, body } = parseFrontmatter(doc.content)
   // frontmatter 不再作为 YAML 文本渲染，改为顶部的文档信息表格
-  const frontmatter = entries.length > 0 ? renderFrontmatterTable(entries) : ''
+  const frontmatter = entries.length > 0 ? renderFrontmatterTable(entries, locale.value) : ''
   // 文档内容可能来自不受信任的来源：进入 preview 层与缓存前统一清洗
   const html = sanitizeMarkdownHtml(frontmatter + md.render(body))
-  htmlCache.set(doc.id, { content: doc.content, path: doc.path, html })
+  htmlCache.set(doc.id, { content: doc.content, path: doc.path, locale: locale.value, html })
   return html
 }
 
@@ -138,6 +151,7 @@ function fillLayer(layer: PreviewLayer, doc: DocumentTab): void {
   layer.content.innerHTML = previewHtmlFor(doc)
   layer.source = doc.content
   layer.path = doc.path
+  layer.locale = locale.value
 }
 
 function createLayer(doc: DocumentTab): PreviewLayer | null {
@@ -159,6 +173,7 @@ function createLayer(doc: DocumentTab): PreviewLayer | null {
     content,
     source: '',
     path: null,
+    locale: locale.value,
     themeRevision: -1,
     touchedAt: 0
   }
@@ -254,7 +269,11 @@ function applyActiveLayer(): boolean {
   if (!layer) {
     layer = createLayer(doc)
     rebuilt = true
-  } else if (layer.source !== doc.content || layer.path !== doc.path) {
+  } else if (
+    layer.source !== doc.content ||
+    layer.path !== doc.path ||
+    layer.locale !== locale.value
+  ) {
     fillLayer(layer, doc)
     rebuilt = true
   }
@@ -469,7 +488,7 @@ function createDiagramView(
   const zoomLabel = document.createElement('button')
   zoomLabel.type = 'button'
   zoomLabel.classList.add('mermaid-toolbar-btn', 'mermaid-zoom-label')
-  zoomLabel.title = '恢复原始大小'
+  zoomLabel.title = t('preview.restoreSize')
 
   function applyScale(next: number): void {
     scale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, next))
@@ -562,9 +581,9 @@ function createDiagramView(
   })
 
   toolbar.append(
-    createButton('−', '缩小', () => zoomBy(1 / ZOOM_STEP)),
+    createButton('−', t('preview.zoomOut'), () => zoomBy(1 / ZOOM_STEP)),
     zoomLabel,
-    createButton('＋', '放大', () => zoomBy(ZOOM_STEP)),
+    createButton('＋', t('preview.zoomIn'), () => zoomBy(ZOOM_STEP)),
     createIconButton(
       `<svg
         width="14"
@@ -580,15 +599,15 @@ function createDiagramView(
         <circle cx="11" cy="11" r="7" />
         <line x1="16.5" y1="16.5" x2="21" y2="21" />
       </svg>`,
-      '弹窗预览（可缩放 / 滚动 / 下载）',
+      t('preview.previewModal'),
       preview
     ),
-    createButton('SVG', '下载为 SVG', () => void download('svg')),
-    createButton('PNG', '下载为 PNG', () => void download('png'))
+    createButton('SVG', t('preview.downloadSvg'), () => void download('svg')),
+    createButton('PNG', t('preview.downloadPng'), () => void download('png'))
   )
 
   // 双击图表快速打开弹窗预览
-  viewport.title = '双击放大预览'
+  viewport.title = t('preview.doubleClickPreview')
   viewport.addEventListener('dblclick', (event) => {
     if (!(event.target as Element | null)?.closest('svg')) return
     event.preventDefault()
@@ -685,7 +704,10 @@ async function renderDiagrams(): Promise<void> {
     } catch (err) {
       const notice = document.createElement('div')
       notice.classList.add('mermaid-error')
-      notice.textContent = `图表重新渲染失败（${language}）：${formatMermaidError(err)}`
+      notice.textContent = t('preview.diagramRerenderFailed', {
+        language,
+        reason: formatMermaidError(err, locale.value)
+      })
       notice.title = err instanceof Error ? err.message : String(err)
       wrapper.insertAdjacentElement('afterend', notice)
     }
@@ -709,7 +731,10 @@ async function renderDiagrams(): Promise<void> {
       // 渲染失败时保留原始代码块，仅在下方追加提示，方便直接修改语法
       const notice = document.createElement('div')
       notice.classList.add('mermaid-error')
-      notice.textContent = `图表渲染失败（${language}）：${formatMermaidError(err)}`
+      notice.textContent = t('preview.diagramRenderFailed', {
+        language,
+        reason: formatMermaidError(err, locale.value)
+      })
       notice.title = err instanceof Error ? err.message : String(err)
       parent.insertAdjacentElement('afterend', notice)
     }
@@ -759,6 +784,12 @@ async function schedulePostRender(): Promise<void> {
 watch([isDark, currentCss], () => {
   themeRevision += 1
   void schedulePostRender()
+})
+
+// 界面语言变化：frontmatter 表格与图表工具栏文案需要重建，缓存也要按语言失效
+watch(locale, () => {
+  htmlCache.clear()
+  if (applyActiveLayer()) void schedulePostRender()
 })
 
 // 文档目录变化时，HTML <img> 需要按新目录重新解析。

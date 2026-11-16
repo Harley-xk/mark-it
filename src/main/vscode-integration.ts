@@ -16,6 +16,7 @@ import type {
   VSCodeIntegrationConfig,
   VSCodeVariant
 } from '../shared/integration-types'
+import { mt } from './i18n'
 
 const EXTENSION_PREFIX = 'harley-xk.markit-open'
 const MANAGED_EXTENSION_NAME = /^harley-xk\.markit-open(?:-\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)?$/
@@ -355,9 +356,9 @@ export async function detectVSCodeInstallations(
   const candidates = getVSCodePathCandidates(runtime.platform, runtime.env)
   const result: VSCodeInstallation[] = []
   const globalUnsupportedReason = !runtime.isPackaged
-    ? '开发模式暂不支持，请使用打包产物验证'
+    ? mt('main.vscode.devModeUnsupported')
     : runtime.platform === 'darwin' && isMacTranslocatedPath(runtime.execPath)
-      ? '请先将 MarkIt 移入「应用程序」后再使用编辑器集成'
+      ? mt('main.vscode.moveToApplications')
       : null
 
   for (const candidate of candidates) {
@@ -388,7 +389,9 @@ export async function detectVSCodeInstallations(
     const installKind = selectedDir.kind
     const flatpakUnsupported =
       installKind === 'flatpak'
-        ? `${VARIANT_NAMES[candidate.variant]} 的 Flatpak 沙箱版暂不支持`
+        ? mt('main.vscode.flatpakUnsupported', {
+            variant: VARIANT_NAMES[candidate.variant]
+          })
         : null
     const unsupportedReason = globalUnsupportedReason ?? flatpakUnsupported
     const installedExtension = flatpakUnsupported
@@ -464,7 +467,7 @@ function extensionDestination(extensionsDir: string, version: string): string {
     dirname(destination) !== extensionsDir ||
     !isManagedExtensionName(`${EXTENSION_PREFIX}-${version}`)
   ) {
-    throw new Error('非法扩展安装路径')
+    throw new Error(mt('main.vscode.invalidInstallPath'))
   }
   return destination
 }
@@ -482,7 +485,7 @@ async function resolveExtensionSource(options: InstallVSCodeOptions): Promise<st
       // 尝试下一个开发 / 解包路径
     }
   }
-  throw new Error('未找到随应用分发的 VSCode 扩展资源')
+  throw new Error(mt('main.vscode.extensionAssetsMissing'))
 }
 
 function errorMessage(error: unknown): string {
@@ -496,12 +499,12 @@ export async function installVSCodeExtension(
 ): Promise<IntegrationResult> {
   try {
     if (variant !== 'stable' && variant !== 'insiders') {
-      return { ok: false, error: '不支持的 VSCode 类型', needsRestart: false }
+      return { ok: false, error: mt('main.vscode.unsupportedVariant'), needsRestart: false }
     }
     if (!options.runtime.isPackaged) {
       return {
         ok: false,
-        error: '开发模式暂不支持编辑器集成，请使用打包产物验证',
+        error: mt('main.vscode.devModeUnsupportedShort'),
         needsRestart: false
       }
     }
@@ -509,7 +512,7 @@ export async function installVSCodeExtension(
       (item) => item.variant === variant
     )
     if (!installation) {
-      return { ok: false, error: '未检测到对应的 VSCode', needsRestart: false }
+      return { ok: false, error: mt('main.vscode.notFound'), needsRestart: false }
     }
     if (installation.unsupportedReason) {
       return { ok: false, error: installation.unsupportedReason, needsRestart: false }
@@ -576,7 +579,7 @@ export async function uninstallVSCodeExtension(
 ): Promise<IntegrationResult> {
   try {
     if (variant !== 'stable' && variant !== 'insiders') {
-      return { ok: false, error: '不支持的 VSCode 类型', needsRestart: false }
+      return { ok: false, error: mt('main.vscode.unsupportedVariant'), needsRestart: false }
     }
     const installation = (await detectVSCodeInstallations(options)).find(
       (item) => item.variant === variant

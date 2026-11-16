@@ -36,7 +36,9 @@ import {
   imageExtensionFor,
   resolveImageCaptureScale
 } from './image-export'
-import { closeUpdateWindow, initAutoUpdater } from './updater'
+import { closeUpdateWindow, initAutoUpdater, isUpdateWindowSender } from './updater'
+import { initMainLocale, mt, setMainLocale } from './i18n'
+import { isLocale } from '../i18n'
 import { initActivityReporter, notifyActivityWindowShown } from './activity-reporter'
 import { isAppUrl, registerHandle, registerOn } from './ipc-guard'
 import { normalizeSessionTab, parseSessionData, parseSessionFile } from './session-store'
@@ -966,7 +968,7 @@ function requestEditorPreparation(kind: 'quit' | 'install'): Promise<boolean> {
   if (targets.length === 0) return Promise.resolve(true)
 
   const requestId = randomUUID()
-  const actionLabel = kind === 'install' ? '安装更新' : '退出应用'
+  const actionLabel = kind === 'install' ? mt('app.installUpdateAction') : mt('app.quitAction')
   return new Promise((resolve) => {
     pendingExitPreparations.set(requestId, {
       pendingWebContents: new Set(targets.map((context) => context.win.webContents.id)),
@@ -1635,20 +1637,20 @@ registerHandle('integration:detect-vscode', async (event) => {
 
 registerHandle('integration:install-vscode', async (event, variant: unknown) => {
   if (!isEditorWindowSender(event.sender) && !isSettingsWindowSender(event.sender)) {
-    return { ok: false, error: '不允许的调用来源', needsRestart: false }
+    return { ok: false, error: mt('main.vscode.untrustedSender'), needsRestart: false }
   }
   if (variant !== 'stable' && variant !== 'insiders') {
-    return { ok: false, error: '不支持的 VSCode 类型', needsRestart: false }
+    return { ok: false, error: mt('main.vscode.unsupportedVariant'), needsRestart: false }
   }
   return installVSCodeExtension(variant, { runtime: getVSCodeIntegrationRuntime() })
 })
 
 registerHandle('integration:uninstall-vscode', async (event, variant: unknown) => {
   if (!isEditorWindowSender(event.sender) && !isSettingsWindowSender(event.sender)) {
-    return { ok: false, error: '不允许的调用来源', needsRestart: false }
+    return { ok: false, error: mt('main.vscode.untrustedSender'), needsRestart: false }
   }
   if (variant !== 'stable' && variant !== 'insiders') {
-    return { ok: false, error: '不支持的 VSCode 类型', needsRestart: false }
+    return { ok: false, error: mt('main.vscode.unsupportedVariant'), needsRestart: false }
   }
   return uninstallVSCodeExtension(variant, { runtime: getVSCodeIntegrationRuntime() })
 })
@@ -1738,7 +1740,7 @@ async function measureImageExportPage(win: BrowserWindow): Promise<ImagePageSize
   return withTimeout(
     win.webContents.executeJavaScript(IMAGE_PAGE_MEASURE_SCRIPT) as Promise<ImagePageSize>,
     IMAGE_INSPECT_TIMEOUT_MS,
-    '图片导出页面测量超时'
+    mt('main.export.measureTimeout')
   )
 }
 
@@ -1746,7 +1748,7 @@ async function waitForImageExportLayout(win: BrowserWindow): Promise<void> {
   await withTimeout(
     win.webContents.executeJavaScript(IMAGE_WAIT_FRAMES_SCRIPT) as Promise<void>,
     IMAGE_INSPECT_TIMEOUT_MS,
-    '图片导出页面布局超时'
+    mt('main.export.layoutTimeout')
   )
 }
 
@@ -1756,7 +1758,7 @@ registerHandle(
     const parent = windowForSender(event)
     if (!parent) return null
     const reportProgress = createExportProgressReporter(event, requestId, 'pdf')
-    reportProgress(10, '准备导出')
+    reportProgress(10, mt('main.export.stagePrepare'))
     const result = await dialog.showSaveDialog(parent, {
       defaultPath: buildPdfDefaultPath(options.fileName, options.sourcePath),
       filters: [{ name: 'PDF', extensions: ['pdf'] }]
@@ -1765,8 +1767,10 @@ registerHandle(
 
     const htmlBytes = Buffer.byteLength(html, 'utf8')
     if (htmlBytes > PDF_HTML_MAX_BYTES) {
-      const message = `PDF 内容过大（${(htmlBytes / 1024 / 1024).toFixed(1)} MB），请减少内嵌图片后重试`
-      dialog.showErrorBox('PDF 导出失败', message)
+      const message = mt('main.export.pdfTooLarge', {
+        size: (htmlBytes / 1024 / 1024).toFixed(1)
+      })
+      dialog.showErrorBox(mt('main.export.pdfFailedTitle'), message)
       throw new Error(message)
     }
 
@@ -1787,9 +1791,9 @@ registerHandle(
 
     try {
       await writeFile(tempHtmlPath, html, 'utf-8')
-      reportProgress(15, '加载页面')
+      reportProgress(15, mt('main.export.stageLoadingPage'))
       await pdfWin.loadFile(tempHtmlPath)
-      reportProgress(30, '等待图片与字体')
+      reportProgress(30, mt('main.export.stageWaitingAssets'))
       // 等待图片、字体与两帧布局稳定；固定延时只作为兜底上限
       const layoutReady = pdfWin.webContents
         .executeJavaScript(
@@ -1819,7 +1823,7 @@ registerHandle(
       ])
 
       const margin = PDF_MARGIN_INCH[options.margin] ?? PDF_MARGIN_INCH.standard
-      reportProgress(50, '生成 PDF')
+      reportProgress(50, mt('main.export.stageGeneratingPdf'))
       const pdf = await pdfWin.webContents.printToPDF({
         pageSize: options.pageSize === 'Letter' ? 'Letter' : 'A4',
         printBackground: true,
@@ -1838,9 +1842,9 @@ registerHandle(
           '<span class="pageNumber"></span> / <span class="totalPages"></span></div>'
       })
 
-      reportProgress(85, '写入文件')
+      reportProgress(85, mt('main.export.stageWritingFile'))
       await writeFile(result.filePath, pdf)
-      reportProgress(100, '完成')
+      reportProgress(100, mt('main.export.stageDone'))
       return result.filePath
     } finally {
       // 无论成功、取消还是打印异常，都不能残留隐藏窗口与临时文件
@@ -1858,12 +1862,12 @@ registerHandle(
     const parent = windowForSender(event)
     if (!parent) return null
     const reportProgress = createExportProgressReporter(event, requestId, 'image')
-    reportProgress(10, '准备导出')
+    reportProgress(10, mt('main.export.stagePrepare'))
     if (typeof html !== 'string' || !options || typeof options !== 'object') {
-      throw new Error('图片导出参数无效')
+      throw new Error(mt('main.export.invalidImageParams'))
     }
     if (options.format !== 'png' && options.format !== 'jpeg') {
-      throw new Error('不支持的图片导出格式')
+      throw new Error(mt('main.export.unsupportedImageFormat'))
     }
 
     const format: ImageExportFormat = options.format
@@ -1885,10 +1889,10 @@ registerHandle(
 
     const htmlBytes = Buffer.byteLength(html, 'utf8')
     if (htmlBytes > IMAGE_HTML_MAX_BYTES) {
-      const message = `图片内容过大（${(htmlBytes / 1024 / 1024).toFixed(
-        1
-      )} MB），请减少内嵌图片后重试`
-      dialog.showErrorBox('图片导出失败', message)
+      const message = mt('main.export.imageTooLarge', {
+        size: (htmlBytes / 1024 / 1024).toFixed(1)
+      })
+      dialog.showErrorBox(mt('main.export.imageFailedTitle'), message)
       throw new Error(message)
     }
 
@@ -1908,13 +1912,13 @@ registerHandle(
 
     try {
       await writeFile(tempHtmlPath, html, 'utf-8')
-      reportProgress(15, '加载页面')
+      reportProgress(15, mt('main.export.stageLoadingPage'))
       await withTimeout(
         imageWin.loadFile(tempHtmlPath),
         IMAGE_LOAD_TIMEOUT_MS,
-        '图片导出页面加载超时'
+        mt('main.export.loadTimeout')
       )
-      reportProgress(30, '等待图片与字体')
+      reportProgress(30, mt('main.export.stageWaitingAssets'))
 
       const layoutReady = imageWin.webContents
         .executeJavaScript(
@@ -1943,11 +1947,11 @@ registerHandle(
         new Promise((resolve) => setTimeout(resolve, IMAGE_LAYOUT_TIMEOUT_MS))
       ])
 
-      reportProgress(45, '测量版面')
+      reportProgress(45, mt('main.export.stageMeasureLayout'))
       let size = await measureImageExportPage(imageWin)
 
       const scale = resolveImageCaptureScale(size.width, size.height, requestedScale)
-      reportProgress(60, '生成图片')
+      reportProgress(60, mt('main.export.stageRenderImage'))
       imageWin.webContents.setZoomFactor(scale)
       for (let attempt = 0; attempt < 2; attempt += 1) {
         imageWin.setContentSize(Math.ceil(size.width * scale), Math.ceil(size.height * scale))
@@ -1959,17 +1963,17 @@ registerHandle(
       const expectedHeight = Math.ceil(size.height * scale)
       const [contentWidth, contentHeight] = imageWin.getContentSize()
       if (expectedWidth > contentWidth || expectedHeight > contentHeight) {
-        throw new Error('图片导出窗口无法容纳完整长图，请缩短文档或降低导出倍率后重试')
+        throw new Error(mt('main.export.tooTall'))
       }
 
       const screenshot = await withTimeout(
         imageWin.webContents.capturePage(),
         IMAGE_CAPTURE_TIMEOUT_MS,
-        '图片生成超时，请缩短文档或降低导出倍率后重试'
+        mt('main.export.renderTimeout')
       )
       const capturedSize = screenshot.getSize()
       if (capturedSize.width < expectedWidth || capturedSize.height < expectedHeight) {
-        throw new Error('图片截图未覆盖完整页面，请缩短文档或降低导出倍率后重试')
+        throw new Error(mt('main.export.incompleteScreenshot'))
       }
 
       const output =
@@ -1982,9 +1986,9 @@ registerHandle(
             })
       const imageData = format === 'jpeg' ? output.toJPEG(92) : output.toPNG()
 
-      reportProgress(85, '写入文件')
+      reportProgress(85, mt('main.export.stageWritingFile'))
       await writeFile(outputPath, imageData)
-      reportProgress(100, '完成')
+      reportProgress(100, mt('main.export.stageDone'))
       return createImageExportResult(
         outputPath,
         format,
@@ -1994,8 +1998,8 @@ registerHandle(
         size.height
       )
     } catch (err) {
-      const message = err instanceof Error ? err.message : '未知错误'
-      dialog.showErrorBox('图片导出失败', message)
+      const message = err instanceof Error ? err.message : mt('main.export.unknownError')
+      dialog.showErrorBox(mt('main.export.imageFailedTitle'), message)
       throw err
     } finally {
       if (!imageWin.isDestroyed()) imageWin.destroy()
@@ -2037,6 +2041,16 @@ registerHandle('window:set-native-theme', (event, theme: 'light' | 'dark' | 'sys
   if (theme !== 'light' && theme !== 'dark' && theme !== 'system') return
   nativeTheme.themeSource = theme
 })
+/** 同步界面语言；主进程据此生成原生对话框、错误框与更新状态文案 */
+registerHandle('app:set-locale', (event, locale: unknown) => {
+  const allowed =
+    isEditorWindowSender(event.sender) ||
+    isSettingsWindowSender(event.sender) ||
+    isUpdateWindowSender(event.sender)
+  if (!allowed || !isLocale(locale)) return false
+  setMainLocale(locale)
+  return true
+})
 registerHandle('settings:open', (event) => {
   const source = getEditorWindowBySender(event.sender)
   if (!source) return false
@@ -2077,7 +2091,7 @@ registerHandle('window:list', (event): EditorWindowSummary[] => {
   return contexts.flatMap((context, index) =>
     context.id === source.id || context.win.isDestroyed()
       ? []
-      : [{ id: context.id, title: `窗口 ${index + 1}` }]
+      : [{ id: context.id, title: mt('window.label', { index: index + 1 }) }]
   )
 })
 registerHandle('window:take-pending-transfer', (event) => {
@@ -2183,6 +2197,8 @@ if (!gotTheLock) {
 
   app.whenReady().then(() => {
     electronApp.setAppUserModelId('com.harley.markit')
+    // 渲染进程同步语言之前，先用系统语言兜底原生对话框文案
+    initMainLocale(app.getLocale())
 
     // 渲染进程不需要系统权限：默认拒绝摄像头、麦克风、地理位置等请求。
     // 不受信任的 Markdown 即使出现脚本，也不应能触发系统授权。

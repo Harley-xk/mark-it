@@ -4,6 +4,7 @@
  *
  * 描述: 跨窗口标签拖拽悬浮提示的 HTML、尺寸与屏幕边缘定位
  */
+import { mt } from './i18n'
 
 export const TAB_DRAG_PREVIEW_WIDTH = 236
 export const TAB_DRAG_PREVIEW_HEIGHT = 42
@@ -35,7 +36,9 @@ export function escapeTabDragPreviewText(value: string): string {
 }
 
 export function buildTabDragPreviewHtml(tabName: string, theme: 'light' | 'dark'): string {
-  const displayName = escapeTabDragPreviewText(tabName.replace(/\s+/g, ' ').trim() || '未命名标签')
+  const displayName = escapeTabDragPreviewText(
+    tabName.replace(/\s+/g, ' ').trim() || mt('window.untitledTab')
+  )
   return `<!doctype html>
 <html lang="zh-CN" data-theme="${theme}">
 <head>

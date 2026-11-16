@@ -5,6 +5,8 @@
  * 也接受常见图表名作为代码块语言标记（```flowchart / ```sequence / ```classDiagram 等），
  * 并忽略大小写与 `-beta` / `-v2` 后缀（例如 xychart-beta、stateDiagram-v2）。
  */
+import type { Locale } from '../../../shared/locale-types'
+import { translate } from '../../../i18n'
 
 const MERMAID_LANGUAGES = new Set([
   'mermaid',
@@ -85,14 +87,14 @@ export function collectMermaidBlocks(root: ParentNode): HTMLElement[] {
 }
 
 /** 从 mermaid 抛出的异常中提取一行可读的失败原因 */
-export function formatMermaidError(error: unknown): string {
+export function formatMermaidError(error: unknown, locale: Locale): string {
   const message = error instanceof Error ? error.message : String(error)
   const lines = message
     .split('\n')
     .map((line) => line.trim())
     .filter((line) => line.length > 0)
 
-  if (lines.length === 0) return '未知错误'
+  if (lines.length === 0) return translate(locale, 'preview.unknownError')
 
   // mermaid 的语法错误通常是「Parse error on line N: + 源码行 + 指示符 + Expecting ...」，
   // 这里只保留错误行与 got 到的 token，完整内容放在 title 里

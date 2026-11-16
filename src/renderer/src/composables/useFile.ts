@@ -8,13 +8,11 @@ import { samePath } from '../utils/path'
 import { decodeText, encodeText } from '../utils/text-encoding'
 import { serializeEditorState } from '../utils/editor-state-transfer'
 import { describeFileError } from '../utils/file-errors'
+import { manualContent } from '../utils/manual'
+import { useI18n } from '../i18n'
 import { showFileOpenFailures, showFileReadNotices } from './file-notifications'
 import type { TabDropOptions, TabTransferPayload } from '../../../shared/window-types'
 import type { FileReadResult, FileSaveResponse } from '../../../shared/file-types'
-import WELCOME_CONTENT from '../assets/welcome.md?raw'
-
-/** 内置使用手册的标签名 */
-const MANUAL_NAME = '使用手册.md'
 
 /**
  * 比较内容时忽略换行符与 BOM 差异：编辑器内部统一使用 \n，
@@ -82,6 +80,7 @@ let transferListenersInstalled = false
 export function useFile(): FileActions {
   const docs = useDocumentsStore()
   const editor = useEditorStore()
+  const { locale, t } = useI18n()
 
   if (!transferListenersInstalled) {
     transferListenersInstalled = true
@@ -107,11 +106,14 @@ export function useFile(): FileActions {
       if (result.ok) return { ok: true, result }
 
       const action = await confirmUnsaved(
-        '保存失败',
-        `无法写入「${path}」。\n\n${describeFileError(result.error)}\n\n可以重试，或选择其他位置另存为。`,
-        { save: '重试', discard: '另存为' },
+        t('file.saveFailedTitle'),
+        t('file.saveFailedMessage', {
+          path,
+          reason: describeFileError(result.error, locale.value)
+        }),
+        { save: t('common.retry'), discard: t('common.saveAs') },
         true,
-        { cancelText: '取消' }
+        { cancelText: t('common.cancel') }
       )
       if (action === 'cancel') return { ok: false }
       if (action === 'discard') return { ok: false, saveAs: true }
@@ -134,11 +136,11 @@ export function useFile(): FileActions {
   ): Promise<boolean> {
     if (doc.path && doc.readOnly && !forceDialog) {
       const action = await confirmUnsaved(
-        '文件为只读',
-        `「${doc.name}」不是可编辑的 UTF-8 文件，或超过大小上限。\n\n可以另存为新的 UTF-8 文件后再编辑。`,
-        { save: '另存为' },
+        t('file.readOnlyTitle'),
+        t('file.readOnlyMessage', { name: doc.name }),
+        { save: t('common.saveAs') },
         true,
-        { hideDiscard: true, cancelText: '取消' }
+        { hideDiscard: true, cancelText: t('common.cancel') }
       )
       if (action !== 'save') return false
       return saveDocument(doc, true)
@@ -157,11 +159,12 @@ export function useFile(): FileActions {
       )
       if (existing) {
         const action = await confirmUnsaved(
-          '另存为',
-          existing.isModified
-            ? `「${path}」已在标签页「${existing.name}」中打开，且该标签有未保存的修改。继续会将当前内容写入该标签并关闭当前标签，已有修改将丢失。`
-            : `「${path}」已在标签页「${existing.name}」中打开。继续会将当前内容写入该标签并关闭当前标签。`,
-          { save: '合并到该标签', discard: '取消' },
+          t('file.saveAsTitle'),
+          t(existing.isModified ? 'file.alreadyOpenDirty' : 'file.alreadyOpen', {
+            path,
+            tab: existing.name
+          }),
+          { save: t('file.mergeIntoExisting'), discard: t('common.cancel') },
           true
         )
         if (action !== 'save') return false
@@ -204,11 +207,11 @@ export function useFile(): FileActions {
         }
       } else if (disk.file.readOnly) {
         const action = await confirmUnsaved(
-          '磁盘文件已变化',
-          `「${doc.name}」当前磁盘内容不是可编辑的 UTF-8 文件，或超过大小上限。\n\n继续保存会用本地内容以 UTF-8 覆盖磁盘文件。`,
-          { save: '覆盖磁盘' },
+          t('file.diskChangedTitle'),
+          t('file.diskChangedMessage', { name: doc.name }),
+          { save: t('common.overwriteDisk') },
           true,
-          { hideDiscard: true, cancelText: '取消' }
+          { hideDiscard: true, cancelText: t('common.cancel') }
         )
         if (action !== 'save') return false
       } else {
@@ -232,12 +235,12 @@ export function useFile(): FileActions {
           }
 
           const action = await confirmUnsaved(
-            '文件冲突',
-            `「${doc.name}」在磁盘上已被其他程序修改，本地也有未保存的修改。`,
-            { save: '覆盖磁盘', discard: '载入磁盘' },
+            t('file.conflictTitle'),
+            t('file.conflictMessage', { name: doc.name }),
+            { save: t('common.overwriteDisk'), discard: t('common.loadDisk') },
             true,
             {
-              cancelText: '取消',
+              cancelText: t('common.cancel'),
               diff: diffLines(decodeText(disk.file.content).text, doc.content)
             }
           )
@@ -412,12 +415,13 @@ export function useFile(): FileActions {
   async function openManual(): Promise<void> {
     // 会话恢复会整体替换标签页，等恢复完成后再查找/新建，避免刚打开的手册被覆盖
     await whenSessionReady()
-    const existing = docs.docs.find((doc) => doc.path === null && doc.name === MANUAL_NAME)
+    const name = t('window.manualName')
+    const existing = docs.docs.find((doc) => doc.path === null && doc.name === name)
     if (existing) {
       docs.activateDocument(existing.id)
       return
     }
-    docs.addDocument(null, WELCOME_CONTENT, MANUAL_NAME)
+    docs.addDocument(null, manualContent(locale.value), name)
   }
 
   /**
@@ -427,8 +431,8 @@ export function useFile(): FileActions {
   async function closeOne(doc: DocumentTab): Promise<boolean> {
     if (doc.isModified) {
       const action = await confirmUnsaved(
-        '关闭文件',
-        `「${doc.name}」有未保存的修改，是否在关闭前保存？`,
+        t('file.closeTitle'),
+        t('file.closeMessage', { name: doc.name }),
         undefined,
         true
       )
@@ -507,11 +511,11 @@ export function useFile(): FileActions {
     if (!promptOnConflict) return
 
     const action = await confirmUnsaved(
-      '文件冲突',
-      `「${doc.name}」在磁盘上已被其他程序修改，本地也有未保存的修改。`,
-      { save: '覆盖磁盘', discard: '载入磁盘' },
+      t('file.conflictTitle'),
+      t('file.conflictMessage', { name: doc.name }),
+      { save: t('common.overwriteDisk'), discard: t('common.loadDisk') },
       true,
-      { cancelText: '取消', diff: diffLines(decodeText(content).text, doc.content) }
+      { cancelText: t('common.cancel'), diff: diffLines(decodeText(content).text, doc.content) }
     )
 
     if (action === 'save') {
@@ -560,9 +564,9 @@ export function useFile(): FileActions {
     if (sameContent(result.file.content, doc.diskContent)) {
       if (!doc.isModified) return
       const action = await confirmUnsaved(
-        '重新载入',
-        '磁盘上的文件没有变化。是否放弃当前未保存的修改，重新载入磁盘内容？',
-        { save: '保存（覆盖磁盘）', discard: '放弃修改（载入磁盘）' },
+        t('file.reloadTitle'),
+        t('file.reloadMessage'),
+        { save: t('file.saveOverwriteDisk'), discard: t('file.discardAndLoadDisk') },
         true
       )
       if (action === 'save') await saveDocument(doc, false, true)

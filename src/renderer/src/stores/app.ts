@@ -3,6 +3,7 @@ import { ref, computed, watch } from 'vue'
 import type { ExportKind, ExportStatus, LayoutMode, PreviewWidthMode, ThemeMode } from '../types'
 import { LAYOUT_MODES, loadSavedLayoutMode, saveLayoutMode } from '../utils/layout-mode'
 import { loadSavedOutlineVisible, saveOutlineVisible } from '../utils/outline-visibility'
+import { useI18n } from '../i18n'
 import { useDocumentsStore } from './documents'
 
 function getSystemTheme(): 'light' | 'dark' {
@@ -39,6 +40,7 @@ const EXPORT_STATUS_VISIBLE_MS = 3000
 
 export const useAppStore = defineStore('app', () => {
   const documents = useDocumentsStore()
+  const { t } = useI18n()
   // 布局按标签保存；没有激活标签的瞬间（关闭最后一个标签到窗口关闭之间）用兜底值
   const fallbackLayoutMode = ref<LayoutMode>(loadSavedLayoutMode())
   const layoutMode = computed<LayoutMode>(
@@ -167,10 +169,10 @@ export const useAppStore = defineStore('app', () => {
     exportStatusDetail.value = detail
     if (status === 'exporting') {
       exportProgressPercent.value = 0
-      exportProgressStage.value = '准备导出'
+      exportProgressStage.value = t('status.exportPreparing')
     } else if (status === 'success') {
       exportProgressPercent.value = 100
-      exportProgressStage.value = '完成'
+      exportProgressStage.value = t('status.exportDone')
     } else if (status === 'idle') {
       exportProgressPercent.value = 0
       exportProgressStage.value = ''

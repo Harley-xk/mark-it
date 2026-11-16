@@ -7,8 +7,10 @@
 <script setup lang="ts">
 import { onBeforeUnmount, ref, watch } from 'vue'
 import { useGlobalZoom } from '../../composables/useGlobalZoom'
+import { useI18n } from '../../i18n'
 
 const { percent, atMin, atMax, presets, percentOf, setZoom, stepZoom, resetZoom } = useGlobalZoom()
+const { t } = useI18n()
 
 const open = ref(false)
 const root = ref<HTMLElement | null>(null)
@@ -48,30 +50,34 @@ onBeforeUnmount(() => {
       :class="{ 'is-open': open }"
       :aria-expanded="open"
       aria-haspopup="true"
-      :title="`缩放 ${percent}%，点击手动调整`"
+      :title="t('settings.zoom.adjustHint', { percent })"
       @click="open = !open"
     >
-      缩放 {{ percent }}%
+      {{ t('settings.zoom.trigger', { percent }) }}
     </button>
-    <div v-if="open" class="zoom-panel" role="group" aria-label="缩放调整">
+    <div v-if="open" class="zoom-panel" role="group" :aria-label="t('settings.zoom.title')">
       <div class="zoom-stepper">
         <button
           class="zoom-step"
           :disabled="atMin"
-          title="缩小 (Ctrl/Cmd + -)"
-          aria-label="缩小"
+          :title="`${t('settings.zoom.zoomOut')} (Ctrl/Cmd + -)`"
+          :aria-label="t('settings.zoom.zoomOut')"
           @click="stepZoom(-1)"
         >
           −
         </button>
-        <button class="zoom-value" title="恢复 100% (Ctrl/Cmd + 0)" @click="resetZoom">
+        <button
+          class="zoom-value"
+          :title="`${t('settings.zoom.reset')} (Ctrl/Cmd + 0)`"
+          @click="resetZoom"
+        >
           {{ percent }}%
         </button>
         <button
           class="zoom-step"
           :disabled="atMax"
-          title="放大 (Ctrl/Cmd + =)"
-          aria-label="放大"
+          :title="`${t('settings.zoom.zoomIn')} (Ctrl/Cmd + =)`"
+          :aria-label="t('settings.zoom.zoomIn')"
           @click="stepZoom(1)"
         >
           +
@@ -83,7 +89,7 @@ onBeforeUnmount(() => {
           :key="factor"
           class="zoom-preset"
           :class="{ 'is-current': percent === percentOf(factor) }"
-          :title="`缩放到 ${percentOf(factor)}%`"
+          :title="t('settings.zoom.zoomTo', { percent: percentOf(factor) })"
           @click="setZoom(factor)"
         >
           {{ percentOf(factor) }}%

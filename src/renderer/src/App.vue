@@ -15,6 +15,7 @@ import { useFile } from './composables/useFile'
 import { useFileWatcher } from './composables/useFileWatcher'
 import { useSession } from './composables/useSession'
 import { saveAllBeforeExit } from './composables/useExitGuard'
+import { useI18n } from './i18n'
 
 useOutline()
 useKeyboardShortcuts()
@@ -28,6 +29,7 @@ useSession()
 const update = useUpdateStore()
 update.init()
 const app = useAppStore()
+const { t } = useI18n()
 // 让原生外观跟随用户选择的主题：系统窗口按钮的 hover 对比色按 nativeTheme 计算，
 // 不传的话浅色 UI 在深色系统下会拿到几乎不可见的白色 hover（system 模式保持跟随系统）
 watch(
@@ -58,7 +60,7 @@ const offCloseTabShortcut = window.api.onCloseTabShortcut(() => {
 // 监听窗口关闭请求：逐个检查所有标签页的未保存修改。
 // quit 表示本次关闭来自退出应用（Cmd+Q / 菜单退出），保存完成后需要真正退出
 const offCloseRequest = window.api.onCloseRequest(async ({ quit }) => {
-  if (!(await saveAllBeforeExit('关闭窗口'))) return
+  if (!(await saveAllBeforeExit(t('app.closeWindowAction')))) return
   // 销毁 close 监听器后真正关闭
   await window.api.close(quit)
 })

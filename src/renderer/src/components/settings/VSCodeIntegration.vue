@@ -5,10 +5,13 @@
   描述: 设置窗口中的 VS Code 资源管理器集成状态与操作
 -->
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
+import { useI18n } from '../../i18n'
 import type { VSCodeInstallation, VSCodeVariant } from '../../../../shared/integration-types'
 
 defineProps<{ isDark: boolean }>()
+
+const { locale, t } = useI18n()
 
 const installations = ref<VSCodeInstallation[]>([])
 const loading = ref(true)
@@ -47,10 +50,10 @@ async function toggle(installation: VSCodeInstallation): Promise<void> {
       : window.api.integration.installVSCode
     const result = await method(installation.variant)
     if (!result.ok) {
-      error.value = result.error ?? '操作失败'
+      error.value = result.error ?? t('vscode.actionFailed')
       return
     }
-    feedback.value = result.needsRestart ? '重启 VS Code 后生效' : '已完成'
+    feedback.value = result.needsRestart ? t('vscode.feedbackRestart') : t('vscode.feedbackDone')
     await refresh()
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : String(reason)
@@ -67,10 +70,10 @@ async function updateExtension(installation: VSCodeInstallation): Promise<void> 
   try {
     const result = await window.api.integration.installVSCode(installation.variant)
     if (!result.ok) {
-      error.value = result.error ?? '更新失败'
+      error.value = result.error ?? t('vscode.updateFailed')
       return
     }
-    feedback.value = '扩展已更新，重启 VS Code 后生效'
+    feedback.value = t('vscode.feedbackUpdatedRestart')
     await refresh()
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : String(reason)
@@ -80,14 +83,18 @@ async function updateExtension(installation: VSCodeInstallation): Promise<void> 
 }
 
 onMounted(refresh)
+// 主进程返回的 unsupportedReason 按语言生成，切换语言后重新探测一次
+watch(locale, () => {
+  void refresh()
+})
 </script>
 
 <template>
   <div class="section">
     <div class="section-heading">
       <div>
-        <h2>VS Code 资源管理器</h2>
-        <p>安装后可在 VS Code 资源管理器中右键 Markdown 文件，使用 MarkIt 打开。</p>
+        <h2>{{ t('vscode.title') }}</h2>
+        <p>{{ t('vscode.description') }}</p>
       </div>
       <button
         v-if="hasUpdates"
@@ -95,13 +102,13 @@ onMounted(refresh)
         :disabled="busyVariant !== null"
         @click="refresh"
       >
-        刷新状态
+        {{ t('vscode.refresh') }}
       </button>
     </div>
 
-    <div v-if="loading" class="setting-card integration-empty">正在检测 VS Code…</div>
+    <div v-if="loading" class="setting-card integration-empty">{{ t('vscode.detecting') }}</div>
     <div v-else-if="!hasInstallations" class="setting-card integration-empty">
-      未检测到 VS Code。安装并启动一次 VS Code 后再打开设置。
+      {{ t('vscode.notDetected') }}
     </div>
     <div v-else class="setting-card">
       <div
@@ -136,20 +143,20 @@ onMounted(refresh)
           <div class="setting-copy">
             <div class="setting-title-line">
               <h3>{{ variantLabels[installation.variant] }}</h3>
-              <span v-if="installation.installed" class="status-badge success">已安装</span>
-              <span v-else class="status-badge">未安装</span>
-              <span v-if="installation.needsUpdate" class="status-badge warning">需更新</span>
+              <span v-if="installation.installed" class="status-badge success">{{
+                t('vscode.installed')
+              }}</span>
+              <span v-else class="status-badge">{{ t('vscode.notInstalled') }}</span>
+              <span v-if="installation.needsUpdate" class="status-badge warning">{{
+                t('vscode.needsUpdate')
+              }}</span>
             </div>
             <p v-if="installation.unsupportedReason">
               {{ installation.unsupportedReason }}
             </p>
             <template v-else>
               <p>
-                {{
-                  installation.installed
-                    ? '可在资源管理器中右键 Markdown 文件，使用 MarkIt 打开。'
-                    : '安装后重启 VS Code，即可在资源管理器中右键打开 Markdown。'
-                }}
+                {{ installation.installed ? t('vscode.installedHint') : t('vscode.installHint') }}
               </p>
               <span class="path-line" :title="installation.extensionsDir">
                 {{ installation.extensionsDir }}
@@ -165,7 +172,7 @@ onMounted(refresh)
             :disabled="busyVariant !== null"
             @click="updateExtension(installation)"
           >
-            更新扩展
+            {{ t('vscode.updateExtension') }}
           </button>
           <button
             v-if="!installation.unsupportedReason"
@@ -174,7 +181,7 @@ onMounted(refresh)
             role="switch"
             :aria-checked="installation.installed"
             :aria-label="
-              installation.installed ? '卸载 MarkIt VS Code 扩展' : '安装 MarkIt VS Code 扩展'
+              installation.installed ? t('vscode.uninstallAria') : t('vscode.installAria')
             "
             :disabled="busyVariant !== null"
             @click="toggle(installation)"
@@ -193,7 +200,7 @@ onMounted(refresh)
         <circle cx="12" cy="12" r="9"></circle>
         <path d="M12 11v5M12 8h.01"></path>
       </svg>
-      <span> 安装状态以磁盘为准。重装或更新扩展后，需要重启对应的 VS Code 窗口才会生效。 </span>
+      <span>{{ t('vscode.info') }}</span>
     </div>
   </div>
 </template>
@@ -217,7 +224,7 @@ onMounted(refresh)
 .section-heading p {
   margin: 4px 0 0;
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.55;
 }
 
@@ -226,7 +233,7 @@ onMounted(refresh)
   border: 0;
   background: transparent;
   color: var(--accent);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 620;
   cursor: pointer;
 }
@@ -244,8 +251,8 @@ onMounted(refresh)
   align-items: center;
   justify-content: space-between;
   gap: 22px;
-  min-height: 72px;
-  padding: 16px 18px;
+  min-height: 60px;
+  padding: 12px 14px;
 }
 
 .setting-row + .setting-row {
@@ -297,7 +304,7 @@ onMounted(refresh)
 .setting-copy p {
   margin: 5px 0 0;
   color: var(--text-muted);
-  font-size: 10.5px;
+  font-size: 12px;
   line-height: 1.65;
 }
 
@@ -308,7 +315,7 @@ onMounted(refresh)
   overflow: hidden;
   color: var(--text-faint);
   font-family: 'Cascadia Code', 'JetBrains Mono', Consolas, monospace;
-  font-size: 9px;
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -326,7 +333,7 @@ onMounted(refresh)
   border-radius: 999px;
   background: var(--accent-bg);
   color: var(--accent);
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 650;
 }
 
@@ -391,21 +398,21 @@ onMounted(refresh)
   border-radius: 8px;
   background: transparent;
   color: var(--text-secondary);
-  font-size: 10px;
+  font-size: 12px;
   cursor: pointer;
 }
 
 .integration-empty {
   padding: 18px;
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.6;
 }
 
 .integration-feedback,
 .integration-error {
   margin-top: 10px;
-  font-size: 10.5px;
+  font-size: 12px;
   line-height: 1.55;
 }
 
@@ -428,7 +435,7 @@ onMounted(refresh)
   border-radius: 10px;
   background: var(--inset-bg);
   color: var(--text-muted);
-  font-size: 10.5px;
+  font-size: 12px;
   line-height: 1.65;
 }
 

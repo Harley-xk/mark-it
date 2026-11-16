@@ -3,12 +3,14 @@ import { computed, ref } from 'vue'
 import { EditorView } from '@codemirror/view'
 import { useAppStore } from '../../stores/app'
 import { useEditorStore } from '../../stores/editor'
+import { useI18n } from '../../i18n'
 import type { HeadingItem } from '../../types'
 
 type FlatHeading = { id: string; level: number; text: string; line: number }
 
 const app = useAppStore()
 const editorStore = useEditorStore()
+const { t } = useI18n()
 
 const flatHeadings = computed(() => {
   return flattenHeadings(editorStore.headings)
@@ -69,7 +71,7 @@ function onResizeUp(): void {
     :style="{ width: `${app.outlineWidth}px` }"
   >
     <div class="outline-header">
-      <span class="outline-title">大纲</span>
+      <span class="outline-title">{{ t('outline.title') }}</span>
     </div>
     <div class="outline-body">
       <template v-if="flatHeadings.length">
@@ -83,7 +85,7 @@ function onResizeUp(): void {
           {{ h.text }}
         </div>
       </template>
-      <div v-else class="outline-empty">暂无大纲</div>
+      <div v-else class="outline-empty">{{ t('outline.empty') }}</div>
     </div>
     <div
       class="outline-resizer"

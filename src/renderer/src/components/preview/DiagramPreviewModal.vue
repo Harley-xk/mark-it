@@ -1,6 +1,7 @@
 ﻿<script setup lang="ts">
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import { useAppStore } from '../../stores/app'
+import { useI18n } from '../../i18n'
 import { svgXmlToPng } from '../../utils/diagram-export'
 
 const props = defineProps<{
@@ -17,6 +18,7 @@ const emit = defineEmits<{
 }>()
 
 const appStore = useAppStore()
+const { t } = useI18n()
 const isDark = computed(() => appStore.resolvedTheme === 'dark')
 
 const MIN_SCALE = 0.25
@@ -161,14 +163,19 @@ onUnmounted(() => {
       :class="isDark ? 'dark' : 'light'"
       @mousedown.self="close"
     >
-      <div class="diagram-modal" role="dialog" aria-modal="true" aria-label="图表预览">
+      <div
+        class="diagram-modal"
+        role="dialog"
+        aria-modal="true"
+        :aria-label="t('preview.diagramTitle')"
+      >
         <div class="diagram-modal-header">
-          <span class="diagram-modal-title">图表预览</span>
+          <span class="diagram-modal-title">{{ t('preview.diagramTitle') }}</span>
           <div class="diagram-modal-actions">
             <button
               class="dm-btn"
               type="button"
-              title="缩小"
+              :title="t('preview.zoomOut')"
               @click="applyScale(scale / ZOOM_STEP)"
             >
               −
@@ -176,7 +183,7 @@ onUnmounted(() => {
             <button
               class="dm-btn dm-zoom-label"
               type="button"
-              title="恢复原始大小"
+              :title="t('preview.restoreSize')"
               @click="applyScale(1)"
             >
               {{ zoomLabel }}
@@ -184,19 +191,24 @@ onUnmounted(() => {
             <button
               class="dm-btn"
               type="button"
-              title="放大"
+              :title="t('preview.zoomIn')"
               @click="applyScale(scale * ZOOM_STEP)"
             >
               ＋
             </button>
-            <button class="dm-btn dm-text-btn" type="button" title="适应窗口" @click="fitToWindow">
-              适应
+            <button
+              class="dm-btn dm-text-btn"
+              type="button"
+              :title="t('preview.fitWindow')"
+              @click="fitToWindow"
+            >
+              {{ t('preview.fitWindowShort') }}
             </button>
             <span class="dm-separator"></span>
             <button
               class="dm-btn dm-text-btn"
               type="button"
-              title="下载为 SVG"
+              :title="t('preview.downloadSvg')"
               @click="download('svg')"
             >
               SVG
@@ -204,13 +216,13 @@ onUnmounted(() => {
             <button
               class="dm-btn dm-text-btn"
               type="button"
-              title="下载为 PNG"
+              :title="t('preview.downloadPng')"
               @click="download('png')"
             >
               PNG
             </button>
             <span class="dm-separator"></span>
-            <button class="dm-btn dm-close" type="button" title="关闭 (Esc)" @click="close">
+            <button class="dm-btn dm-close" type="button" :title="t('search.close')" @click="close">
               ✕
             </button>
           </div>
@@ -227,13 +239,13 @@ onUnmounted(() => {
               :src="objectUrl"
               :width="width"
               :height="height"
-              alt="图表预览"
+              :alt="t('preview.diagramTitle')"
               draggable="false"
             />
           </div>
         </div>
 
-        <div class="diagram-modal-hint">滚轮滚动 · Ctrl/Cmd + 滚轮缩放 · Esc 关闭</div>
+        <div class="diagram-modal-hint">{{ t('preview.diagramHint') }}</div>
       </div>
     </div>
   </Teleport>

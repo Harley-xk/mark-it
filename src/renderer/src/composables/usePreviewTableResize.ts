@@ -7,6 +7,7 @@
 import { onBeforeUnmount } from 'vue'
 import { useDocumentsStore } from '../stores/documents'
 import { useTableWidthsStore } from '../stores/table-widths'
+import { useI18n } from '../i18n'
 import { normalizePath } from '../utils/path'
 import {
   buildTableKey,
@@ -45,6 +46,7 @@ export function usePreviewTableResize(getRoot: () => HTMLElement | null): {
 } {
   const documents = useDocumentsStore()
   const widthStore = useTableWidthsStore()
+  const { t } = useI18n()
   /** 表格节点 → 表标识；DOM 随渲染重建，用 WeakMap 避免额外的数据集属性 */
   const tableKeys = new WeakMap<HTMLTableElement, string>()
   let drag: DragState | null = null
@@ -145,7 +147,7 @@ export function usePreviewTableResize(getRoot: () => HTMLElement | null): {
       const handle = document.createElement('span')
       handle.className = HANDLE_CLASS
       handle.dataset.columnIndex = String(index)
-      handle.title = '拖动调整列宽，双击恢复自动宽度'
+      handle.title = t('preview.tableResizeHint')
       handle.addEventListener('pointerdown', onHandlePointerDown)
       handle.addEventListener('dblclick', onHandleDoubleClick)
       cell.appendChild(handle)

@@ -6,6 +6,7 @@
  */
 
 import type { ImageExportFormat, ImageExportResult } from '../shared/image-types'
+import { mt } from './i18n'
 
 /** Chromium / Skia 对单张位图尺寸的保守上限 */
 export const IMAGE_MAX_DIMENSION = 32_767
@@ -56,14 +57,14 @@ export function resolveImageCaptureScale(
     height <= 0 ||
     !Number.isFinite(requestedScale)
   ) {
-    throw new Error('图片页面尺寸无效，无法导出')
+    throw new Error(mt('main.export.invalidPageSize'))
   }
 
   const preferredScale = Math.min(IMAGE_DEFAULT_SCALE, Math.max(1, requestedScale))
   if (canCapture(width, height, preferredScale)) return preferredScale
   if (preferredScale > 1 && canCapture(width, height, 1)) return 1
 
-  throw new Error('当前文档过长，单张图片无法容纳，请缩短文档后重试')
+  throw new Error(mt('main.export.documentTooLong'))
 }
 
 export function createImageExportResult(

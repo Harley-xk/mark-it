@@ -29,13 +29,13 @@ describe('Mermaid 语言标记识别', () => {
 
 describe('Mermaid 错误提示', () => {
   it('应只保留首行并附带 got token', () => {
-    expect(formatMermaidError(new Error("Parse error on line 2:\ngot 'X'\nExpecting 'Y'"))).toBe(
-      "Parse error on line 2（got 'X'）"
-    )
+    expect(
+      formatMermaidError(new Error("Parse error on line 2:\ngot 'X'\nExpecting 'Y'"), 'zh-CN')
+    ).toBe("Parse error on line 2（got 'X'）")
   })
 
   it('应处理空错误信息', () => {
-    expect(formatMermaidError(new Error(''))).toBe('未知错误')
-    expect(formatMermaidError('')).toBe('未知错误')
+    expect(formatMermaidError(new Error(''), 'zh-CN')).toBe('未知错误')
+    expect(formatMermaidError('', 'en-US')).toBe('Unknown error')
   })
 })

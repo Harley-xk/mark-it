@@ -52,7 +52,7 @@ export async function svgXmlToPng(
     const image = new Image()
     await new Promise<void>((resolve, reject) => {
       image.onload = () => resolve()
-      image.onerror = () => reject(new Error('SVG 图片加载失败'))
+      image.onerror = () => reject(new Error('Failed to load SVG image'))
       image.src = url
     })
 
@@ -62,13 +62,13 @@ export async function svgXmlToPng(
     canvas.height = Math.max(1, Math.ceil(height * scale))
 
     const ctx = canvas.getContext('2d')
-    if (!ctx) throw new Error('无法创建画布')
+    if (!ctx) throw new Error('Failed to create canvas context')
     ctx.fillStyle = background
     ctx.fillRect(0, 0, canvas.width, canvas.height)
     ctx.drawImage(image, 0, 0, canvas.width, canvas.height)
 
     const png = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'))
-    if (!png) throw new Error('PNG 编码失败')
+    if (!png) throw new Error('Failed to encode PNG')
     return new Uint8Array(await png.arrayBuffer())
   } finally {
     URL.revokeObjectURL(url)

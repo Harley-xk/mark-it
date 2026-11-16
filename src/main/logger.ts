@@ -17,6 +17,7 @@ import {
 import { writeFile } from 'fs/promises'
 import { join } from 'path'
 import type { RendererErrorReport } from '../shared/diagnostics-types'
+import { mt } from './i18n'
 
 const LOG_DIR_NAME = 'logs'
 const LOG_FILE_NAME = 'main.log'
@@ -135,8 +136,11 @@ export function installLogger(): void {
     appendLog('ERROR', 'Uncaught exception', error)
     try {
       dialog.showErrorBox(
-        'MarkIt 发生错误',
-        `应用遇到未处理的错误，需要退出。\n\n${error.message}\n\n诊断日志已写入：\n${logFilePath()}`
+        mt('main.logger.crashTitle'),
+        mt('main.logger.crashMessage', {
+          message: error.message,
+          path: logFilePath()
+        })
       )
     } catch {
       // 忽略对话框自身失败
@@ -161,10 +165,10 @@ export function installLogger(): void {
     void dialog
       .showMessageBox({
         type: 'error',
-        title: 'MarkIt 页面异常退出',
-        message: '当前窗口的页面已异常退出。',
-        detail: '可以重新载入页面；若反复出现，请在设置中导出诊断日志。',
-        buttons: ['重新载入', '关闭窗口'],
+        title: mt('main.logger.rendererCrashTitle'),
+        message: mt('main.logger.rendererCrashMessage'),
+        detail: mt('main.logger.rendererCrashDetail'),
+        buttons: [mt('main.logger.reload'), mt('main.logger.closeWindow')],
         defaultId: 0,
         cancelId: 1
       })
@@ -193,23 +197,25 @@ function readLogFile(path: string): string {
     if (!existsSync(path)) return ''
     return readFileSync(path, 'utf-8')
   } catch (error) {
-    return `[读取日志失败] ${describeUnknown(error)}`
+    return mt('main.logger.readLogFailed', { error: describeUnknown(error) })
   }
 }
 
 function buildDiagnosticsContent(): string {
   const header = [
-    'MarkIt 诊断日志',
-    `生成时间: ${new Date().toISOString()}`,
-    `应用版本: ${app.getVersion()}`,
-    `打包运行: ${app.isPackaged ? '是' : '否（开发模式）'}`,
-    `平台: ${process.platform} ${process.arch}`,
+    mt('main.logger.diagnosticsTitle'),
+    mt('main.logger.generatedAt', { time: new Date().toISOString() }),
+    mt('main.logger.appVersion', { version: app.getVersion() }),
+    mt('main.logger.packaged', {
+      value: app.isPackaged ? mt('main.logger.packagedYes') : mt('main.logger.packagedNo')
+    }),
+    mt('main.logger.platform', { platform: `${process.platform} ${process.arch}` }),
     `Electron: ${process.versions.electron}`,
     `Chromium: ${process.versions.chrome}`,
     `Node: ${process.versions.node}`,
     `userData: ${app.getPath('userData')}`,
     '',
-    '说明: 日志不包含文档正文，但错误信息可能包含本地文件路径。',
+    mt('main.logger.notice'),
     ''
   ].join('\n')
 

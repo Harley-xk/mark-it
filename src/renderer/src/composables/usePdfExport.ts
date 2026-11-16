@@ -1,4 +1,5 @@
 import { ref, type Ref } from 'vue'
+import { useI18n } from '../i18n'
 import { useEditorStore } from '../stores/editor'
 import { useDocumentsStore } from '../stores/documents'
 import { useAppStore } from '../stores/app'
@@ -34,7 +35,7 @@ function escapeHtml(text: string): string {
 }
 
 /** 生成 PDF 目录；锚点由 installHeadingAnchors 注入，阅读器可据此跳转 */
-function renderToc(headings: ParsedHeading[]): string {
+function renderToc(headings: ParsedHeading[], title: string): string {
   if (headings.length === 0) return ''
 
   const items = headings
@@ -47,7 +48,7 @@ function renderToc(headings: ParsedHeading[]): string {
 
   return (
     '<nav class="pdf-toc">' +
-    '<div class="pdf-toc-title">目录</div>' +
+    `<div class="pdf-toc-title">${escapeHtml(title)}</div>` +
     `<ul>${items}</ul>` +
     '</nav>'
   )
@@ -57,6 +58,7 @@ export function usePdfExport(): UsePdfExport {
   const editor = useEditorStore()
   const documents = useDocumentsStore()
   const app = useAppStore()
+  const { locale, t } = useI18n()
   const exporting = ref(false)
 
   const md = createMarkdownRenderer()
@@ -71,7 +73,7 @@ export function usePdfExport(): UsePdfExport {
     if (exporting.value || app.exportStatus === 'exporting') return
     exporting.value = true
     app.setExportStatus('pdf', 'exporting')
-    app.setExportProgress('pdf', 2, '准备内容')
+    app.setExportProgress('pdf', 2, t('export.stage.prepareContent'))
     const requestId = `pdf-${crypto.randomUUID()}`
     const stopProgress = window.api.onExportProgress((progress) => {
       if (progress.requestId !== requestId || progress.kind !== 'pdf') return
@@ -80,23 +82,26 @@ export function usePdfExport(): UsePdfExport {
     try {
       // 与预览保持一致：frontmatter 渲染为文档信息表格，不输出原始 YAML；
       // 是否输出由导出选项控制（默认输出）
-      app.setExportProgress('pdf', 4, '整理文档')
+      app.setExportProgress('pdf', 4, t('export.stage.organize'))
       const { entries, body } = parseFrontmatter(editor.content)
       const frontmatter =
-        options.showFrontmatter && entries.length > 0 ? renderFrontmatterTable(entries) : ''
-      const toc = options.showToc ? renderToc(parseHeadings(body)) : ''
+        options.showFrontmatter && entries.length > 0
+          ? renderFrontmatterTable(entries, locale.value)
+          : ''
+      const toc = options.showToc ? renderToc(parseHeadings(body), t('export.tocTitle')) : ''
       let htmlBody = toc + frontmatter + md.render(body)
-      app.setExportProgress('pdf', 6, '渲染图表')
+      app.setExportProgress('pdf', 6, t('export.stage.renderDiagrams'))
       htmlBody = await renderMermaidDiagramsForExport(htmlBody, {
         theme: getDiagramTheme(false),
         fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif",
         containerClass: 'mermaid-container',
         diagramIdPrefix: 'mermaid-pdf',
-        failureLogLabel: 'Failed to render diagram in PDF:'
+        failureLogLabel: 'Failed to render diagram in PDF:',
+        locale: locale.value
       })
 
       const html = `<!DOCTYPE html>
-<html>
+<html lang="${locale.value}">
 <head>
 <meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="${EXPORT_CONTENT_SECURITY_POLICY}">
@@ -150,7 +155,7 @@ export function usePdfExport(): UsePdfExport {
 <body>${htmlBody}</body>
 </html>`
 
-      app.setExportProgress('pdf', 8, '生成导出页面')
+      app.setExportProgress('pdf', 8, t('export.stage.buildPage'))
       const filePath = await window.api.exportPdf(html, options, requestId)
       // 用户在系统保存对话框取消时不算失败，直接回到空闲
       app.setExportStatus('pdf', filePath ? 'success' : 'idle')

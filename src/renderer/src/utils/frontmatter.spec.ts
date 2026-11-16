@@ -45,7 +45,7 @@ describe('frontmatter 解析', () => {
   })
 
   it('应把 frontmatter 渲染为转义后的表格', () => {
-    const html = renderFrontmatterTable([{ key: 'title', value: '<b>&"' }])
+    const html = renderFrontmatterTable([{ key: 'title', value: '<b>&"' }], 'zh-CN')
 
     expect(html).toContain('class="frontmatter-table"')
     expect(html).toContain('&lt;b&gt;&amp;&quot;')

@@ -9,7 +9,8 @@ import { isLayoutMode, loadSavedLayoutMode } from '../utils/layout-mode'
 import { loadSavedOutlineVisible } from '../utils/outline-visibility'
 import { moveItem } from '../utils/tab-order'
 import { decodeText, normalizeToLf, type LineEnding } from '../utils/text-encoding'
-import WELCOME_CONTENT from '../assets/welcome.md?raw'
+import { manualContent } from '../utils/manual'
+import { useI18n } from '../i18n'
 
 export interface DocumentTab {
   id: string
@@ -101,6 +102,7 @@ function previewAnchor(value: unknown): number {
 }
 
 export const useDocumentsStore = defineStore('documents', () => {
+  const { locale, t } = useI18n()
   const docs = ref<DocumentTab[]>([])
   const activeId = ref('')
 
@@ -482,8 +484,8 @@ export const useDocumentsStore = defineStore('documents', () => {
     return previewScrollPositions.get(id) ?? { top: 0, anchor: -1, offset: 0 }
   }
 
-  // 初始标签：欢迎示例文档
-  const initial = createTab(null, WELCOME_CONTENT)
+  // 初始标签：按当前界面语言选择欢迎示例文档
+  const initial = createTab(null, manualContent(locale.value), t('window.manualName'))
   docs.value.push(initial)
   activeId.value = initial.id
 

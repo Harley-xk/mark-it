@@ -6,8 +6,10 @@
 -->
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from 'vue'
+import { useI18n } from '../../i18n'
 import type { TabDragTargetState } from '../../../../shared/window-types'
 
+const { t } = useI18n()
 const active = ref(false)
 const tabName = ref('')
 let offTarget: (() => void) | null = null
@@ -31,7 +33,7 @@ onUnmounted(() => {
       <div v-if="active" class="tab-drop-overlay" aria-hidden="true">
         <div class="tab-drop-message">
           <span class="tab-drop-dot"></span>
-          松开以移动「{{ tabName }}」到此窗口
+          {{ t('tabs.dropHint', { name: tabName }) }}
         </div>
       </div>
     </Transition>

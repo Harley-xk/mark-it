@@ -2,9 +2,11 @@
 import { computed } from 'vue'
 import { useAppStore } from '../../stores/app'
 import { useUpdateStore } from '../../stores/update'
+import { useI18n } from '../../i18n'
 
 const app = useAppStore()
 const update = useUpdateStore()
+const { t } = useI18n()
 
 const visible = computed(() => update.showNotice && update.hasUpdate)
 const isRollback = computed(() => update.state.isRollback === true)
@@ -45,19 +47,25 @@ function handleDismiss(): void {
             <div class="toast-title">
               {{
                 isRollback
-                  ? `可回退到正式版 v${update.state.latestVersion}`
-                  : `发现新版本 v${update.state.latestVersion}`
+                  ? t('updateNotice.rollbackAvailable', {
+                      version: update.state.latestVersion ?? ''
+                    })
+                  : t('updateNotice.available', { version: update.state.latestVersion ?? '' })
               }}
               <span v-if="isBeta" class="toast-badge is-beta">Beta</span>
-              <span v-if="forced" class="toast-badge">重要</span>
+              <span v-if="forced" class="toast-badge">{{ t('updateNotice.important') }}</span>
             </div>
-            <p class="toast-sub">当前版本 v{{ update.state.currentVersion }}</p>
+            <p class="toast-sub">
+              {{ t('updateNotice.current', { version: update.state.currentVersion }) }}
+            </p>
           </div>
         </div>
 
         <div class="toast-actions">
-          <button v-if="!forced" class="btn btn-ghost" @click="handleDismiss">跳过</button>
-          <button class="btn btn-primary" @click="handleView">查看</button>
+          <button v-if="!forced" class="btn btn-ghost" @click="handleDismiss">
+            {{ t('common.skip') }}
+          </button>
+          <button class="btn btn-primary" @click="handleView">{{ t('updateNotice.show') }}</button>
         </div>
       </div>
     </Transition>

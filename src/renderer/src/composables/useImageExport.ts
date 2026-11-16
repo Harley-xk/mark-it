@@ -7,6 +7,7 @@
 
 import { ref, type Ref } from 'vue'
 import type { ImageExportOptions } from '../types'
+import { useI18n } from '../i18n'
 import { useAppStore } from '../stores/app'
 import { useDocumentsStore } from '../stores/documents'
 import { useEditorStore } from '../stores/editor'
@@ -36,6 +37,7 @@ export function useImageExport(): UseImageExport {
   const documents = useDocumentsStore()
   const editor = useEditorStore()
   const styles = useStyleStore()
+  const { locale, t } = useI18n()
   const exporting = ref(false)
 
   const md = createMarkdownRenderer({ typographer: true })
@@ -57,17 +59,19 @@ export function useImageExport(): UseImageExport {
 
     exporting.value = true
     app.setExportStatus('image', 'exporting')
-    app.setExportProgress('image', 2, '准备内容')
+    app.setExportProgress('image', 2, t('export.stage.prepareContent'))
     const requestId = `image-${crypto.randomUUID()}`
     const stopProgress = window.api.onExportProgress((progress) => {
       if (progress.requestId !== requestId || progress.kind !== 'image') return
       app.setExportProgress('image', progress.percent, progress.stage)
     })
     try {
-      app.setExportProgress('image', 4, '整理文档')
+      app.setExportProgress('image', 4, t('export.stage.organize'))
       const { entries, body } = parseFrontmatter(editor.content)
       const frontmatter =
-        settings.includeFrontmatter && entries.length > 0 ? renderFrontmatterTable(entries) : ''
+        settings.includeFrontmatter && entries.length > 0
+          ? renderFrontmatterTable(entries, locale.value)
+          : ''
       const currentStyleId = styles.currentStyle(isDark).id
       const fontFamily =
         currentStyleId === 'academic'
@@ -75,19 +79,20 @@ export function useImageExport(): UseImageExport {
           : "-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif"
 
       let htmlBody = frontmatter + md.render(body)
-      app.setExportProgress('image', 6, '渲染图表')
+      app.setExportProgress('image', 6, t('export.stage.renderDiagrams'))
       htmlBody = await renderMermaidDiagramsForExport(htmlBody, {
         theme: getDiagramTheme(isDark),
         fontFamily,
         containerClass: 'mermaid-diagram',
         diagramIdPrefix: 'mermaid-image',
-        failureLogLabel: 'Failed to render diagram in image export:'
+        failureLogLabel: 'Failed to render diagram in image export:',
+        locale: locale.value
       })
 
       const themeCss = escapeStyleContent(styles.currentCss(isDark))
       const html = `<!DOCTYPE html>
 <html
-  lang="zh-CN"
+  lang="${locale.value}"
   style="--image-content-width: ${settings.contentWidth}px; --image-canvas-width: ${canvasWidth}px; --image-background: ${background}"
 >
 <head>
@@ -103,7 +108,7 @@ export function useImageExport(): UseImageExport {
 </body>
 </html>`
 
-      app.setExportProgress('image', 8, '生成导出页面')
+      app.setExportProgress('image', 8, t('export.stage.buildPage'))
       const result = await window.api.exportImage(html, { ...options, ...settings }, requestId)
       if (!result) {
         app.setExportStatus('image', 'idle')
@@ -111,7 +116,9 @@ export function useImageExport(): UseImageExport {
       }
 
       const detail =
-        result.appliedScale < result.requestedScale ? `已自动降至 ${result.appliedScale}×` : ''
+        result.appliedScale < result.requestedScale
+          ? t('export.imageAutoScaleDown', { scale: result.appliedScale })
+          : ''
       app.setExportStatus('image', 'success', detail)
     } catch (err) {
       app.setExportStatus('image', 'error')

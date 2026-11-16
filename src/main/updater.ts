@@ -19,6 +19,7 @@ import { isAppUrl, registerHandle, registerOn } from './ipc-guard'
 import { isSettingsWindowSender } from './settings-window'
 import { activateWindow, applyWindowPlacement, resolveWindowPlacement } from './window-placement'
 import { APPHUB_APP_KEY, APPHUB_BASE_URL } from './apphub-config'
+import { mt } from './i18n'
 
 /**
  * apphub 应用管理平台更新通道。
@@ -250,7 +251,7 @@ async function checkForUpdates(quiet = false): Promise<UpdateState> {
     const candidate = selectUpdateCandidate(candidates, state.currentVersion)
     if (!candidate) {
       if (!peeks.some((peek) => peek.reachable)) {
-        setState({ status: 'error', error: '无法获取更新信息' })
+        setState({ status: 'error', error: mt('main.updater.fetchFailed') })
       } else {
         setState({
           status: 'not-available',
@@ -330,13 +331,13 @@ async function rollbackToStable(): Promise<UpdateState> {
   if (!isRollbackStartAllowed(state.status)) return state
 
   if (state.currentChannel !== 'beta') {
-    setState({ status: 'error', error: '当前不是 Beta 版本', isRollback: false })
+    setState({ status: 'error', error: mt('main.updater.notBeta'), isRollback: false })
     return state
   }
   if (process.platform === 'darwin') {
     setState({
       status: 'error',
-      error: '当前平台不支持自动回退，请手动安装正式版',
+      error: mt('main.updater.rollbackUnsupported'),
       isRollback: false
     })
     return state
@@ -361,12 +362,12 @@ async function rollbackToStable(): Promise<UpdateState> {
   })
 
   const stable = await peekChannel('stable')
-  if (!stable.reachable) return failRollback('无法获取正式版信息')
-  if (!stable.version) return failRollback('正式版通道暂无可用版本')
+  if (!stable.reachable) return failRollback(mt('main.updater.stableInfoFailed'))
+  if (!stable.version) return failRollback(mt('main.updater.stableUnavailable'))
   if (!isRollbackTarget(state.currentVersion, stable.version)) {
     const sameVersion = compareVersions(stable.version, state.currentVersion) === 0
     return failRollback(
-      sameVersion ? '已是最新正式版' : '正式版版本高于当前版本，请直接检查更新',
+      sameVersion ? mt('main.updater.alreadyLatestStable') : mt('main.updater.stableAhead'),
       false
     )
   }
@@ -386,7 +387,7 @@ async function rollbackToStable(): Promise<UpdateState> {
   }
 
   if (rollbackPending) {
-    return failRollback('正式版通道未返回可回退版本')
+    return failRollback(mt('main.updater.stableNoTarget'))
   }
   return state
 }
@@ -444,12 +445,16 @@ function installUpdate(): boolean {
     const wasRollback = state.isRollback === true
     clearRollbackMode()
     console.error('Failed to install update:', error)
-    setState({ status: 'error', error: `安装失败：${message}`, isRollback: wasRollback })
+    setState({
+      status: 'error',
+      error: mt('main.updater.installFailed', { message }),
+      isRollback: wasRollback
+    })
     return false
   }
 }
 
-function isUpdateWindowSender(contents: WebContents): boolean {
+export function isUpdateWindowSender(contents: WebContents): boolean {
   return !!updateWindow && !updateWindow.isDestroyed() && updateWindow.webContents === contents
 }
 
@@ -474,7 +479,7 @@ function openUpdateWindow(sourceWindow?: BrowserWindow | null): void {
     frame: false,
     autoHideMenuBar: true,
     backgroundColor: '#1c1c27',
-    title: 'MarkIt 更新',
+    title: mt('main.updater.windowTitle'),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: true
@@ -562,7 +567,7 @@ function bindEvents(): void {
 
   autoUpdater.on('update-not-available', () => {
     if (rollbacking || rollbackPending) {
-      failRollback('未找到可回退的正式版')
+      failRollback(mt('main.updater.rollbackTargetMissing'))
       return
     }
     setState({

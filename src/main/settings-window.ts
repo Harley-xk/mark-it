@@ -10,6 +10,7 @@ import { join } from 'path'
 import { is } from '@electron-toolkit/utils'
 import { activateWindow, applyWindowPlacement, resolveWindowPlacement } from './window-placement'
 import { isAppUrl } from './ipc-guard'
+import { mt } from './i18n'
 
 let settingsWindow: BrowserWindow | null = null
 
@@ -44,7 +45,7 @@ export function openSettingsWindow(sourceWindow?: BrowserWindow | null): void {
     ...placement,
     show: false,
     autoHideMenuBar: true,
-    title: 'MarkIt 设置',
+    title: mt('window.settingsTitle'),
     backgroundColor: '#151922',
     ...(isMac
       ? {

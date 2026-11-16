@@ -6,20 +6,24 @@
  */
 import type { FileOpenFailure, FileReadResult } from '../../../shared/file-types'
 import { formatOpenFailureList, formatReadNotices } from '../utils/file-errors'
+import { useI18n } from '../i18n'
 import { confirmUnsaved } from './useConfirmUnsaved'
 
 /** 提示信息对话框：只有一个「知道了」按钮 */
 async function showInfo(title: string, message: string): Promise<void> {
   if (!message) return
-  await confirmUnsaved(title, message, { save: '知道了' }, true, { hideDiscard: true })
+  const { t } = useI18n()
+  await confirmUnsaved(title, message, { save: t('common.gotIt') }, true, { hideDiscard: true })
 }
 
 export async function showFileOpenFailures(failures: FileOpenFailure[]): Promise<void> {
-  await showInfo('部分文件未能打开', formatOpenFailureList(failures))
+  const { locale, t } = useI18n()
+  await showInfo(t('file.openFailuresTitle'), formatOpenFailureList(failures, locale.value))
 }
 
 export async function showFileReadNotices(files: FileReadResult[]): Promise<void> {
-  await showInfo('文件打开提示', formatReadNotices(files))
+  const { locale, t } = useI18n()
+  await showInfo(t('file.readNoticesTitle'), formatReadNotices(files, locale.value))
 }
 
 export async function showFileFailureMessage(title: string, message: string): Promise<void> {

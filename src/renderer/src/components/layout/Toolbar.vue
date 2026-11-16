@@ -1,10 +1,13 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useAppStore } from '../../stores/app'
 import { useFile } from '../../composables/useFile'
+import { useI18n } from '../../i18n'
 import type { LayoutMode } from '../../types'
 
 const app = useAppStore()
 const file = useFile()
+const { t } = useI18n()
 
 function openSettings(): void {
   void window.api.settings.open()
@@ -20,19 +23,19 @@ function openImageExport(): void {
   app.showImageExportDialog = true
 }
 
-const layouts: { mode: LayoutMode; icon: string; tip: string }[] = [
-  { mode: 'edit-left', icon: '◧', tip: '左编辑 右预览' },
-  { mode: 'edit-right', icon: '◨', tip: '左预览 右编辑' },
-  { mode: 'edit-only', icon: '▣', tip: '仅编辑' },
-  { mode: 'preview-only', icon: '▢', tip: '仅预览' }
-]
+const layouts = computed<{ mode: LayoutMode; icon: string; tip: string }[]>(() => [
+  { mode: 'edit-left', icon: '◧', tip: t('status.layout.editLeft') },
+  { mode: 'edit-right', icon: '◨', tip: t('status.layout.editRight') },
+  { mode: 'edit-only', icon: '▣', tip: t('status.layout.editOnly') },
+  { mode: 'preview-only', icon: '▢', tip: t('status.layout.previewOnly') }
+])
 </script>
 
 <template>
   <div class="toolbar">
     <!-- File -->
     <div class="toolbar-group">
-      <button class="tb-btn" title="新建 (Ctrl+N)" @click="file.newFile()">
+      <button class="tb-btn" :title="t('toolbar.new')" @click="file.newFile()">
         <svg
           width="15"
           height="15"
@@ -49,7 +52,7 @@ const layouts: { mode: LayoutMode; icon: string; tip: string }[] = [
           <line x1="9" y1="15" x2="15" y2="15" />
         </svg>
       </button>
-      <button class="tb-btn" title="打开 (Ctrl+O)" @click="file.openFile()">
+      <button class="tb-btn" :title="t('toolbar.open')" @click="file.openFile()">
         <svg
           width="15"
           height="15"
@@ -65,7 +68,7 @@ const layouts: { mode: LayoutMode; icon: string; tip: string }[] = [
           <polyline points="9 14 12 11 15 14" />
         </svg>
       </button>
-      <button class="tb-btn" title="保存 (Ctrl+S)" @click="file.saveFile()">
+      <button class="tb-btn" :title="t('toolbar.save')" @click="file.saveFile()">
         <svg
           width="15"
           height="15"
@@ -83,7 +86,7 @@ const layouts: { mode: LayoutMode; icon: string; tip: string }[] = [
       </button>
       <button
         class="tb-btn"
-        title="打开文件所在目录"
+        :title="t('toolbar.revealInFolder')"
         :disabled="!app.filePath"
         @click="file.showInFolder()"
       >
@@ -104,7 +107,7 @@ const layouts: { mode: LayoutMode; icon: string; tip: string }[] = [
       </button>
       <button
         class="tb-btn"
-        title="导出 PDF (Ctrl+P)"
+        :title="t('toolbar.exportPdf')"
         :disabled="app.exportStatus === 'exporting'"
         @click="openPdfExport"
       >
@@ -126,7 +129,7 @@ const layouts: { mode: LayoutMode; icon: string; tip: string }[] = [
       </button>
       <button
         class="tb-btn"
-        title="导出长图"
+        :title="t('toolbar.exportImage')"
         :disabled="app.exportStatus === 'exporting'"
         @click="openImageExport"
       >
@@ -170,7 +173,7 @@ const layouts: { mode: LayoutMode; icon: string; tip: string }[] = [
       <button
         class="tb-btn"
         :class="{ active: app.showOutline }"
-        title="大纲 (Ctrl+Shift+O)"
+        :title="t('toolbar.outline')"
         @click="app.toggleOutline()"
       >
         <svg
@@ -197,7 +200,7 @@ const layouts: { mode: LayoutMode; icon: string; tip: string }[] = [
 
     <!-- Help & Settings -->
     <div class="toolbar-group">
-      <button class="tb-btn" title="使用手册" @click="file.openManual()">
+      <button class="tb-btn" :title="t('toolbar.manual')" @click="file.openManual()">
         <svg
           width="15"
           height="15"
@@ -213,7 +216,7 @@ const layouts: { mode: LayoutMode; icon: string; tip: string }[] = [
           <path d="M12 17h.01" />
         </svg>
       </button>
-      <button class="tb-btn" title="设置 (Ctrl+,)" @click="openSettings">
+      <button class="tb-btn" :title="t('toolbar.settings')" @click="openSettings">
         <svg
           width="15"
           height="15"

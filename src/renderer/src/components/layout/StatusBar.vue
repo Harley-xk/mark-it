@@ -3,52 +3,73 @@ import { computed } from 'vue'
 import { useEditorStore } from '../../stores/editor'
 import { useAppStore } from '../../stores/app'
 import { useDocumentsStore } from '../../stores/documents'
+import { useI18n } from '../../i18n'
 import ZoomControl from './ZoomControl.vue'
 
 const editor = useEditorStore()
 const app = useAppStore()
 const docs = useDocumentsStore()
+const { t } = useI18n()
 
 const encodingLabel = computed(() => {
   const doc = docs.activeDoc
-  if (!doc?.path) return 'UTF-8'
+  if (!doc?.path) return t('status.encoding.utf8')
   switch (doc.encoding) {
     case 'utf-8-bom':
-      return 'UTF-8 BOM'
+      return t('status.encoding.utf8Bom')
     case 'utf-16le':
-      return 'UTF-16 LE · 只读'
+      return t('status.encoding.utf16leReadOnly')
     case 'utf-16be':
-      return 'UTF-16 BE · 只读'
+      return t('status.encoding.utf16beReadOnly')
     case 'unsupported':
-      return '非 UTF-8 · 只读'
+      return t('status.encoding.unsupportedReadOnly')
     default:
-      return doc.readOnly ? 'UTF-8 · 只读' : 'UTF-8'
+      return doc.readOnly ? t('status.encoding.utf8ReadOnly') : t('status.encoding.utf8')
   }
 })
 
 const exportKindLabel = computed(() => {
-  if (app.exportKind === 'image') return '图片'
-  if (app.exportKind === 'pdf') return 'PDF'
-  return '文档'
+  if (app.exportKind === 'image') return t('status.exportKind.image')
+  if (app.exportKind === 'pdf') return t('status.exportKind.pdf')
+  return t('status.exportKind.document')
 })
 
 const exportStatusText = computed(() => {
-  const label = exportKindLabel.value
-  const detail = app.exportStatusDetail ? `（${app.exportStatusDetail}）` : ''
+  const kind = exportKindLabel.value
+  const detail = app.exportStatusDetail
+    ? t('status.exportDetail', { detail: app.exportStatusDetail })
+    : ''
   switch (app.exportStatus) {
     case 'success':
-      return `${label}导出成功${detail}`
+      return t('status.exportSuccess', { kind }) + detail
     case 'error':
-      return `${label}导出失败${detail}`
+      return t('status.exportFailure', { kind }) + detail
     default:
       return ''
   }
 })
 
+const layoutLabel = computed(() => {
+  switch (app.layoutMode) {
+    case 'edit-left':
+      return t('status.layout.editLeft')
+    case 'edit-right':
+      return t('status.layout.editRight')
+    case 'edit-only':
+      return t('status.layout.editOnly')
+    default:
+      return t('status.layout.previewOnly')
+  }
+})
+
 const exportAriaLabel = computed(() => {
   if (app.exportStatus === 'exporting') {
-    const stage = app.exportProgressStage || '准备导出'
-    return `${exportKindLabel.value}导出，${stage}，${app.exportProgressPercent}%`
+    const stage = app.exportProgressStage || t('status.exportPreparing')
+    return t('status.exportProgressAria', {
+      kind: exportKindLabel.value,
+      stage,
+      percent: app.exportProgressPercent
+    })
   }
   return exportStatusText.value
 })
@@ -60,7 +81,9 @@ const exportAriaLabel = computed(() => {
       <span class="status-item">{{ app.fileName }}</span>
       <template v-if="app.showEditor">
         <span class="status-sep">|</span>
-        <span class="status-item">行 {{ editor.cursorLine }}, 列 {{ editor.cursorCol }}</span>
+        <span class="status-item">{{
+          t('status.lineCol', { line: editor.cursorLine, column: editor.cursorCol })
+        }}</span>
       </template>
     </div>
     <div class="status-right">
@@ -75,7 +98,7 @@ const exportAriaLabel = computed(() => {
         :aria-label="exportAriaLabel"
         :title="
           app.exportStatus === 'error'
-            ? `${exportKindLabel}导出失败，详情见开发者工具控制台`
+            ? t('status.exportFailureConsole', { kind: exportKindLabel })
             : app.exportStatus === 'exporting'
               ? `${app.exportProgressStage} · ${app.exportProgressPercent}%`
               : app.exportStatusDetail || undefined
@@ -85,8 +108,12 @@ const exportAriaLabel = computed(() => {
       >
         <div v-if="app.exportStatus === 'exporting'" class="status-export-running">
           <span class="status-spinner" aria-hidden="true"></span>
-          <span class="status-export-type">{{ exportKindLabel }}导出</span>
-          <span class="status-export-stage">{{ app.exportProgressStage || '准备导出' }}</span>
+          <span class="status-export-type">{{
+            t('status.exportRunning', { kind: exportKindLabel })
+          }}</span>
+          <span class="status-export-stage">{{
+            app.exportProgressStage || t('status.exportPreparing')
+          }}</span>
           <span class="status-export-percent">{{ app.exportProgressPercent }}%</span>
         </div>
         <div v-else-if="app.exportStatus !== 'idle'" class="status-export-result">
@@ -110,27 +137,16 @@ const exportAriaLabel = computed(() => {
         <span class="status-sep">|</span>
       </template>
       <template v-if="app.sessionSaveFailed">
-        <span
-          class="status-item status-warning"
-          title="无法写入会话文件，下次启动可能无法恢复标签页"
-        >
-          会话保存失败
+        <span class="status-item status-warning" :title="t('status.sessionSaveFailedTitle')">
+          {{ t('status.sessionSaveFailed') }}
         </span>
         <span class="status-sep">|</span>
       </template>
-      <span class="status-item">{{ editor.wordCount }} 字</span>
+      <span class="status-item">{{ t('status.words', { count: editor.wordCount }) }}</span>
       <span class="status-sep">|</span>
       <span class="status-item" :title="app.filePath || undefined">{{ encodingLabel }}</span>
       <span class="status-sep">|</span>
-      <span class="status-item">{{
-        app.layoutMode === 'edit-left'
-          ? '左编辑 右预览'
-          : app.layoutMode === 'edit-right'
-            ? '左预览 右编辑'
-            : app.layoutMode === 'edit-only'
-              ? '仅编辑'
-              : '仅预览'
-      }}</span>
+      <span class="status-item">{{ layoutLabel }}</span>
       <template v-if="app.zoomPercent !== 100">
         <span class="status-sep">|</span>
         <ZoomControl />

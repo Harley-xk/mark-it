@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import type { UpdateState } from '../shared/update-types'
 import type { SessionData } from '../shared/session-types'
+import type { Locale } from '../shared/locale-types'
 import type { EditorHistoryEntries } from '../shared/history-types'
 import type {
   FileOpenFailure,
@@ -52,6 +53,8 @@ let rendererReadyNotified = false
 const api = {
   /** 当前运行平台（渲染进程用于给系统窗口按钮留位） */
   platform: process.platform,
+  /** 同步主进程当前界面语言，用于原生对话框与更新状态文案 */
+  setLocale: (locale: Locale): Promise<boolean> => ipcRenderer.invoke('app:set-locale', locale),
   /** 当前编辑窗口的稳定 ID 与待确认标签迁移 */
   getWindowContext: (): Promise<EditorWindowContext | null> =>
     ipcRenderer.invoke('window:get-context'),

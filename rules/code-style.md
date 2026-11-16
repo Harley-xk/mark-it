@@ -71,3 +71,12 @@
 1. 预览主题样式集中在 `src/renderer/src/styles/preview/`，通过 `PreviewStyle` 注册（见 `src/renderer/src/types/index.ts`）
 2. 新增主题时沿用现有命名与成对结构（深色 `xxx.css` + 浅色 `xxx-light.css`），并在 store 的主题列表同步登记
 3. 组件私有样式放在对应 `.vue` 的 `<style>` 中，避免全局选择器污染预览区
+
+## 9. 国际化文案
+
+1. **用户可见文案必须走消息目录**：渲染进程用 `useI18n().t('key', params)`，主进程用 `src/main/i18n.ts` 的 `mt('key', params)`；禁止在 `.vue` 模板、store、composable、主进程对话框里硬编码中文或英文界面文案。
+2. 消息键定义在 `src/i18n/messages/zh-CN.ts`，英文字典用 `Record<MessageKey, string>` 保证完整性；新增或修改文案必须同时更新 `zh-CN` 与 `en-US`。
+3. 键名用扁平点分小写字符串，按领域前缀分组；含变量的句子整体入目录，用 `{name}` 占位，不在组件里拼接半句文案。
+4. 纯函数工具不直接读取当前语言：需要翻译时由调用方传入 `locale` 或已翻译标签，保持函数可测试。
+5. 不翻译：日志、代码注释、提交信息、文档、用户文档内容、第三方库返回的技术错误原文、品牌名（`MarkIt`、`GitHub`、`PDF` 等）。
+6. 内置使用手册必须成对维护：`src/renderer/src/assets/welcome.md`（中文）与 `welcome.en-US.md`（英文），功能说明同步更新。

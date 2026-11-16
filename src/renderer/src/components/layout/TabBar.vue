@@ -4,11 +4,13 @@ import { useDocumentsStore } from '../../stores/documents'
 import { useFile } from '../../composables/useFile'
 import { useAppStore } from '../../stores/app'
 import { findInsertBefore } from '../../utils/tab-order'
+import { useI18n } from '../../i18n'
 import type { EditorWindowSummary } from '../../../../shared/window-types'
 
 const docs = useDocumentsStore()
 const app = useAppStore()
 const file = useFile()
+const { t } = useI18n()
 
 const scrollRef = ref<HTMLDivElement>()
 
@@ -408,11 +410,9 @@ onBeforeUnmount(() => {
         @contextmenu="openContextMenu(doc.id, $event)"
       >
         <span class="tab-name">{{ doc.name }}</span>
-        <span v-if="doc.missing" class="tab-missing" title="文件已不存在，保存时将在原路径重新创建"
-          >!</span
-        >
-        <span v-if="doc.isModified" class="tab-dot" title="未保存"></span>
-        <button class="tab-close" title="关闭标签页 (Ctrl+W)" @click.stop="file.closeTab(doc.id)">
+        <span v-if="doc.missing" class="tab-missing" :title="t('tabs.missing')">!</span>
+        <span v-if="doc.isModified" class="tab-dot" :title="t('tabs.unsaved')"></span>
+        <button class="tab-close" :title="t('tabs.close')" @click.stop="file.closeTab(doc.id)">
           <svg
             width="12"
             height="12"
@@ -428,7 +428,7 @@ onBeforeUnmount(() => {
         </button>
       </div>
 
-      <button class="tab-new" title="新建 (Ctrl+N)" @click="file.newFile()">
+      <button class="tab-new" :title="t('tabs.new')" @click="file.newFile()">
         <svg
           width="14"
           height="14"
@@ -459,11 +459,11 @@ onBeforeUnmount(() => {
       role="menu"
     >
       <button class="ctx-item" role="menuitem" @click="runMenuAction('window')">
-        在新窗口中打开
+        {{ t('tabs.context.openInNewWindow') }}
       </button>
       <template v-if="otherWindows.length > 0">
         <div class="ctx-separator"></div>
-        <div class="ctx-label">移动到其他窗口</div>
+        <div class="ctx-label">{{ t('tabs.context.moveToOtherWindow') }}</div>
         <button
           v-for="windowItem in otherWindows"
           :key="windowItem.id"
@@ -474,7 +474,7 @@ onBeforeUnmount(() => {
           {{ windowItem.title }}
         </button>
         <div class="ctx-separator"></div>
-        <div class="ctx-label">全部标签</div>
+        <div class="ctx-label">{{ t('tabs.context.allTabs') }}</div>
         <button
           v-for="windowItem in otherWindows"
           :key="`all-${windowItem.id}`"
@@ -482,18 +482,20 @@ onBeforeUnmount(() => {
           role="menuitem"
           @click="moveAllToWindow(windowItem.id)"
         >
-          全部移动到 {{ windowItem.title }}
+          {{ t('tabs.context.moveAllToWindow', { title: windowItem.title }) }}
         </button>
       </template>
       <div class="ctx-separator"></div>
-      <button class="ctx-item" role="menuitem" @click="runMenuAction('self')">关闭</button>
+      <button class="ctx-item" role="menuitem" @click="runMenuAction('self')">
+        {{ t('tabs.context.close') }}
+      </button>
       <button
         class="ctx-item"
         role="menuitem"
         :disabled="!canCloseOthers"
         @click="runMenuAction('others')"
       >
-        关闭其他
+        {{ t('tabs.context.closeOthers') }}
       </button>
       <div class="ctx-separator"></div>
       <button
@@ -502,7 +504,7 @@ onBeforeUnmount(() => {
         :disabled="!canCloseLeft"
         @click="runMenuAction('left')"
       >
-        关闭左侧
+        {{ t('tabs.context.closeLeft') }}
       </button>
       <button
         class="ctx-item"
@@ -510,7 +512,7 @@ onBeforeUnmount(() => {
         :disabled="!canCloseRight"
         @click="runMenuAction('right')"
       >
-        关闭右侧
+        {{ t('tabs.context.closeRight') }}
       </button>
     </div>
   </Teleport>

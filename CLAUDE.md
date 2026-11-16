@@ -56,7 +56,8 @@ npm start              # 预览已构建产物（electron-vite preview）
 | `src/main/`         | 主进程：窗口与生命周期、单实例锁、文件读写与监听、会话持久化、`markit-file://` 协议、PDF 导出、自动更新                         |
 | `src/preload/`      | `contextBridge` 暴露 `window.api`（业务能力）与 `window.electron`（toolkit）；`index.d.ts` 的 `ExposedAPI` 是渲染进程的类型契约 |
 | `src/renderer/src/` | 渲染进程（Vue 3 + Pinia），路径别名 `@renderer`                                                                                 |
-| `src/shared/`       | 跨进程**纯类型**（`session-types.ts`、`update-types.ts`），禁止运行时依赖                                                       |
+| `src/shared/`       | 跨进程**纯类型**（`session-types.ts`、`update-types.ts`、`locale-types.ts`），禁止运行时依赖                                    |
+| `src/i18n/`         | 跨进程**纯数据**消息目录与 `translate` 纯函数（中英文），同时被主进程与渲染进程打包，禁止引用 Electron / Vue / Node API         |
 
 渲染进程有**两个 HTML 入口**，由 `electron.vite.config.ts` 的 rollup input 配置：
 
@@ -99,6 +100,7 @@ npm start              # 预览已构建产物（electron-vite preview）
 ## 重要不变量
 
 - `markit-file://` 协议、`markit-*` 存储键、`appId` / `productName` / 更新端点不得顺手改名（后果见 `@rules/branding.md`）
+- 用户可见文案必须走 `src/i18n` 消息目录：新增 / 修改文案时同步补齐 `zh-CN` 与 `en-US`，不得在组件、store 或主进程中硬编码中英文界面文案；日志与注释不在此列（见 [docs/架构与契约/国际化与文案.md](docs/架构与契约/国际化与文案.md)）
 - 主进程的窗口关闭需经渲染进程确认未保存内容；不要在未走该流程时直接 `destroy`
 - 修改 `src/preload/**`、`src/shared/**`、`src/renderer/src/utils/**` 属于底座改动，必须跑全量 lint + typecheck
 - 所有业务改动开发前先在 `docs/` 更新设计或功能文档；涉及架构调整、数据结构、IPC 契约、持久化格式或交互设计的改动必须单独成文（见 `@rules/base.md` 第 4 节）

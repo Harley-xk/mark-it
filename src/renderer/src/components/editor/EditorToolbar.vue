@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { useEditorStore } from '../../stores/editor'
 import { applyFormatAction, formatActions } from '../../composables/useFormatActions'
+import { useI18n } from '../../i18n'
 
 const editor = useEditorStore()
+const { t } = useI18n()
 
 function fmt(action: string): void {
   const a = formatActions[action]
@@ -13,7 +15,7 @@ function fmt(action: string): void {
 <template>
   <div class="editor-toolbar">
     <div class="toolbar-group">
-      <button class="tb-btn" title="加粗 (Ctrl+B)" @click="fmt('bold')">
+      <button class="tb-btn" :title="t('toolbar.format.bold')" @click="fmt('bold')">
         <svg
           width="14"
           height="14"
@@ -28,7 +30,7 @@ function fmt(action: string): void {
           <path d="M6 12h9a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6z" />
         </svg>
       </button>
-      <button class="tb-btn" title="斜体 (Ctrl+I)" @click="fmt('italic')">
+      <button class="tb-btn" :title="t('toolbar.format.italic')" @click="fmt('italic')">
         <svg
           width="14"
           height="14"
@@ -44,7 +46,11 @@ function fmt(action: string): void {
           <line x1="15" y1="4" x2="9" y2="20" />
         </svg>
       </button>
-      <button class="tb-btn" title="删除线" @click="fmt('strikethrough')">
+      <button
+        class="tb-btn"
+        :title="t('toolbar.format.strikethrough')"
+        @click="fmt('strikethrough')"
+      >
         <svg
           width="14"
           height="14"
@@ -61,10 +67,10 @@ function fmt(action: string): void {
           />
         </svg>
       </button>
-      <button class="tb-btn" title="标题" @click="fmt('h2')">
+      <button class="tb-btn" :title="t('toolbar.format.heading')" @click="fmt('h2')">
         <span class="tb-text">H</span>
       </button>
-      <button class="tb-btn" title="引用" @click="fmt('quote')">
+      <button class="tb-btn" :title="t('toolbar.format.quote')" @click="fmt('quote')">
         <svg
           width="14"
           height="14"
@@ -83,7 +89,7 @@ function fmt(action: string): void {
           />
         </svg>
       </button>
-      <button class="tb-btn" title="链接 (Ctrl+K)" @click="fmt('link')">
+      <button class="tb-btn" :title="t('toolbar.format.link')" @click="fmt('link')">
         <svg
           width="14"
           height="14"
@@ -98,7 +104,7 @@ function fmt(action: string): void {
           <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
         </svg>
       </button>
-      <button class="tb-btn" title="图片" @click="fmt('image')">
+      <button class="tb-btn" :title="t('toolbar.format.image')" @click="fmt('image')">
         <svg
           width="14"
           height="14"
@@ -114,7 +120,7 @@ function fmt(action: string): void {
           <polyline points="21 15 16 10 5 21" />
         </svg>
       </button>
-      <button class="tb-btn" title="代码块 (Ctrl+Shift+K)" @click="fmt('codeblock')">
+      <button class="tb-btn" :title="t('toolbar.format.codeblock')" @click="fmt('codeblock')">
         <svg
           width="14"
           height="14"
@@ -129,7 +135,7 @@ function fmt(action: string): void {
           <polyline points="8 6 2 12 8 18" />
         </svg>
       </button>
-      <button class="tb-btn" title="无序列表" @click="fmt('ul')">
+      <button class="tb-btn" :title="t('toolbar.format.unorderedList')" @click="fmt('ul')">
         <svg
           width="14"
           height="14"
@@ -148,7 +154,7 @@ function fmt(action: string): void {
           <circle cx="4" cy="18" r="1" fill="currentColor" />
         </svg>
       </button>
-      <button class="tb-btn" title="任务列表" @click="fmt('task')">
+      <button class="tb-btn" :title="t('toolbar.format.taskList')" @click="fmt('task')">
         <svg
           width="14"
           height="14"

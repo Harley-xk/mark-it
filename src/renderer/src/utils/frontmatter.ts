@@ -5,6 +5,8 @@
  * `|` / `>` 多行块，以及缩进续行（嵌套结构按原样多行展示）。
  * 复杂结构不要求语义完整，目标是在预览中呈现为可读的表格。
  */
+import type { Locale } from '../../../shared/locale-types'
+import { translate } from '../../../i18n'
 
 export interface FrontmatterEntry {
   key: string
@@ -127,8 +129,12 @@ function escapeHtml(text: string): string {
 }
 
 /** 把 frontmatter 渲染成预览中的属性表格（HTML 片段） */
-export function renderFrontmatterTable(entries: FrontmatterEntry[]): string {
+export function renderFrontmatterTable(entries: FrontmatterEntry[], locale: Locale): string {
   if (entries.length === 0) return ''
+
+  const title = translate(locale, 'preview.frontmatterTitle')
+  const property = translate(locale, 'preview.frontmatterProperty')
+  const valueLabel = translate(locale, 'preview.frontmatterValue')
 
   const rows = entries
     .map(
@@ -140,9 +146,9 @@ export function renderFrontmatterTable(entries: FrontmatterEntry[]): string {
 
   return (
     '<div class="frontmatter-block">' +
-    '<div class="frontmatter-title">文档信息</div>' +
+    `<div class="frontmatter-title">${escapeHtml(title)}</div>` +
     '<table class="frontmatter-table">' +
-    '<thead><tr><th>属性</th><th>值</th></tr></thead>' +
+    `<thead><tr><th>${escapeHtml(property)}</th><th>${escapeHtml(valueLabel)}</th></tr></thead>` +
     `<tbody>${rows}</tbody>` +
     '</table></div>'
   )

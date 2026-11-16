@@ -7,6 +7,7 @@
 
 import { defineStore } from 'pinia'
 import { computed, ref, watch } from 'vue'
+import { useI18n } from '../i18n'
 import { useAppStore } from './app'
 
 export type SearchSurface = 'editor' | 'preview'
@@ -16,6 +17,7 @@ const HUD_DURATION = 1600
 
 export const useSearchStore = defineStore('search', () => {
   const app = useAppStore()
+  const { t } = useI18n()
 
   const isOpen = ref(false)
   const query = ref('')
@@ -82,12 +84,12 @@ export const useSearchStore = defineStore('search', () => {
 
   function next(): void {
     if (total.value <= 0) {
-      showHud('没有匹配项')
+      showHud(t('search.noMatches'))
       return
     }
     if (index.value + 1 >= total.value) {
       index.value = 0
-      showHud('已到达末尾，已循环到开头')
+      showHud(t('search.wrapStart'))
     } else {
       index.value += 1
     }
@@ -96,12 +98,12 @@ export const useSearchStore = defineStore('search', () => {
 
   function previous(): void {
     if (total.value <= 0) {
-      showHud('没有匹配项')
+      showHud(t('search.noMatches'))
       return
     }
     if (index.value <= 0) {
       index.value = total.value - 1
-      showHud('已到达开头，已循环到末尾')
+      showHud(t('search.wrapEnd'))
     } else {
       index.value -= 1
     }

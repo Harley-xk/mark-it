@@ -5,6 +5,8 @@
  * 描述: 将导出 HTML 中的 Mermaid 代码块替换为静态 SVG，供 PDF 与长图共用
  */
 
+import type { Locale } from '../../../shared/locale-types'
+import { translate } from '../../../i18n'
 import { buildPeleThemeVariables, type DiagramThemeTokens } from './diagram-theme'
 import { renderDiagramSvg } from './diagram-renderer'
 import { collectMermaidBlocks, formatMermaidError } from './mermaid'
@@ -16,6 +18,7 @@ export interface ExportMermaidOptions {
   containerClass: string
   diagramIdPrefix: string
   failureLogLabel: string
+  locale: Locale
 }
 
 export async function renderMermaidDiagramsForExport(
@@ -64,7 +67,10 @@ export async function renderMermaidDiagramsForExport(
       console.error(options.failureLogLabel, err)
       const notice = document.createElement('div')
       notice.className = 'mermaid-error'
-      notice.textContent = `图表渲染失败：${formatMermaidError(err)}`
+      notice.textContent = translate(options.locale, 'preview.diagramRenderFailed', {
+        language: 'mermaid',
+        reason: formatMermaidError(err, options.locale)
+      })
       parent.classList.add('mermaid-error-source')
       parent.after(notice)
     }

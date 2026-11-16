@@ -4,12 +4,14 @@ import { useAppStore } from '../../stores/app'
 import { useDocumentsStore } from '../../stores/documents'
 import { collapseExportDialog } from '../../composables/useExportDialogCollapse'
 import { derivePdfFileName } from '../../utils/pdf-name'
+import { useI18n } from '../../i18n'
 import type { PdfExportOptions } from '../../types'
 
 const props = defineProps<{ exporting: boolean }>()
 
 const app = useAppStore()
 const documents = useDocumentsStore()
+const { t } = useI18n()
 
 const emit = defineEmits<{
   close: []
@@ -69,7 +71,7 @@ async function handleExport(): Promise<void> {
     >
       <div ref="dialogElement" class="dialog" :class="app.resolvedTheme">
         <div class="dialog-header">
-          <h3>导出 PDF</h3>
+          <h3>{{ t('export.pdf.title') }}</h3>
           <button class="dialog-close" :disabled="busy" @click="emit('close')">
             <svg
               width="14"
@@ -86,38 +88,40 @@ async function handleExport(): Promise<void> {
         </div>
         <div class="dialog-body">
           <label class="field">
-            <span>纸张大小</span>
+            <span>{{ t('export.pdf.pageSize') }}</span>
             <select v-model="pageSize">
               <option value="A4">A4</option>
               <option value="Letter">Letter</option>
             </select>
           </label>
           <label class="field">
-            <span>页边距</span>
+            <span>{{ t('export.pdf.margin') }}</span>
             <select v-model="margin">
-              <option value="narrow">窄</option>
-              <option value="standard">标准</option>
-              <option value="wide">宽</option>
+              <option value="narrow">{{ t('export.pdf.marginNarrow') }}</option>
+              <option value="standard">{{ t('export.pdf.marginStandard') }}</option>
+              <option value="wide">{{ t('export.pdf.marginWide') }}</option>
             </select>
           </label>
           <label class="field checkbox-field">
             <input v-model="showPageNumbers" type="checkbox" />
-            <span>显示页码</span>
+            <span>{{ t('export.pdf.pageNumbers') }}</span>
           </label>
           <label class="field checkbox-field">
             <input v-model="showToc" type="checkbox" />
-            <span>生成目录</span>
+            <span>{{ t('export.pdf.toc') }}</span>
           </label>
           <label class="field checkbox-field">
             <input v-model="showFrontmatter" type="checkbox" />
-            <span>输出文档信息（YAML Frontmatter）</span>
+            <span>{{ t('export.pdf.includeFrontmatter') }}</span>
           </label>
-          <p class="export-hint">PDF 使用独立的浅色打印样式，不随预览主题变化。</p>
+          <p class="export-hint">{{ t('export.pdf.hint') }}</p>
         </div>
         <div class="dialog-footer">
-          <button class="btn btn-secondary" :disabled="busy" @click="emit('close')">取消</button>
+          <button class="btn btn-secondary" :disabled="busy" @click="emit('close')">
+            {{ t('common.cancel') }}
+          </button>
           <button class="btn btn-primary" :disabled="busy" @click="handleExport">
-            {{ busy ? '导出中…' : '导出' }}
+            {{ busy ? t('common.exporting') : t('common.export') }}
           </button>
         </div>
       </div>

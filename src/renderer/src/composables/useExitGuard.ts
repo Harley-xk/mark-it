@@ -5,6 +5,7 @@
  * 描述: 退出 / 重启前的未保存内容确认流程，关闭窗口与安装更新共用
  */
 import { useDocumentsStore } from '../stores/documents'
+import { useI18n } from '../i18n'
 import { useFile } from './useFile'
 import { confirmUnsaved } from './useConfirmUnsaved'
 import { flushSession } from './useSession'
@@ -17,11 +18,12 @@ import { flushSession } from './useSession'
 export async function saveAllBeforeExit(actionLabel: string): Promise<boolean> {
   const docs = useDocumentsStore()
   const file = useFile()
+  const { t } = useI18n()
 
   for (const doc of docs.docs.filter((doc) => doc.isModified)) {
     const action = await confirmUnsaved(
       actionLabel,
-      `「${doc.name}」有未保存的修改，是否保存？`,
+      t('file.closeMessage', { name: doc.name }),
       undefined,
       true
     )

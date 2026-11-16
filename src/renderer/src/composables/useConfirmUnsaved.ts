@@ -1,15 +1,17 @@
 import { ref, type Ref } from 'vue'
 import { useAppStore } from '../stores/app'
+import { useI18n } from '../i18n'
 import type { DiffLine } from '../utils/text-diff'
 
 type ConfirmAction = 'save' | 'discard' | 'cancel'
 
+const { t } = useI18n()
 const showConfirm = ref(false)
 const pendingResolve = ref<((action: ConfirmAction) => void) | null>(null)
-const confirmTitle = ref('未保存的修改')
-const confirmMessage = ref('当前文件有未保存的修改，是否保存？')
-const confirmSaveText = ref('保存')
-const confirmDiscardText = ref('放弃修改')
+const confirmTitle = ref('')
+const confirmMessage = ref('')
+const confirmSaveText = ref('')
+const confirmDiscardText = ref('')
 const confirmCancelText = ref('')
 const confirmDiff = ref<DiffLine[]>([])
 const confirmHideDiscard = ref(false)
@@ -46,10 +48,10 @@ function showNextRequest(): void {
     return
   }
 
-  confirmTitle.value = request.title || '未保存的修改'
-  confirmMessage.value = request.message || '当前文件有未保存的修改，是否保存？'
-  confirmSaveText.value = request.labels?.save || '保存'
-  confirmDiscardText.value = request.labels?.discard || '放弃修改'
+  confirmTitle.value = request.title || t('app.unsavedTitle')
+  confirmMessage.value = request.message || t('app.unsavedMessage')
+  confirmSaveText.value = request.labels?.save || t('common.save')
+  confirmDiscardText.value = request.labels?.discard || t('common.discard')
   confirmCancelText.value = request.extra?.cancelText || ''
   confirmDiff.value = request.extra?.diff || []
   confirmHideDiscard.value = request.extra?.hideDiscard === true

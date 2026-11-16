@@ -16,12 +16,14 @@ import {
   normalizeImageExportSettings
 } from '../../utils/image-export-settings'
 import { deriveImageFileName } from '../../utils/pdf-name'
+import { useI18n } from '../../i18n'
 
 const props = defineProps<{ exporting: boolean }>()
 
 const app = useAppStore()
 const documents = useDocumentsStore()
 const exportSettings = useExportSettingsStore()
+const { t } = useI18n()
 const draft = ref<ImageExportSettings>({ ...DEFAULT_IMAGE_EXPORT_SETTINGS })
 const overlayElement = ref<HTMLElement | null>(null)
 const dialogElement = ref<HTMLElement | null>(null)
@@ -91,11 +93,11 @@ async function handleExport(): Promise<void> {
         aria-labelledby="image-export-dialog-title"
       >
         <div class="dialog-header">
-          <h3 id="image-export-dialog-title">导出长图</h3>
+          <h3 id="image-export-dialog-title">{{ t('export.image.title') }}</h3>
           <button
             class="dialog-close"
             type="button"
-            aria-label="关闭导出设置"
+            :aria-label="t('export.image.closeSettings')"
             :disabled="busy"
             @click="emit('close')"
           >
@@ -115,8 +117,8 @@ async function handleExport(): Promise<void> {
 
         <div class="dialog-body">
           <div class="field-group">
-            <span class="field-label">格式</span>
-            <div class="segment-group" aria-label="图片格式">
+            <span class="field-label">{{ t('export.image.format') }}</span>
+            <div class="segment-group" :aria-label="t('export.image.format')">
               <button
                 v-for="format in ['png', 'jpeg'] as const"
                 :key="format"
@@ -132,15 +134,15 @@ async function handleExport(): Promise<void> {
             <p class="field-hint">
               {{
                 draft.format === 'jpeg'
-                  ? '高质量 JPEG，体积更适合分享。'
-                  : '无损 PNG，线条和文字更清晰。'
+                  ? t('export.image.formatJpegHint')
+                  : t('export.image.formatPngHint')
               }}
             </p>
           </div>
 
           <div class="field-group">
-            <span class="field-label">正文宽度</span>
-            <div class="width-grid" aria-label="正文宽度">
+            <span class="field-label">{{ t('export.image.contentWidth') }}</span>
+            <div class="width-grid" :aria-label="t('export.image.contentWidth')">
               <button
                 v-for="width in IMAGE_CONTENT_WIDTHS"
                 :key="width"
@@ -151,14 +153,14 @@ async function handleExport(): Promise<void> {
                 @click="draft.contentWidth = width"
               >
                 <span>{{ width }} px</span>
-                <small>画布 {{ width + 80 }} px</small>
+                <small>{{ t('export.image.canvasWidth', { width: width + 80 }) }}</small>
               </button>
             </div>
           </div>
 
           <div class="field-row">
-            <span class="field-label">清晰度</span>
-            <div class="segment-group compact" aria-label="输出倍率">
+            <span class="field-label">{{ t('export.image.quality') }}</span>
+            <div class="segment-group compact" :aria-label="t('export.image.quality')">
               <button
                 v-for="scale in [1, 2] as const"
                 :key="scale"
@@ -174,44 +176,42 @@ async function handleExport(): Promise<void> {
           </div>
 
           <label class="field-row">
-            <span class="field-label">主题</span>
+            <span class="field-label">{{ t('export.image.theme') }}</span>
             <select v-model="draft.theme" class="theme-select">
-              <option value="preview">跟随当前</option>
-              <option value="light">浅色</option>
-              <option value="dark">深色</option>
+              <option value="preview">{{ t('export.image.themePreview') }}</option>
+              <option value="light">{{ t('export.image.themeLight') }}</option>
+              <option value="dark">{{ t('export.image.themeDark') }}</option>
             </select>
           </label>
 
           <label class="checkbox-field">
             <input v-model="draft.includeFrontmatter" type="checkbox" />
-            <span>输出文档信息（YAML Frontmatter）</span>
+            <span>{{ t('export.image.includeFrontmatter') }}</span>
           </label>
 
           <div class="export-summary">
             <div>
-              <span>画布</span>
+              <span>{{ t('export.image.summaryCanvas') }}</span>
               <strong>{{ estimatedCanvasWidth }} px</strong>
             </div>
             <div>
-              <span>{{ formatLabel }} 输出</span>
-              <strong>{{ estimatedOutputWidth }} px 宽</strong>
+              <span>{{ t('export.image.summaryOutput', { format: formatLabel }) }}</span>
+              <strong>{{ t('export.image.outputWidth', { width: estimatedOutputWidth }) }}</strong>
             </div>
           </div>
-          <p class="export-hint">
-            高度根据内容自动计算。超长文档可能自动降至 1×，仍超出单张图片限制时会提示失败。
-          </p>
+          <p class="export-hint">{{ t('export.image.hint') }}</p>
         </div>
 
         <div class="dialog-footer">
           <button class="btn btn-reset" type="button" :disabled="busy" @click="resetDefaults">
-            恢复默认
+            {{ t('common.resetDefaults') }}
           </button>
           <div class="footer-actions">
             <button class="btn btn-secondary" type="button" :disabled="busy" @click="emit('close')">
-              取消
+              {{ t('common.cancel') }}
             </button>
             <button class="btn btn-primary" type="button" :disabled="busy" @click="handleExport">
-              导出
+              {{ busy ? t('common.exporting') : t('common.export') }}
             </button>
           </div>
         </div>
