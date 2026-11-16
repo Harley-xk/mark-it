@@ -1,28 +1,14 @@
-import { _electron as electron, expect, test } from '@playwright/test'
+import { expect, test } from '@playwright/test'
 import { existsSync, mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-
-const projectRoot = join(__dirname, '..')
-const appEntry = join(projectRoot, 'out/main/index.js')
-
-function getLaunchEnv(): Record<string, string> {
-  const env: Record<string, string> = {}
-  for (const [key, value] of Object.entries(process.env)) {
-    if (key !== 'ELECTRON_RUN_AS_NODE' && value !== undefined) env[key] = value
-  }
-  return env
-}
+import { appEntry, launchApp } from './support/electron'
 
 test('独立设置窗口可打开、复用并同步全局主题', async () => {
   test.skip(!existsSync(appEntry), '请先执行 npm run build 生成 out/main/index.js')
 
   const userDataDir = mkdtempSync(join(tmpdir(), 'markit-e2e-settings-'))
-  const app = await electron.launch({
-    args: ['.', `--user-data-dir=${userDataDir}`],
-    cwd: projectRoot,
-    env: getLaunchEnv()
-  })
+  const app = await launchApp(['.', `--user-data-dir=${userDataDir}`])
 
   try {
     const mainWindow = await app.firstWindow()

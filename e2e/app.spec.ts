@@ -1,30 +1,15 @@
-import { _electron as electron, expect, test } from '@playwright/test'
+import { expect, test } from '@playwright/test'
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-
-const projectRoot = join(__dirname, '..')
-const appEntry = join(projectRoot, 'out/main/index.js')
-
-/** 去掉 IDE / 终端注入的 ELECTRON_RUN_AS_NODE，否则 Electron 会退化为纯 Node */
-function getLaunchEnv(): Record<string, string> {
-  const env: Record<string, string> = {}
-  for (const [key, value] of Object.entries(process.env)) {
-    if (key !== 'ELECTRON_RUN_AS_NODE' && value !== undefined) env[key] = value
-  }
-  return env
-}
+import { appEntry, launchApp } from './support/electron'
 
 test('启动应用并显示主窗口', async () => {
   test.skip(!existsSync(appEntry), '请先执行 npm run build 生成 out/main/index.js')
 
   // 独立 userData：避免与用户正在运行的 MarkIt 抢单实例锁，也不污染真实会话
   const userDataDir = mkdtempSync(join(tmpdir(), 'markit-e2e-'))
-  const app = await electron.launch({
-    args: ['.', `--user-data-dir=${userDataDir}`],
-    cwd: projectRoot,
-    env: getLaunchEnv()
-  })
+  const app = await launchApp(['.', `--user-data-dir=${userDataDir}`])
   try {
     const window = await app.firstWindow()
     await expect(window).toHaveTitle(/MarkIt/)
@@ -45,13 +30,9 @@ test('布局模式按标签独立保存并在重启后恢复', async () => {
   writeFileSync(firstPath, '# 第一个文档\n', 'utf-8')
   writeFileSync(secondPath, '# 第二个文档\n', 'utf-8')
 
-  const launchOptions = {
-    args: ['.', `--user-data-dir=${userDataDir}`, firstPath, secondPath],
-    cwd: projectRoot,
-    env: getLaunchEnv()
-  }
+  const appArgs = ['.', `--user-data-dir=${userDataDir}`, firstPath, secondPath]
 
-  const app = await electron.launch(launchOptions)
+  const app = await launchApp(appArgs)
   try {
     const window = await app.firstWindow()
     await expect(window.locator('.tab-name', { hasText: 'layout-first.md' })).toBeVisible()
@@ -81,7 +62,7 @@ test('布局模式按标签独立保存并在重启后恢复', async () => {
     await app.close()
   }
 
-  const restored = await electron.launch(launchOptions)
+  const restored = await launchApp(appArgs)
   try {
     const window = await restored.firstWindow()
     await expect(window.locator('.tab-name', { hasText: 'layout-second.md' })).toBeVisible()
@@ -110,13 +91,9 @@ test('大纲显隐按标签独立保存并在重启后恢复', async () => {
   writeFileSync(firstPath, '# 第一个文档\n', 'utf-8')
   writeFileSync(secondPath, '# 第二个文档\n', 'utf-8')
 
-  const launchOptions = {
-    args: ['.', `--user-data-dir=${userDataDir}`, firstPath, secondPath],
-    cwd: projectRoot,
-    env: getLaunchEnv()
-  }
+  const appArgs = ['.', `--user-data-dir=${userDataDir}`, firstPath, secondPath]
 
-  const app = await electron.launch(launchOptions)
+  const app = await launchApp(appArgs)
   try {
     const window = await app.firstWindow()
     const outlineButton = window.locator('.tb-btn[title="大纲 (Ctrl+Shift+O)"]')
@@ -145,7 +122,7 @@ test('大纲显隐按标签独立保存并在重启后恢复', async () => {
     await app.close()
   }
 
-  const restored = await electron.launch(launchOptions)
+  const restored = await launchApp(appArgs)
   try {
     const window = await restored.firstWindow()
     const outlineButton = window.locator('.tb-btn[title="大纲 (Ctrl+Shift+O)"]')
@@ -180,14 +157,10 @@ test('重启后恢复编辑区与预览区的滚动位置', async () => {
     'utf-8'
   )
 
-  const launchOptions = {
-    args: ['.', `--user-data-dir=${userDataDir}`, mdPath],
-    cwd: projectRoot,
-    env: getLaunchEnv()
-  }
+  const appArgs = ['.', `--user-data-dir=${userDataDir}`, mdPath]
 
   let before = { editor: 0, preview: 0 }
-  const app = await electron.launch(launchOptions)
+  const app = await launchApp(appArgs)
   try {
     const window = await app.firstWindow()
     await expect(window.locator('.tab-name', { hasText: 'scroll-restore.md' })).toBeVisible()
@@ -223,7 +196,7 @@ test('重启后恢复编辑区与预览区的滚动位置', async () => {
     await app.close()
   }
 
-  const restored = await electron.launch(launchOptions)
+  const restored = await launchApp(appArgs)
   try {
     const window = await restored.firstWindow()
     await expect(window.locator('.tab-name', { hasText: 'scroll-restore.md' })).toBeVisible()
@@ -275,11 +248,7 @@ test('长文档来回切标签时滚动位置不累积偏移', async () => {
   )
   writeFileSync(shortPath, '# 短文档\n\n简短内容。\n', 'utf-8')
 
-  const app = await electron.launch({
-    args: ['.', `--user-data-dir=${userDataDir}`, longPath, shortPath],
-    cwd: projectRoot,
-    env: getLaunchEnv()
-  })
+  const app = await launchApp(['.', `--user-data-dir=${userDataDir}`, longPath, shortPath])
   try {
     const window = await app.firstWindow()
     const longTab = window.locator('.tab-name', { hasText: 'scroll-long.md' })
@@ -376,11 +345,7 @@ test('导出 PDF 并生成有效产物', async () => {
     'utf-8'
   )
 
-  const app = await electron.launch({
-    args: ['.', `--user-data-dir=${userDataDir}`, mdPath],
-    cwd: projectRoot,
-    env: getLaunchEnv()
-  })
+  const app = await launchApp(['.', `--user-data-dir=${userDataDir}`, mdPath])
   try {
     const window = await app.firstWindow()
     await expect(window.locator('.tab-name', { hasText: 'pdf-smoke.md' })).toBeVisible()
@@ -465,11 +430,7 @@ test('导出当前文档为一张完整 PNG 长图', async () => {
     'utf-8'
   )
 
-  const app = await electron.launch({
-    args: ['.', `--user-data-dir=${userDataDir}`, mdPath],
-    cwd: projectRoot,
-    env: getLaunchEnv()
-  })
+  const app = await launchApp(['.', `--user-data-dir=${userDataDir}`, mdPath])
   try {
     const window = await app.firstWindow()
     await expect(window.locator('.tab-name', { hasText: 'image-smoke.md' })).toBeVisible()
@@ -593,13 +554,9 @@ test('标签页可以拖拽排序并在重启后保持顺序', async () => {
   writeFileSync(firstPath, '# 第一个\n', 'utf-8')
   writeFileSync(secondPath, '# 第二个\n', 'utf-8')
 
-  const launchOptions = {
-    args: ['.', `--user-data-dir=${userDataDir}`, firstPath, secondPath],
-    cwd: projectRoot,
-    env: getLaunchEnv()
-  }
+  const appArgs = ['.', `--user-data-dir=${userDataDir}`, firstPath, secondPath]
 
-  const app = await electron.launch(launchOptions)
+  const app = await launchApp(appArgs)
   try {
     const window = await app.firstWindow()
     const firstTab = window.locator('.tab', { hasText: 'tab-first.md' })
@@ -624,11 +581,7 @@ test('标签页可以拖拽排序并在重启后保持顺序', async () => {
     await app.close()
   }
 
-  const restored = await electron.launch({
-    args: ['.', `--user-data-dir=${userDataDir}`],
-    cwd: projectRoot,
-    env: getLaunchEnv()
-  })
+  const restored = await launchApp(['.', `--user-data-dir=${userDataDir}`])
   try {
     const window = await restored.firstWindow()
     // 会话恢复是异步的，轮询到顺序稳定为止
@@ -655,11 +608,7 @@ test('切换标签复用预览层并保留滚动位置', async () => {
   writeFileSync(longPath, `# 长文档\n\n${sections.join('\n')}`, 'utf-8')
   writeFileSync(shortPath, '# 短文档\n\n短文档正文\n', 'utf-8')
 
-  const app = await electron.launch({
-    args: ['.', `--user-data-dir=${userDataDir}`, longPath, shortPath],
-    cwd: projectRoot,
-    env: getLaunchEnv()
-  })
+  const app = await launchApp(['.', `--user-data-dir=${userDataDir}`, longPath, shortPath])
   try {
     const window = await app.firstWindow()
     const activePreview = window.locator(

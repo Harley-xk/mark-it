@@ -1,18 +1,8 @@
-import { _electron as electron, expect, test } from '@playwright/test'
+import { expect, test } from '@playwright/test'
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-
-const projectRoot = join(__dirname, '..')
-const appEntry = join(projectRoot, 'out/main/index.js')
-
-function getLaunchEnv(): Record<string, string> {
-  const env: Record<string, string> = {}
-  for (const [key, value] of Object.entries(process.env)) {
-    if (key !== 'ELECTRON_RUN_AS_NODE' && value !== undefined) env[key] = value
-  }
-  return env
-}
+import { appEntry, launchApp } from './support/electron'
 
 interface WindowDisplaySnapshot {
   id: number
@@ -31,13 +21,9 @@ test('标签可迁移到新编辑窗口并随窗口一起恢复', async () => {
   writeFileSync(firstPath, '# 第一个窗口文档\n', 'utf-8')
   writeFileSync(secondPath, '# 第二个窗口文档\n', 'utf-8')
 
-  const launchOptions = {
-    args: ['.', `--user-data-dir=${userDataDir}`, firstPath, secondPath],
-    cwd: projectRoot,
-    env: getLaunchEnv()
-  }
+  const appArgs = ['.', `--user-data-dir=${userDataDir}`, firstPath, secondPath]
 
-  const app = await electron.launch(launchOptions)
+  const app = await launchApp(appArgs)
   try {
     const source = await app.firstWindow()
     await expect(source.locator('.tab-name', { hasText: 'window-first.md' })).toBeVisible()
@@ -74,11 +60,7 @@ test('标签可迁移到新编辑窗口并随窗口一起恢复', async () => {
     await app.close()
   }
 
-  const restored = await electron.launch({
-    args: ['.', `--user-data-dir=${userDataDir}`],
-    cwd: projectRoot,
-    env: getLaunchEnv()
-  })
+  const restored = await launchApp(['.', `--user-data-dir=${userDataDir}`])
   try {
     await expect.poll(() => restored.windows().length).toBe(2)
     await expect
@@ -119,11 +101,7 @@ test('设置窗口可以在多编辑窗口中复用并保持全局单实例', as
   test.skip(!existsSync(appEntry), '请先执行 npm run build 生成 out/main/index.js')
 
   const userDataDir = mkdtempSync(join(tmpdir(), 'markit-e2e-windows-settings-'))
-  const app = await electron.launch({
-    args: ['.', `--user-data-dir=${userDataDir}`],
-    cwd: projectRoot,
-    env: getLaunchEnv()
-  })
+  const app = await launchApp(['.', `--user-data-dir=${userDataDir}`])
 
   try {
     const first = await app.firstWindow()
@@ -158,11 +136,7 @@ test('标签可以通过右键菜单移动到已有编辑窗口', async () => {
   writeFileSync(sourcePath, '# 移到已有窗口\n', 'utf-8')
   writeFileSync(keepPath, '# 留在源窗口\n', 'utf-8')
 
-  const app = await electron.launch({
-    args: ['.', `--user-data-dir=${userDataDir}`, sourcePath, keepPath],
-    cwd: projectRoot,
-    env: getLaunchEnv()
-  })
+  const app = await launchApp(['.', `--user-data-dir=${userDataDir}`, sourcePath, keepPath])
 
   try {
     const source = await app.firstWindow()
@@ -203,11 +177,7 @@ test('全部标签可以合并到已有编辑窗口并关闭源窗口', async ()
   writeFileSync(firstPath, '# 合并第一个\n', 'utf-8')
   writeFileSync(secondPath, '# 合并第二个\n', 'utf-8')
 
-  const app = await electron.launch({
-    args: ['.', `--user-data-dir=${userDataDir}`, firstPath, secondPath],
-    cwd: projectRoot,
-    env: getLaunchEnv()
-  })
+  const app = await launchApp(['.', `--user-data-dir=${userDataDir}`, firstPath, secondPath])
 
   try {
     const source = await app.firstWindow()
@@ -239,11 +209,7 @@ test('拖拽经过其他窗口时可显示目标高亮并正确清除', async ()
   test.skip(!existsSync(appEntry), '请先执行 npm run build 生成 out/main/index.js')
 
   const userDataDir = mkdtempSync(join(tmpdir(), 'markit-e2e-drag-highlight-'))
-  const app = await electron.launch({
-    args: ['.', `--user-data-dir=${userDataDir}`],
-    cwd: projectRoot,
-    env: getLaunchEnv()
-  })
+  const app = await launchApp(['.', `--user-data-dir=${userDataDir}`])
 
   try {
     const source = await app.firstWindow()
@@ -289,11 +255,7 @@ test('常规打开已存在于其他窗口的文件时激活原标签而不是�
   const filePath = join(workDir, 'dedupe.md')
   writeFileSync(filePath, '# 跨窗口去重\n', 'utf-8')
 
-  const app = await electron.launch({
-    args: ['.', `--user-data-dir=${userDataDir}`, filePath],
-    cwd: projectRoot,
-    env: getLaunchEnv()
-  })
+  const app = await launchApp(['.', `--user-data-dir=${userDataDir}`, filePath])
 
   try {
     const source = await app.firstWindow()
@@ -332,11 +294,7 @@ test('标签离开标题栏后释放即可创建新窗口', async () => {
   writeFileSync(firstPath, '# 第一个\n', 'utf-8')
   writeFileSync(secondPath, '# 第二个\n', 'utf-8')
 
-  const app = await electron.launch({
-    args: ['.', `--user-data-dir=${userDataDir}`, firstPath, secondPath],
-    cwd: projectRoot,
-    env: getLaunchEnv()
-  })
+  const app = await launchApp(['.', `--user-data-dir=${userDataDir}`, firstPath, secondPath])
 
   try {
     const source = await app.firstWindow()
@@ -396,11 +354,7 @@ test('标题栏下缘吸附区内的轻微下移仍只执行标签排序', async
   writeFileSync(firstPath, '# 吸附第一个\n', 'utf-8')
   writeFileSync(secondPath, '# 吸附第二个\n', 'utf-8')
 
-  const app = await electron.launch({
-    args: ['.', `--user-data-dir=${userDataDir}`, firstPath, secondPath],
-    cwd: projectRoot,
-    env: getLaunchEnv()
-  })
+  const app = await launchApp(['.', `--user-data-dir=${userDataDir}`, firstPath, secondPath])
 
   try {
     const window = await app.firstWindow()
@@ -432,11 +386,8 @@ test('用户可见工具窗口跟随触发显示器且重复打开不移动', as
   test.skip(!existsSync(appEntry), '请先执行 npm run build 生成 out/main/index.js')
 
   const userDataDir = mkdtempSync(join(tmpdir(), 'markit-e2e-window-placement-'))
-  const app = await electron.launch({
-    args: ['.', `--user-data-dir=${userDataDir}`],
-    cwd: projectRoot,
-    env: getLaunchEnv()
-  })
+  // 本用例通过 getFocusedWindow 校验工具窗口跟随触发显示器，必须保留真实焦点
+  const app = await launchApp(['.', `--user-data-dir=${userDataDir}`], { focusable: true })
 
   try {
     const source = await app.firstWindow()

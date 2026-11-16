@@ -1,18 +1,8 @@
-import { _electron as electron, expect, test } from '@playwright/test'
+import { expect, test } from '@playwright/test'
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-
-const projectRoot = join(__dirname, '..')
-const appEntry = join(projectRoot, 'out/main/index.js')
-
-function getLaunchEnv(): Record<string, string> {
-  const env: Record<string, string> = {}
-  for (const [key, value] of Object.entries(process.env)) {
-    if (key !== 'ELECTRON_RUN_AS_NODE' && value !== undefined) env[key] = value
-  }
-  return env
-}
+import { appEntry, launchApp } from './support/electron'
 
 test('编辑区搜索、循环导航、替换与预览搜索', async () => {
   test.skip(!existsSync(appEntry), '请先执行 npm run build 生成 out/main/index.js')
@@ -22,11 +12,7 @@ test('编辑区搜索、循环导航、替换与预览搜索', async () => {
   const mdPath = join(workDir, 'search.md')
   writeFileSync(mdPath, '# 搜索示例\n\nalpha beta alpha\n\ngamma alpha\n', 'utf-8')
 
-  const app = await electron.launch({
-    args: ['.', `--user-data-dir=${userDataDir}`, mdPath],
-    cwd: projectRoot,
-    env: getLaunchEnv()
-  })
+  const app = await launchApp(['.', `--user-data-dir=${userDataDir}`, mdPath])
 
   try {
     const window = await app.firstWindow()

@@ -1,18 +1,8 @@
-import { _electron as electron, expect, test } from '@playwright/test'
+import { expect, test } from '@playwright/test'
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-
-const projectRoot = join(__dirname, '..')
-const appEntry = join(projectRoot, 'out/main/index.js')
-
-function getLaunchEnv(): Record<string, string> {
-  const env: Record<string, string> = {}
-  for (const [key, value] of Object.entries(process.env)) {
-    if (key !== 'ELECTRON_RUN_AS_NODE' && value !== undefined) env[key] = value
-  }
-  return env
-}
+import { appEntry, launchApp } from './support/electron'
 
 test('不受信任文档的 HTML 不会执行脚本且生产 CSP 生效', async () => {
   test.skip(!existsSync(appEntry), '请先执行 npm run build 生成 out/main/index.js')
@@ -35,11 +25,7 @@ test('不受信任文档的 HTML 不会执行脚本且生产 CSP 生效', async 
     'utf-8'
   )
 
-  const app = await electron.launch({
-    args: ['.', `--user-data-dir=${userDataDir}`, mdPath],
-    cwd: projectRoot,
-    env: getLaunchEnv()
-  })
+  const app = await launchApp(['.', `--user-data-dir=${userDataDir}`, mdPath])
 
   try {
     const window = await app.firstWindow()
@@ -88,11 +74,7 @@ test('生产 CSP 下 Mermaid 图表仍可渲染', async () => {
     'utf-8'
   )
 
-  const app = await electron.launch({
-    args: ['.', `--user-data-dir=${userDataDir}`, mdPath],
-    cwd: projectRoot,
-    env: getLaunchEnv()
-  })
+  const app = await launchApp(['.', `--user-data-dir=${userDataDir}`, mdPath])
 
   try {
     const window = await app.firstWindow()
@@ -122,11 +104,7 @@ test('生产 CSP 下 markit-file 本地图片仍可加载', async () => {
   writeFileSync(imagePath, Buffer.from(pixelPng, 'base64'))
   writeFileSync(mdPath, '![本地图片](./pixel.png)\n', 'utf-8')
 
-  const app = await electron.launch({
-    args: ['.', `--user-data-dir=${userDataDir}`, mdPath],
-    cwd: projectRoot,
-    env: getLaunchEnv()
-  })
+  const app = await launchApp(['.', `--user-data-dir=${userDataDir}`, mdPath])
 
   try {
     const window = await app.firstWindow()
