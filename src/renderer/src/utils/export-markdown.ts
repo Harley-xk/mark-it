@@ -8,6 +8,7 @@
 import { buildPeleThemeVariables, type DiagramThemeTokens } from './diagram-theme'
 import { renderDiagramSvg } from './diagram-renderer'
 import { collectMermaidBlocks, formatMermaidError } from './mermaid'
+import { sanitizeMarkdownHtml } from './sanitize'
 
 export interface ExportMermaidOptions {
   theme: DiagramThemeTokens
@@ -21,10 +22,12 @@ export async function renderMermaidDiagramsForExport(
   html: string,
   options: ExportMermaidOptions
 ): Promise<string> {
+  // 导出 HTML 会先在编辑窗口内解析，必须与预览共用同一套清洗规则
+  const sanitized = sanitizeMarkdownHtml(html)
   const container = document.createElement('div')
-  container.innerHTML = html
+  container.innerHTML = sanitized
   const blocks = collectMermaidBlocks(container)
-  if (blocks.length === 0) return html
+  if (blocks.length === 0) return sanitized
 
   if (document.fonts) {
     try {

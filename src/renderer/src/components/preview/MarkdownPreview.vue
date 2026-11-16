@@ -25,6 +25,7 @@ import { installLocalImageRule, resolveImageSrc, resolveLocalPath } from '../../
 import { installHeadingAnchors } from '../../utils/headings'
 import { installLinkTitles } from '../../utils/link-title'
 import { createMarkdownRenderer } from '../../utils/markdown'
+import { sanitizeMarkdownHtml } from '../../utils/sanitize'
 import { collectPreviewRanges } from '../../utils/search'
 import { LruCache } from '../../utils/lru-cache'
 import SearchPanel from '../common/SearchPanel.vue'
@@ -127,7 +128,8 @@ function previewHtmlFor(doc: DocumentTab): string {
   const { entries, body } = parseFrontmatter(doc.content)
   // frontmatter 不再作为 YAML 文本渲染，改为顶部的文档信息表格
   const frontmatter = entries.length > 0 ? renderFrontmatterTable(entries) : ''
-  const html = frontmatter + md.render(body)
+  // 文档内容可能来自不受信任的来源：进入 preview 层与缓存前统一清洗
+  const html = sanitizeMarkdownHtml(frontmatter + md.render(body))
   htmlCache.set(doc.id, { content: doc.content, path: doc.path, html })
   return html
 }

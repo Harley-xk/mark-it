@@ -8,6 +8,7 @@ import { parseFrontmatter, renderFrontmatterTable } from '../utils/frontmatter'
 import { installLocalImageRule } from '../utils/local-image'
 import { installHeadingAnchors, parseHeadings, type ParsedHeading } from '../utils/headings'
 import { createMarkdownRenderer } from '../utils/markdown'
+import { EXPORT_CONTENT_SECURITY_POLICY } from '../utils/sanitize'
 import type { PdfExportOptions } from '../types'
 
 interface UsePdfExport {
@@ -98,6 +99,7 @@ export function usePdfExport(): UsePdfExport {
 <html>
 <head>
 <meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="${EXPORT_CONTENT_SECURITY_POLICY}">
 <style>
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; color: #222; line-height: 1.7; margin: 0; padding: 0; max-width: 100%; }
   h1 { font-size: 2em; border-bottom: 1px solid #ddd; padding-bottom: 0.3em; }

@@ -1,4 +1,14 @@
-import { app, shell, BrowserWindow, dialog, screen, protocol, net, nativeTheme } from 'electron'
+import {
+  app,
+  shell,
+  BrowserWindow,
+  dialog,
+  screen,
+  protocol,
+  net,
+  nativeTheme,
+  session
+} from 'electron'
 import type { IpcMainInvokeEvent, WebContents } from 'electron'
 import { dirname, join } from 'path'
 import { fileURLToPath, pathToFileURL } from 'url'
@@ -85,9 +95,7 @@ protocol.registerSchemesAsPrivileged([
     privileges: {
       standard: true,
       secure: true,
-      supportFetchAPI: true,
-      stream: true,
-      bypassCSP: true
+      stream: true
     }
   }
 ])
@@ -691,7 +699,7 @@ function createEditorWindow(options: CreateEditorWindowOptions = {}): EditorWind
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false
+      sandbox: true
     }
   })
 
@@ -1324,6 +1332,18 @@ function revealPath(targetPath: string): boolean {
   return false
 }
 
+/**
+ * 隐藏任务窗口（PDF / 长图导出）的兜底：拒绝新窗口，并阻止页面发起的任何导航。
+ * 这些窗口加载的是用户文档生成的 HTML，即使清洗失效也不能被导航到外部地址。
+ */
+function hardenTaskWindow(win: BrowserWindow): void {
+  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  win.webContents.on('will-navigate', (event, url) => {
+    if (isAppUrl(url)) return
+    event.preventDefault()
+  })
+}
+
 /** 按链接类型分流：网络地址交给默认浏览器，file:// 定位到文件所在目录 */
 function openLinkExternally(url: string): boolean {
   try {
@@ -1640,10 +1660,13 @@ registerHandle(
       height: 1100,
       show: false,
       webPreferences: {
-        sandbox: false,
+        nodeIntegration: false,
+        contextIsolation: true,
+        sandbox: true,
         backgroundThrottling: false
       }
     })
+    hardenTaskWindow(pdfWin)
     // 写入临时文件后 loadFile，避免超大内容塞进 data: URL 触发长度 / 内存问题
     const tempHtmlPath = join(app.getPath('temp'), `markit-pdf-${randomUUID()}.html`)
 
@@ -1765,6 +1788,7 @@ registerHandle(
         backgroundThrottling: false
       }
     })
+    hardenTaskWindow(imageWin)
     const tempHtmlPath = join(app.getPath('temp'), `markit-image-${randomUUID()}.html`)
 
     try {
@@ -2044,6 +2068,13 @@ if (!gotTheLock) {
 
   app.whenReady().then(() => {
     electronApp.setAppUserModelId('com.harley.markit')
+
+    // 渲染进程不需要系统权限：默认拒绝摄像头、麦克风、地理位置等请求。
+    // 不受信任的 Markdown 即使出现脚本，也不应能触发系统授权。
+    session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) => {
+      callback(false)
+    })
+    session.defaultSession.setPermissionCheckHandler(() => false)
 
     // 预览中的相对路径图片：markit-file://local/?p=<绝对路径>
     protocol.handle(LOCAL_FILE_SCHEME, (request) => {

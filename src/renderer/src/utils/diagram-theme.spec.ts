@@ -31,4 +31,11 @@ describe('图表主题 token', () => {
     expect(config.sequence?.useMaxWidth).toBe(false)
     expect(config.themeVariables.background).toBe(theme.background)
   })
+
+  it('Mermaid 使用 strict 安全等级，禁止图表内注入 HTML 与 click 回调', () => {
+    const config = buildMermaidConfig(getDiagramTheme(false), 'Test Sans')
+
+    expect(config.securityLevel).toBe('strict')
+    expect(config.htmlLabels).toBe(false)
+  })
 })

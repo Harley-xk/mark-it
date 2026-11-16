@@ -1,6 +1,49 @@
 import { resolve } from 'path'
 import { defineConfig } from 'electron-vite'
 import vue from '@vitejs/plugin-vue'
+import type { Plugin } from 'vite'
+
+/**
+ * 生产环境的 CSP。开发模式不注入，避免 Vite HMR 的 WebSocket 与内联样式被拦截；
+ * 预览主题通过动态创建的 <style> 注入，因此 style-src 必须保留 'unsafe-inline'。
+ */
+const CONTENT_SECURITY_POLICY = [
+  "default-src 'none'",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob: file: markit-file: https: http:",
+  "font-src 'self' data:",
+  "media-src 'self' markit-file: data: blob:",
+  "connect-src 'self'",
+  "worker-src 'self' blob:",
+  "object-src 'none'",
+  "frame-src 'none'",
+  "base-uri 'none'",
+  "form-action 'none'"
+].join('; ')
+
+/** 向三个渲染入口注入生产 CSP，只在 electron-vite build 时生效 */
+function productionCspPlugin(): Plugin {
+  return {
+    name: 'markit-production-csp',
+    apply: 'build',
+    transformIndexHtml(html) {
+      return {
+        html,
+        tags: [
+          {
+            tag: 'meta',
+            attrs: {
+              'http-equiv': 'Content-Security-Policy',
+              content: CONTENT_SECURITY_POLICY
+            },
+            injectTo: 'head-prepend'
+          }
+        ]
+      }
+    }
+  }
+}
 
 export default defineConfig({
   main: {
@@ -18,7 +61,7 @@ export default defineConfig({
         '@resources': resolve('resources')
       }
     },
-    plugins: [vue()],
+    plugins: [vue(), productionCspPlugin()],
     build: {
       rollupOptions: {
         input: {

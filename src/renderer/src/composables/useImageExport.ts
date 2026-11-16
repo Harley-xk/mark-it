@@ -19,6 +19,7 @@ import { normalizeImageExportSettings } from '../utils/image-export-settings'
 import { installLinkTitles } from '../utils/link-title'
 import { installLocalImageRule } from '../utils/local-image'
 import { createMarkdownRenderer } from '../utils/markdown'
+import { EXPORT_CONTENT_SECURITY_POLICY } from '../utils/sanitize'
 import imageExportCss from '../styles/export/image-export.css?raw'
 
 interface UseImageExport {
@@ -91,6 +92,7 @@ export function useImageExport(): UseImageExport {
 >
 <head>
 <meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="${EXPORT_CONTENT_SECURITY_POLICY}">
 <style>${themeCss}</style>
 <style>${imageExportCss}</style>
 </head>

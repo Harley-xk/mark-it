@@ -2,7 +2,7 @@
 title: MarkIt 使用手册
 version: 1.3.2
 author: MarkIt Team
-updated: 2026-11-10
+updated: 2026-11-16
 tags: markdown, mermaid, 编辑器, 使用手册
 description: |
   本文档随应用内置，既是 MarkIt 的操作指南，
@@ -305,6 +305,8 @@ npm run build:win
 
 Markdown 中可以直接写入 HTML，例如 <kbd>Ctrl</kbd> + <kbd>S</kbd> 这样的按键提示，或用 <mark>高亮标记</mark> 强调一段内容。
 
+为了安全，预览只保留 HTML 的安全子集：脚本、事件属性（如 `onclick`）、`iframe`、表单与 `<style>` 标签会被移除；`<kbd>`、`<mark>`、表格与内联 `style` 属性等常用写法不受影响。PDF 与长图导出遵循同一规则。
+
 ### 3.10 分隔线与换行
 
 三条或更多 `-`、`*`、`_` 会渲染为分隔线：
@@ -343,6 +345,8 @@ frontmatter 同时会影响大纲解析：正文标题从属性块之后开始�
 ## 5. Mermaid 图表大全
 
 MarkIt 会自动渲染 Mermaid 代码块。代码块的语言标记不必写成 `mermaid`，也可以直接写图表类型，并兼容大小写与 `-beta` / `-v2` 后缀。
+
+出于安全考虑，图表中的交互式 `click` 语法不会生效，图表只作为静态图形展示。
 
 图表优先使用 Pele 统一排版与配色，无法处理时自动回退到 Mermaid；流程图、饼图、雷达图、柱状图等会共享同一套深浅主题。切换应用主题或预览样式后，图表会立即按新主题重绘。
 

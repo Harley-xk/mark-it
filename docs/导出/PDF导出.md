@@ -4,10 +4,10 @@
 
 ## 1. 入口与交互
 
-| 入口            | 位置                                                                               | 行为                                                                                                                                                                              |
-| --------------- | ---------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 快捷键 `Ctrl+P` | [useKeyboardShortcuts.ts](../../src/renderer/src/composables/useKeyboardShortcuts.ts) | `isCtrl(e) && !e.shiftKey && e.key === 'p'` 时 `preventDefault()` 并置 `app.showPdfDialog = true`                                                                                 |
-| 工具栏按钮      | [Toolbar.vue](../../src/renderer/src/components/layout/Toolbar.vue)                   | 按钮 `title="导出 PDF (Ctrl+P)"`，点击同样置 `app.showPdfDialog = true`                                                                                                           |
+| 入口            | 位置                                                                                  | 行为                                                                                                                                                                                 |
+| --------------- | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 快捷键 `Ctrl+P` | [useKeyboardShortcuts.ts](../../src/renderer/src/composables/useKeyboardShortcuts.ts) | `isCtrl(e) && !e.shiftKey && e.key === 'p'` 时 `preventDefault()` 并置 `app.showPdfDialog = true`                                                                                    |
+| 工具栏按钮      | [Toolbar.vue](../../src/renderer/src/components/layout/Toolbar.vue)                   | 按钮 `title="导出 PDF (Ctrl+P)"`，点击同样置 `app.showPdfDialog = true`                                                                                                              |
 | 对话框          | [PdfExportDialog.vue](../../src/renderer/src/components/export/PdfExportDialog.vue)   | 在 [AppLayout.vue](../../src/renderer/src/components/layout/AppLayout.vue) 中挂载，`@export` 交由 `usePdfExport().exportPdf` 执行，异常处 `console.error('PDF export failed:', err)` |
 
 对话框的显示由 Pinia 的 `app.showPdfDialog` 直接控制；`AppLayout` 只额外传入 `exporting`，组件内部不再声明未使用的 `visible` prop。
@@ -74,9 +74,9 @@ interface PdfExportOptions {
 3. `parseFrontmatter(editor.content)` 拆分出 frontmatter 条目与正文；
 4. `showToc` 为真时用 `parseHeadings(body)` 生成目录（`renderToc`），目录项链接到 `#heading-N`；
 5. `showFrontmatter` 为真且文档含 frontmatter 时，用 `renderFrontmatterTable(entries)` 生成「文档信息」表格 HTML；
-6. `md.render(body)` 渲染正文，按「目录 → frontmatter 表格（可选）→ 正文」拼接；
-7. `renderDiagramsToSvg(htmlBody)`：把 HTML 放进临时的 `div`，用 `collectMermaidBlocks` 找出图表代码块，逐块调用共享 `renderDiagramSvg()`。渲染器优先 Pele，失败后回退 Mermaid 12 + ELK，再用居中的 `div` 替换 `<pre>`；
-8. 套入内联的 HTML 模板（`<!DOCTYPE html>` + `<style>` + `<body>`），所有 CSS 内联，不引用外部资源；
+6. `md.render(body)` 渲染正文，按「目录 → frontmatter 表格（可选）→ 正文」拼接；拼接结果在进入后续步骤前统一经过 `sanitizeMarkdownHtml` 清洗，脚本、事件属性、`iframe` 与表单等不受信任内容被移除；
+7. `renderMermaidDiagramsForExport(htmlBody)`：把清洗后的 HTML 放进临时的 `div`，用 `collectMermaidBlocks` 找出图表代码块，逐块调用共享 `renderDiagramSvg()`。渲染器优先 Pele，失败后回退 Mermaid 12 + ELK，再用居中的 `div` 替换 `<pre>`；该 helper 内部会再次清洗输入，保证 PDF 与长图两条管线都不会绕过；
+8. 套入内联的 HTML 模板（`<!DOCTYPE html>` + `<style>` + `<body>`），所有 CSS 内联，不引用外部资源；模板 `<head>` 带 `script-src 'none'` 的 CSP，临时文件即使被加载也不会执行脚本；
 9. `window.api.exportPdf(html, options)` → preload `invoke('export:pdf')`。
 
 PDF 固定使用浅色 `DiagramThemeTokens`，并把同一组 token 映射到 Pele CSS 变量或 Mermaid `themeVariables`。共享渲染器负责等待字体、首选 Pele、失败回退 Mermaid 和串行化 Mermaid 全局状态。单块渲染失败时保留代码块并追加可见提示（见 6.2）。
@@ -87,7 +87,7 @@ PDF 固定使用浅色 `DiagramThemeTokens`，并把同一组 token 映射到 Pe
 
 1. `dialog.showSaveDialog(发起导出的编辑窗口, { defaultPath, filters })`：父窗口按 IPC 发送方定位；`defaultPath` 由 `options.fileName` 清洗非法字符并补齐 `.pdf`；当前文档有磁盘路径（`options.sourcePath`）时，组合为文档所在目录下的绝对路径，保证文件名输入框预填当前文档名；取消返回 `null`。
 2. 校验 HTML 体积：超过 64MB 时用 `dialog.showErrorBox` 明确提示并抛错，避免隐藏窗口因内存压力崩溃。
-3. 创建 `BrowserWindow({ width: 800, height: 1100, show: false, webPreferences: { sandbox: false } })`。
+3. 创建 `BrowserWindow({ width: 800, height: 1100, show: false, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false } })`，并拒绝导航与新窗口。
 4. 把 HTML 写入系统临时目录的 `markit-pdf-<uuid>.html`，用 `loadFile` 加载——不再把内容塞进 `data:` URL，规避 URL 长度与内存问题。
 5. `executeJavaScript` 注入一段 Promise：等待 `document.images` 中所有图片（已 `complete` 的直接放行，否则监听一次 `load` 或 `error`，**加载失败也 resolve**），再等待 `document.fonts.ready` 与两帧 `requestAnimationFrame`。
 6. 固定等待 `1500ms` 只作为**兜底上限**（`Promise.race`），正常情况下图片与字体就绪后立即继续（见 6.3）。
@@ -241,7 +241,8 @@ PDF 中链接的具体行为：markdown-it 输出的 `<a href>` 原样保留，�
 
 ### 6.6 隐藏窗口的沙箱配置
 
-- `sandbox: false`：该页面只加载本地生成的 HTML，但运行在较宽松的沙箱配置下，可评估收紧为默认沙箱。
+- `sandbox: true`：导出页面只加载本地生成的 HTML，不需要 Node 能力；隐藏窗口同时显式关闭 `nodeIntegration`、开启 `contextIsolation`，并拒绝导航与新窗口。
+- `executeJavaScript` 由主进程注入，不受页面 CSP 的 `script-src` 限制，仍可正常等待图片与字体；该行为由 PDF 导出回归用例确认。
 
 ## 7. 失败与取消路径
 
@@ -272,16 +273,17 @@ PDF 涉及隐藏窗口、系统保存对话框与打印引擎，仍以手工验�
 10. **默认文件名**：当前文档为 `示例.md` 时，保存对话框默认文件名为 `示例.pdf` 且定位到该文档所在目录；未保存的新建文档回退为 `untitled.pdf`；含非法字符的文档名会被清洗。
 11. **加载态 / 防重入**：点击「导出」后选项对话框收束到状态栏；状态栏依次显示阶段、百分比和流动进度条；导出完成后显示「导出成功」并在约 3 秒后消失；导出期间再次按 `Ctrl+P` 不会叠加导出任务。
 12. **取消路径**：在系统保存对话框点取消，确认应用不崩溃、状态栏无残留提示；再次导出可正常完成。
-13. **主题**：分别用深色与浅色主题导出，确认两次结果一致（PDF 固定浅色），且对话框有对应提示。
-14. **异常恢复**：连续触发 3 次导出失败（例如临时改为无效打印参数），确认进程内不残留隐藏窗口，系统临时目录也不残留 `markit-pdf-*.html`。
-15. **减少动态效果**：开启系统减少动态效果后重复导出，确认对话框直接关闭、状态栏进度仍正常。
-16. **多窗口隔离**：两个窗口同时导出不同文档，确认各自只更新自己的状态栏。
-17. **单元测试**：改动 `usePdfExport` 共享的纯函数（标题、frontmatter、本地图片、Mermaid 识别）后执行 `npm test`，确认对应 `*.spec.ts` 通过。
+13. **不受信任内容**：在文档中加入 `<img src=x onerror="document.body.innerHTML='PWNED'">` 与 `<script>document.body.innerHTML='PWNED'</script>`，导出 PDF；确认产物正文没有被替换、没有脚本执行痕迹，其余内容完整。该场景同时用于验证 CSP `script-src 'none'` 与清洗逻辑。
+14. **主题**：分别用深色与浅色主题导出，确认两次结果一致（PDF 固定浅色），且对话框有对应提示。
+15. **异常恢复**：连续触发 3 次导出失败（例如临时改为无效打印参数），确认进程内不残留隐藏窗口，系统临时目录也不残留 `markit-pdf-*.html`。
+16. **减少动态效果**：开启系统减少动态效果后重复导出，确认对话框直接关闭、状态栏进度仍正常。
+17. **多窗口隔离**：两个窗口同时导出不同文档，确认各自只更新自己的状态栏。
+18. **单元测试**：改动 `usePdfExport` 共享的纯函数（标题、frontmatter、本地图片、Mermaid 识别）后执行 `npm test`，确认对应 `*.spec.ts` 通过。
 
 ## 9. 相关文件
 
-| 文件                                                                                                                  | 职责                                                             |
-| --------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| 文件                                                                                                                     | 职责                                                             |
+| ------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------- |
 | [src/shared/pdf-types.ts](../../src/shared/pdf-types.ts)                                                                 | `PdfExportOptions` 等跨进程共享类型                              |
 | [src/renderer/src/components/export/PdfExportDialog.vue](../../src/renderer/src/components/export/PdfExportDialog.vue)   | 导出选项对话框（纸张 / 边距 / 页码 / 目录 / 文档信息）与加载态   |
 | [src/renderer/src/composables/usePdfExport.ts](../../src/renderer/src/composables/usePdfExport.ts)                       | PDF 渲染管线、目录生成、共享图表渲染、内联打印 CSS 模板          |
@@ -301,6 +303,6 @@ PDF 涉及隐藏窗口、系统保存对话框与打印引擎，仍以手工验�
 | [src/renderer/src/utils/mermaid.ts](../../src/renderer/src/utils/mermaid.ts)                                             | Mermaid 代码块识别（PDF 复用同一白名单）                         |
 | [src/renderer/src/utils/diagram-theme.ts](../../src/renderer/src/utils/diagram-theme.ts)                                 | 图表深浅 token、Mermaid 配置与 Pele CSS 变量                     |
 | [src/renderer/src/utils/diagram-renderer.ts](../../src/renderer/src/utils/diagram-renderer.ts)                           | Pele 首选、Mermaid 回退与串行化渲染                              |
-| [docs/编辑与预览/Mermaid图表与导出.md](../编辑与预览/Mermaid图表与导出.md)                                                                     | 图表识别、交互与导出细节                                         |
-| [docs/编辑与预览/图表渲染升级方案.md](../编辑与预览/图表渲染升级方案.md)                                                                       | Pele + Mermaid 双渲染架构、主题与后续阶段设计                    |
-| [docs/文件与窗口/窗口放置与单实例规则.md](../文件与窗口/窗口放置与单实例规则.md)                                                               | 导出选项窗口独立化时的显示器归属与重复打开规则                   |
+| [docs/编辑与预览/Mermaid图表与导出.md](../编辑与预览/Mermaid图表与导出.md)                                               | 图表识别、交互与导出细节                                         |
+| [docs/编辑与预览/图表渲染升级方案.md](../编辑与预览/图表渲染升级方案.md)                                                 | Pele + Mermaid 双渲染架构、主题与后续阶段设计                    |
+| [docs/文件与窗口/窗口放置与单实例规则.md](../文件与窗口/窗口放置与单实例规则.md)                                         | 导出选项窗口独立化时的显示器归属与重复打开规则                   |

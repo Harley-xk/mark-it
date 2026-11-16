@@ -15,7 +15,7 @@ import {
   parseChannelVersion,
   selectUpdateCandidate
 } from './update-channel'
-import { registerHandle, registerOn } from './ipc-guard'
+import { isAppUrl, registerHandle, registerOn } from './ipc-guard'
 import { isSettingsWindowSender } from './settings-window'
 import { activateWindow, applyWindowPlacement, resolveWindowPlacement } from './window-placement'
 import { APPHUB_APP_KEY, APPHUB_BASE_URL } from './apphub-config'
@@ -477,12 +477,18 @@ function openUpdateWindow(sourceWindow?: BrowserWindow | null): void {
     title: 'MarkIt 更新',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false
+      sandbox: true
     }
   })
 
   // 混合缩放显示器下构造参数会被二次换算，创建后按 DIP 几何校正一次
   applyWindowPlacement(updateWindow, placement)
+
+  updateWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  updateWindow.webContents.on('will-navigate', (event, url) => {
+    if (isAppUrl(url)) return
+    event.preventDefault()
+  })
 
   updateWindow.once('ready-to-show', () => activateWindow(updateWindow))
   updateWindow.on('closed', () => {

@@ -185,7 +185,7 @@ function buildMermaidThemeCss(theme: DiagramThemeTokens): string {
 export function buildMermaidConfig(theme: DiagramThemeTokens, fontFamily: string): MermaidConfig {
   return {
     startOnLoad: false,
-    securityLevel: 'loose',
+    securityLevel: 'strict',
     suppressErrorRendering: true,
     theme: 'base',
     look: 'neo',

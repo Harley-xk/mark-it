@@ -9,6 +9,7 @@ import type { WebContents } from 'electron'
 import { join } from 'path'
 import { is } from '@electron-toolkit/utils'
 import { activateWindow, applyWindowPlacement, resolveWindowPlacement } from './window-placement'
+import { isAppUrl } from './ipc-guard'
 
 let settingsWindow: BrowserWindow | null = null
 
@@ -63,7 +64,7 @@ export function openSettingsWindow(sourceWindow?: BrowserWindow | null): void {
     backgroundMaterial: 'acrylic',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false
+      sandbox: true
     }
   })
 
@@ -80,6 +81,10 @@ export function openSettingsWindow(sourceWindow?: BrowserWindow | null): void {
   })
 
   settingsWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  settingsWindow.webContents.on('will-navigate', (event, url) => {
+    if (isAppUrl(url)) return
+    event.preventDefault()
+  })
 
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
     void settingsWindow.loadURL(`${process.env['ELECTRON_RENDERER_URL']}/settings.html`)
