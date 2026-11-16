@@ -12,13 +12,23 @@ import {
 import type { IpcMainInvokeEvent, WebContents } from 'electron'
 import { dirname, join } from 'path'
 import { fileURLToPath, pathToFileURL } from 'url'
-import { readFile, rename, rm, writeFile } from 'fs/promises'
+import { rename, rm, writeFile } from 'fs/promises'
 import { randomUUID } from 'crypto'
 import { existsSync, readFileSync, watchFile, unwatchFile } from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import type { PdfExportOptions } from '../shared/pdf-types'
 import type { ImageExportFormat, ImageExportOptions } from '../shared/image-types'
+import type {
+  FileOpenFailure,
+  FileReadResult,
+  FileSaveResponse,
+  OpenFilesResponse
+} from '../shared/file-types'
+import type { RendererErrorReport } from '../shared/diagnostics-types'
+import { readTextFile, writeTextFile, type FileIoPolicy } from './file-io'
+import { isTrustedPath, registerTrustedPath, startupDirectories } from './path-guard'
+import { exportDiagnostics, installLogger, reportRendererError } from './logger'
 import type { ExportKind, ExportProgress } from '../shared/export-types'
 import {
   createImageExportResult,
@@ -80,6 +90,44 @@ if (!app.isPackaged && !app.commandLine.hasSwitch('user-data-dir')) {
   app.setPath('userData', join(app.getPath('appData'), 'mark-it-dev'))
 }
 
+// 日志尽早安装，捕获启动阶段的异常；写到独立 userData 目录下的 logs/
+installLogger()
+
+/** 用户通过打开 / 保存 / 会话恢复接触过的文件路径；只保存在内存中 */
+const trustedFilePaths = new Set<string>()
+/** 会话恢复只信任文档扩展名，避免损坏的会话文件变成任意路径白名单 */
+const DOCUMENT_FILE_EXTENSION = /\.(?:md|markdown|txt)$/i
+
+/** 写入这些目录会形成持久化或破坏安装的风险，打包产物中一律拒绝 */
+function buildProtectedRoots(): string[] {
+  const roots = [
+    ...startupDirectories(process.platform, app.getPath('home'), app.getPath('appData'))
+  ]
+  if (app.isPackaged) {
+    roots.push(app.getAppPath(), dirname(process.execPath), process.resourcesPath)
+  }
+  return roots
+}
+
+function getFileIoPolicy(): FileIoPolicy {
+  return {
+    platform: process.platform,
+    trustedPaths: trustedFilePaths,
+    protectedRoots: buildProtectedRoots()
+  }
+}
+
+function trustFile(filePath: string | null | undefined): void {
+  registerTrustedPath(trustedFilePaths, filePath, process.platform)
+}
+
+/** 只登记扩展名合法的文档路径（会话恢复 / 标签迁移） */
+function trustDocumentFile(filePath: string | null | undefined): void {
+  if (typeof filePath === 'string' && DOCUMENT_FILE_EXTENSION.test(filePath)) {
+    trustFile(filePath)
+  }
+}
+
 /**
  * 文档内相对路径图片的自定义协议。
  * 渲染进程把本地绝对路径编码到查询参数里，主进程据此读取文件，
@@ -115,6 +163,8 @@ interface EditorWindowContext {
   pendingTransferId: string | null
   pendingIncomingTransfer: TabTransferPayload | null
   openFilePaths: Set<string>
+  /** 渲染进程就绪前暂存的打开失败项，ready 后补发 */
+  pendingOpenIssues: FileOpenFailure[]
 }
 
 interface PendingTabTransfer {
@@ -266,6 +316,7 @@ function initializePersistedState(): void {
           if (id === 'legacy' || usedIds.has(id)) id = randomUUID()
           usedIds.add(id)
           sessionWindows.set(id, { tabs: window.tabs, activeIndex: window.activeIndex })
+          for (const tab of window.tabs) trustDocumentFile(tab.path)
         }
         sessionFileData = {
           version: 2,
@@ -435,13 +486,22 @@ function findEditorWindowForOpenPath(filePath: string): EditorWindowContext | nu
   return null
 }
 
-function deliverOpenFile(context: EditorWindowContext, filePath: string, content: string): void {
+function deliverOpenFile(context: EditorWindowContext, file: FileReadResult): void {
   focusEditorWindow(context)
   if (!context.rendererReady || context.win.isDestroyed()) {
-    queueFileForWindow(context, filePath)
+    queueFileForWindow(context, file.path)
     return
   }
-  context.win.webContents.send('open-file-from-argv', { path: filePath, content })
+  context.win.webContents.send('open-file-from-argv', file)
+}
+
+/** 读取失败推给渲染进程；窗口未就绪时进入该窗口的失败队列 */
+function deliverOpenError(context: EditorWindowContext, failure: FileOpenFailure): void {
+  if (!context.rendererReady || context.win.isDestroyed()) {
+    context.pendingOpenIssues.push(failure)
+    return
+  }
+  context.win.webContents.send('file:open-error', [failure])
 }
 
 /**
@@ -449,23 +509,27 @@ function deliverOpenFile(context: EditorWindowContext, filePath: string, content
  * 窗口注册好监听前先缓存在该窗口自己的队列，避免多窗口互相抢文件。
  */
 async function openFileAtPath(filePath: string, target?: EditorWindowContext): Promise<void> {
-  try {
-    const content = await readFile(filePath, 'utf-8')
-    const context =
-      findEditorWindowForOpenPath(filePath) ??
-      target ??
-      getFocusedEditorWindow() ??
-      createEditorWindow()
-    if (!context) return
-    // 读取期间页面可能开始重载，此时发送会丢，重新排队等下一次 ready
-    if (!editorWindows.get(context.webContentsId)?.rendererReady || context.win.isDestroyed()) {
-      queueFileForWindow(context, filePath)
-      return
-    }
-    deliverOpenFile(context, filePath, content)
-  } catch (err) {
-    console.error('Failed to open file from argv:', err)
+  const context =
+    findEditorWindowForOpenPath(filePath) ??
+    target ??
+    getFocusedEditorWindow() ??
+    createEditorWindow()
+  if (!context) return
+
+  trustFile(filePath)
+  const result = await readTextFile(filePath, getFileIoPolicy())
+  if (!result.ok) {
+    console.error('Failed to open file from argv:', filePath, result.error.message)
+    deliverOpenError(context, { path: filePath, error: result.error })
+    return
   }
+
+  // 读取期间页面可能开始重载，此时发送会丢，重新排队等下一次 ready
+  if (!editorWindows.get(context.webContentsId)?.rendererReady || context.win.isDestroyed()) {
+    queueFileForWindow(context, filePath)
+    return
+  }
+  deliverOpenFile(context, result.file)
 }
 
 /** 按传入顺序依次打开（多个文件时最后一个是激活标签） */
@@ -522,13 +586,30 @@ async function pushExternalChange(
   filePath: string,
   seq: number
 ): Promise<void> {
-  let content: string
-  try {
-    content = await readFile(filePath, 'utf-8')
-  } catch {
-    // 文件被删除或在保存瞬间暂时不可读：保留编辑器现有内容，等下一次事件
+  const result = await readTextFile(filePath, getFileIoPolicy())
+  if (!result.ok) {
+    // 文件被删除时主动通知标签显示缺失；其他读取失败保留现有内容等下一次事件
+    if (
+      result.error.code === 'not-found' &&
+      seq === context.watchSeq &&
+      context.watchedFilePath &&
+      sameFilePath(filePath, context.watchedFilePath) &&
+      !context.win.isDestroyed()
+    ) {
+      // 清掉已知内容，文件以相同内容重建时也能触发一次外部变更事件来清除缺失标记
+      context.watchedContent = null
+      context.win.webContents.send('file:missing', { path: filePath })
+    }
     return
   }
+  // 编码不受支持 / 超大文件不推送，保留编辑器现有内容
+  if (result.file.readOnly) return
+  // TextDecoder 会剥离 UTF-8 BOM；这里补回，保证与写盘时 watchedContent 的可比性，
+  // 同时让渲染进程能继续通过 decodeText 识别 BOM
+  const content =
+    result.file.encoding === 'utf-8-bom'
+      ? String.fromCharCode(0xfeff) + result.file.content
+      : result.file.content
   // 读取期间可能已经切换了监视目标，丢弃过期结果
   if (
     seq !== context.watchSeq ||
@@ -728,7 +809,8 @@ function createEditorWindow(options: CreateEditorWindowOptions = {}): EditorWind
     saveStateTimer: null,
     pendingTransferId: options.pendingTransfer?.transferId ?? null,
     pendingIncomingTransfer: options.pendingTransfer ?? null,
-    openFilePaths: new Set()
+    openFilePaths: new Set(),
+    pendingOpenIssues: []
   }
   editorWindows.set(context.webContentsId, context)
   editorWindowIds.set(windowId, context.webContentsId)
@@ -1270,7 +1352,9 @@ async function moveTabToNewWindow(
   payload: unknown
 ): Promise<TabTransferResult | null> {
   const transfer = normalizeTabTransferPayload(payload)
-  return transfer ? startTabTransfer(source, transfer, null) : null
+  if (!transfer) return null
+  trustDocumentFile(transfer.tab.path)
+  return startTabTransfer(source, transfer, null)
 }
 
 async function moveTabToTargetWindow(
@@ -1280,6 +1364,7 @@ async function moveTabToTargetWindow(
 ): Promise<TabTransferResult | null> {
   const transfer = normalizeTabTransferPayload(payload)
   if (!transfer) return null
+  trustDocumentFile(transfer.tab.path)
   const forceNew =
     !!options &&
     typeof options === 'object' &&
@@ -1297,6 +1382,7 @@ async function moveTabToWindow(
   if (typeof targetWindowId !== 'string') return null
   const transfer = normalizeTabTransferPayload(payload)
   if (!transfer) return null
+  trustDocumentFile(transfer.tab.path)
   const targetSenderId = editorWindowIds.get(targetWindowId)
   const target = targetSenderId ? editorWindows.get(targetSenderId) : undefined
   if (!target || target.id === source.id || !target.rendererReady || target.pendingTransferId) {
@@ -1381,62 +1467,77 @@ registerOn('renderer:ready', (event) => {
   const context = getEditorWindowBySender(event.sender)
   if (!context) return
   context.rendererReady = true
+  const issues = context.pendingOpenIssues.splice(0)
+  if (issues.length > 0) context.win.webContents.send('file:open-error', issues)
   const queued = context.pendingFilePaths.splice(0)
   if (queued.length > 0) void openFilesAtPaths(queued, context)
 })
 
-registerHandle('dialog:openFiles', async (event) => {
+registerHandle('dialog:openFiles', async (event): Promise<OpenFilesResponse> => {
   const parent = windowForSender(event)
-  if (!parent) return []
+  if (!parent) return { files: [], failures: [] }
   const result = await dialog.showOpenDialog(parent, {
     properties: ['openFile', 'multiSelections'],
     filters: [{ name: 'Markdown', extensions: ['md', 'markdown', 'txt'] }]
   })
-  if (result.canceled || result.filePaths.length === 0) return []
+  if (result.canceled || result.filePaths.length === 0) return { files: [], failures: [] }
 
-  const files: { path: string; content: string }[] = []
+  const files: FileReadResult[] = []
+  const failures: FileOpenFailure[] = []
   for (const filePath of result.filePaths) {
-    try {
-      const content = await readFile(filePath, 'utf-8')
-      const owner = findEditorWindowForOpenPath(filePath)
-      if (owner) {
-        deliverOpenFile(owner, filePath, content)
-        continue
-      }
-      files.push({ path: filePath, content })
-    } catch (err) {
-      console.error('Failed to read file:', filePath, err)
+    trustFile(filePath)
+    const read = await readTextFile(filePath, getFileIoPolicy())
+    if (!read.ok) {
+      console.error('Failed to read file:', filePath, read.error.message)
+      failures.push({ path: filePath, error: read.error })
+      continue
     }
+    const owner = findEditorWindowForOpenPath(filePath)
+    if (owner) {
+      deliverOpenFile(owner, read.file)
+      continue
+    }
+    files.push(read.file)
   }
-  return files
+  return { files, failures }
 })
 
-registerHandle('file:save', async (_e, filePath: string, content: string) => {
-  await writeFile(filePath, content, 'utf-8')
-  // 应用自身的写入不是外部修改：同步已知版本，避免监视器回环通知
-  for (const context of editorWindows.values()) {
-    if (context.watchedFilePath && sameFilePath(filePath, context.watchedFilePath)) {
-      context.watchedContent = content
+registerHandle(
+  'file:save',
+  async (_e, filePath: string, content: string): Promise<FileSaveResponse> => {
+    const result = await writeTextFile(filePath, content, getFileIoPolicy())
+    if (!result.ok) {
+      console.error('Failed to save file:', filePath, result.error.message)
+      return result
     }
+    // 应用自身的写入不是外部修改：同步已知版本，避免监视器回环通知
+    for (const context of editorWindows.values()) {
+      if (context.watchedFilePath && sameFilePath(filePath, context.watchedFilePath)) {
+        context.watchedContent = content
+      }
+    }
+    return result
   }
-  return true
-})
+)
 
 registerHandle('file:read', async (_e, filePath: string) => {
-  try {
-    const content = await readFile(filePath, 'utf-8')
-    return { path: filePath, content }
-  } catch (err) {
-    console.error('Failed to read file:', err)
-    return null
+  const result = await readTextFile(filePath, getFileIoPolicy())
+  if (!result.ok) {
+    console.error('Failed to read file:', filePath, result.error.message)
   }
+  return result
 })
 
 /** 只监视渲染进程当前活跃标签的文件；切换标签时由渲染进程重新指定 */
 registerHandle('file:watch', (event, filePath: string | null) => {
   const context = getEditorWindowBySender(event.sender)
   if (!context) return false
-  setWatchedFile(context, typeof filePath === 'string' && filePath.length > 0 ? filePath : null)
+  if (typeof filePath !== 'string' || filePath.length === 0) {
+    setWatchedFile(context, null)
+    return true
+  }
+  if (!isTrustedPath(trustedFilePaths, filePath, process.platform)) return false
+  setWatchedFile(context, filePath)
   return true
 })
 
@@ -1463,6 +1564,18 @@ registerHandle('shell:openExternal', (_e, url: string) => {
   return openLinkExternally(url)
 })
 
+/** 导出诊断日志：只允许编辑窗口与设置窗口调用 */
+registerHandle('diagnostics:export', async (event) => {
+  if (!isEditorWindowSender(event.sender) && !isSettingsWindowSender(event.sender)) return null
+  return exportDiagnostics(BrowserWindow.fromWebContents(event.sender))
+})
+
+/** 渲染进程错误上报：写入滚动日志，供诊断导出 */
+registerOn('diagnostics:renderer-error', (event, payload: RendererErrorReport) => {
+  if (!isEditorWindowSender(event.sender) && !isSettingsWindowSender(event.sender)) return
+  reportRendererError(payload)
+})
+
 /** 保存预览中导出的图片（Mermaid 图表下载） */
 registerHandle(
   'dialog:saveImage',
@@ -1474,6 +1587,7 @@ registerHandle(
       filters: [{ name: extension.toUpperCase(), extensions: [extension] }]
     })
     if (result.canceled || !result.filePath) return null
+    trustFile(result.filePath)
     await writeFile(result.filePath, Buffer.from(data))
     return result.filePath
   }
@@ -1548,6 +1662,7 @@ registerHandle('dialog:savePath', async (event, defaultFileName?: string) => {
     filters: [{ name: 'Markdown', extensions: ['md'] }]
   })
   if (result.canceled || !result.filePath) return null
+  trustFile(result.filePath)
   return result.filePath
 })
 

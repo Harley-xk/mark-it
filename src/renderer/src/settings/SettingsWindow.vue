@@ -33,6 +33,8 @@ const activeTab = ref<SettingsTab>('appearance')
 const searchQuery = ref('')
 const searchInput = ref<HTMLInputElement | null>(null)
 const showRollbackConfirm = ref(false)
+const exportingDiagnostics = ref(false)
+const diagnosticsMessage = ref('')
 const searchShortcutLabel = platform === 'darwin' ? '⌘ K' : 'Ctrl K'
 
 // 设置窗口与编辑窗口共享同一全局缩放，这里同步主进程广播的比例并提供操作入口
@@ -133,6 +135,12 @@ const searchEntries: SearchEntry[] = [
     label: '版本与项目信息',
     hint: '版本、许可证和项目主页',
     keywords: 'about version license github 关于 版本'
+  },
+  {
+    tab: 'about',
+    label: '导出诊断日志',
+    hint: '保存运行日志与系统信息，便于反馈问题',
+    keywords: 'diagnostics log crash 诊断 日志 崩溃 反馈'
   }
 ]
 
@@ -286,6 +294,21 @@ function removeStyle(event: MouseEvent, id: string): void {
 
 function openExternal(url: string): void {
   void window.api.openExternal(url)
+}
+
+async function handleExportDiagnostics(): Promise<void> {
+  if (exportingDiagnostics.value) return
+  exportingDiagnostics.value = true
+  diagnosticsMessage.value = ''
+  try {
+    const path = await window.api.exportDiagnostics()
+    diagnosticsMessage.value = path ? '已导出诊断日志' : '已取消'
+  } catch (err) {
+    console.error('Failed to export diagnostics:', err)
+    diagnosticsMessage.value = '导出失败，请查看日志'
+  } finally {
+    exportingDiagnostics.value = false
+  }
 }
 
 watch(
@@ -852,6 +875,26 @@ onUnmounted(() => {
                 >
                   打开 GitHub
                 </button>
+              </div>
+              <div class="setting-row">
+                <div class="setting-copy">
+                  <h3>诊断日志</h3>
+                  <p>
+                    导出最近的运行日志与系统信息，便于反馈问题时排查。日志不包含文档正文，但可能包含本地文件路径。
+                  </p>
+                </div>
+                <div class="diagnostics-action">
+                  <span v-if="diagnosticsMessage" class="diagnostics-message">
+                    {{ diagnosticsMessage }}
+                  </span>
+                  <button
+                    class="secondary-button"
+                    :disabled="exportingDiagnostics"
+                    @click="handleExportDiagnostics"
+                  >
+                    {{ exportingDiagnostics ? '导出中…' : '导出诊断日志' }}
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -1902,6 +1945,19 @@ input[type='range']:disabled {
 
 .about-rows .setting-row {
   min-height: 57px;
+}
+
+.diagnostics-action {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.diagnostics-message {
+  color: var(--text-muted);
+  font-size: 10px;
+  white-space: nowrap;
 }
 
 .zoom-stepper {

@@ -9,6 +9,8 @@ export interface FormatAction {
 
 export function applyFormatAction(view: EditorView | null, action: FormatAction): boolean {
   if (!view) return false
+  // 只读文档（非 UTF-8 / 超大文件）不允许通过工具栏写入内容
+  if (view.state.readOnly) return false
 
   const { state } = view
 

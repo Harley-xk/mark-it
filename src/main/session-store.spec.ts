@@ -106,6 +106,35 @@ describe('会话大纲显隐字段校验', () => {
   })
 })
 
+describe('会话文件状态字段校验', () => {
+  it('应保留只读、编码、会话排除与缺失标记', () => {
+    const data = parseSessionData(
+      sessionWith({
+        readOnly: true,
+        encoding: 'utf-16le',
+        excludedFromSession: true,
+        missing: true
+      })
+    )
+    expect(data?.tabs[0].readOnly).toBe(true)
+    expect(data?.tabs[0].encoding).toBe('utf-16le')
+    expect(data?.tabs[0].excludedFromSession).toBe(true)
+    expect(data?.tabs[0].missing).toBe(true)
+  })
+
+  it('非法编码应归一为 undefined，交由渲染进程按 UTF-8 兜底', () => {
+    expect(parseSessionData(sessionWith({ encoding: 'gbk' }))?.tabs[0].encoding).toBeUndefined()
+  })
+
+  it('缺失状态字段时按 false / undefined 处理', () => {
+    const tab = parseSessionData(sessionWith({}))?.tabs[0]
+    expect(tab?.readOnly).toBe(false)
+    expect(tab?.excludedFromSession).toBe(false)
+    expect(tab?.missing).toBe(false)
+    expect(tab?.encoding).toBeUndefined()
+  })
+})
+
 describe('多窗口会话迁移', () => {
   it('应保留标签的稳定编辑历史 ID', () => {
     const data = parseSessionData(sessionWith({ historyId: 'history-a' }))

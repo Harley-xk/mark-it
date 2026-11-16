@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import type { EditorState } from '@codemirror/state'
 import type { HeadingItem, LayoutMode } from '../types'
 import type { SessionTab } from '../../../shared/session-types'
+import type { FileTextEncoding } from '../../../shared/file-types'
 import { normalizePath } from '../utils/path'
 import { isLayoutMode, loadSavedLayoutMode } from '../utils/layout-mode'
 import { loadSavedOutlineVisible } from '../utils/outline-visibility'
@@ -29,10 +30,28 @@ export interface DocumentTab {
   eol: LineEnding
   /** 原文件是否带 UTF-8 BOM；保存时按此还原 */
   bom: boolean
+  /** 只读（非 UTF-8 编码或超过大小阈值）：编辑器禁止输入，保存只能另存为 */
+  readOnly: boolean
+  /** 原文件编码；用于状态栏与只读提示 */
+  encoding: FileTextEncoding
+  /** 是否因过大而不把正文写入会话快照 */
+  excludedFromSession: boolean
+  /** 磁盘文件是否已不存在 */
+  missing: boolean
   /** 当前标签的布局模式；切换标签时由 app.layoutMode 读取 */
   layoutMode: LayoutMode
   /** 当前标签的大纲显隐；切换标签时由 app.showOutline 读取 */
   outlineVisible: boolean
+}
+
+/** 从主进程读取结果带入的磁盘文件状态 */
+export interface DocumentFileMeta {
+  eol?: LineEnding
+  bom?: boolean
+  readOnly?: boolean
+  encoding?: FileTextEncoding
+  excludedFromSession?: boolean
+  missing?: boolean
 }
 
 export interface ScrollPosition {
@@ -122,10 +141,8 @@ export const useDocumentsStore = defineStore('documents', () => {
     path: string | null,
     content: string,
     name?: string,
-    meta?: {
+    meta?: DocumentFileMeta & {
       historyId?: string
-      eol?: LineEnding
-      bom?: boolean
       layoutMode?: LayoutMode
       outlineVisible?: boolean
     }
@@ -147,13 +164,30 @@ export const useDocumentsStore = defineStore('documents', () => {
       headings: [],
       eol: meta?.eol ?? decoded.eol,
       bom: meta?.bom ?? decoded.bom,
+      readOnly: meta?.readOnly ?? false,
+      encoding: meta?.encoding ?? (decoded.bom ? 'utf-8-bom' : 'utf-8'),
+      excludedFromSession: meta?.excludedFromSession ?? false,
+      missing: meta?.missing ?? false,
       layoutMode: meta?.layoutMode ?? defaultTabLayoutMode(),
       outlineVisible: meta?.outlineVisible ?? defaultTabOutlineVisible()
     }
   }
 
-  function addDocument(path: string | null, content: string, name?: string): DocumentTab {
-    const doc = createTab(path, content, name)
+  /** 用主进程读取结果刷新标签的磁盘状态（不改写内容） */
+  function applyFileMeta(doc: DocumentTab, meta: DocumentFileMeta): void {
+    if (meta.readOnly !== undefined) doc.readOnly = meta.readOnly
+    if (meta.encoding !== undefined) doc.encoding = meta.encoding
+    if (meta.excludedFromSession !== undefined) doc.excludedFromSession = meta.excludedFromSession
+    if (meta.missing !== undefined) doc.missing = meta.missing
+  }
+
+  function addDocument(
+    path: string | null,
+    content: string,
+    name?: string,
+    meta?: DocumentFileMeta
+  ): DocumentTab {
+    const doc = createTab(path, content, name, meta)
     docs.value.push(doc)
     activeId.value = doc.id
     return doc
@@ -168,10 +202,15 @@ export const useDocumentsStore = defineStore('documents', () => {
   }
 
   /** 打开磁盘文件：已打开过则直接激活对应标签，避免重复标签 */
-  function openPathDocument(filePath: string, content: string): DocumentTab {
+  function openPathDocument(
+    filePath: string,
+    content: string,
+    meta?: DocumentFileMeta
+  ): DocumentTab {
     const normalized = normalizePath(filePath)
     const existing = docs.value.find((d) => d.path !== null && normalizePath(d.path) === normalized)
     if (existing) {
+      if (meta) applyFileMeta(existing, meta)
       activeId.value = existing.id
       return existing
     }
@@ -179,7 +218,7 @@ export const useDocumentsStore = defineStore('documents', () => {
     if (docs.value.length === 1 && isPlaceholderTab(docs.value[0])) {
       removeDocument(0)
     }
-    return addDocument(filePath, content)
+    return addDocument(filePath, content, undefined, meta)
   }
 
   function newDocument(content = '', filePath: string | null = null): DocumentTab {
@@ -200,6 +239,10 @@ export const useDocumentsStore = defineStore('documents', () => {
       historyId: tab.historyId,
       eol: tab.eol,
       bom: tab.bom,
+      readOnly: tab.readOnly === true,
+      encoding: tab.encoding,
+      excludedFromSession: tab.excludedFromSession === true,
+      missing: tab.missing === true,
       layoutMode,
       outlineVisible
     })
@@ -331,17 +374,18 @@ export const useDocumentsStore = defineStore('documents', () => {
   }
 
   /** 从磁盘载入内容（刷新 / 外部加载），不标记为已修改 */
-  function replaceContent(id: string, content: string): void {
+  function replaceContent(id: string, content: string, meta?: DocumentFileMeta): void {
     const doc = getDoc(id)
     if (!doc) return
     // 磁盘内容可能是 CRLF / 带 BOM：统一为 LF 保存内部内容，并同步原文件的行尾策略
     const decoded = decodeText(content)
     doc.content = decoded.text
     doc.diskContent = decoded.text
-    doc.eol = decoded.eol
-    doc.bom = decoded.bom
+    doc.eol = meta?.eol ?? decoded.eol
+    doc.bom = meta?.bom ?? decoded.bom
     doc.isModified = false
     doc.wordCount = countWords(decoded.text)
+    if (meta) applyFileMeta(doc, { missing: false, ...meta })
     // 缓存的 EditorState 仍是旧内容；继续使用会让重新激活的标签显示过期文本
     editorStates.delete(id)
     serializedEditorStates.delete(id)
@@ -372,15 +416,37 @@ export const useDocumentsStore = defineStore('documents', () => {
   }
 
   /** 保存成功后调用；传入路径表示另存为 */
-  function markSaved(id: string, filePath?: string): void {
+  function markSaved(
+    id: string,
+    filePath?: string,
+    meta?: { excludedFromSession?: boolean }
+  ): void {
     const doc = getDoc(id)
     if (!doc) return
     doc.isModified = false
     doc.diskContent = doc.content
+    doc.missing = false
+    doc.readOnly = false
+    doc.encoding = doc.bom ? 'utf-8-bom' : 'utf-8'
+    if (meta?.excludedFromSession !== undefined) {
+      doc.excludedFromSession = meta.excludedFromSession
+    }
     if (filePath) {
       doc.path = filePath
       doc.name = baseName(filePath)
     }
+  }
+
+  /** 更新标签的磁盘状态（只读 / 编码 / 会话排除 / 缺失） */
+  function setFileMeta(id: string, meta: DocumentFileMeta): void {
+    const doc = getDoc(id)
+    if (doc) applyFileMeta(doc, meta)
+  }
+
+  /** 标记磁盘文件是否已不存在 */
+  function setPathMissing(id: string, missing: boolean): void {
+    const doc = getDoc(id)
+    if (doc) doc.missing = missing
   }
 
   function setEditorState(id: string, state: EditorState): void {
@@ -442,6 +508,8 @@ export const useDocumentsStore = defineStore('documents', () => {
     setLayoutMode,
     setOutlineVisible,
     markSaved,
+    setFileMeta,
+    setPathMissing,
     setEditorState,
     getEditorState,
     takeSerializedEditorState,

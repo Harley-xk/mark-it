@@ -1,4 +1,4 @@
-import { useDocumentsStore, type DocumentTab } from '../stores/documents'
+import { useDocumentsStore, type DocumentFileMeta, type DocumentTab } from '../stores/documents'
 import { useEditorStore } from '../stores/editor'
 import { confirmUnsaved } from './useConfirmUnsaved'
 import { whenSessionReady } from './session-ready'
@@ -7,7 +7,10 @@ import { diffLines } from '../utils/text-diff'
 import { samePath } from '../utils/path'
 import { decodeText, encodeText } from '../utils/text-encoding'
 import { serializeEditorState } from '../utils/editor-state-transfer'
+import { describeFileError } from '../utils/file-errors'
+import { showFileOpenFailures, showFileReadNotices } from './file-notifications'
 import type { TabDropOptions, TabTransferPayload } from '../../../shared/window-types'
+import type { FileReadResult, FileSaveResponse } from '../../../shared/file-types'
 import WELCOME_CONTENT from '../assets/welcome.md?raw'
 
 /** 内置使用手册的标签名 */
@@ -21,9 +24,35 @@ function sameContent(a: string, b: string): boolean {
   return a === b || decodeText(a).text === decodeText(b).text
 }
 
+/** 把主进程读取结果转换为标签的磁盘状态 */
+function fileMeta(file: FileReadResult): {
+  eol: '\n' | '\r\n'
+  bom: boolean
+  readOnly: boolean
+  encoding: FileReadResult['encoding']
+  excludedFromSession: boolean
+  missing: boolean
+} {
+  const decoded = decodeText(file.content)
+  return {
+    eol: decoded.eol,
+    // 主进程解码时会剥离 BOM，因此以 encoding 标记为准
+    bom: file.encoding === 'utf-8-bom' || decoded.bom,
+    readOnly: file.readOnly,
+    encoding: file.encoding,
+    excludedFromSession: file.excludedFromSession,
+    missing: false
+  }
+}
+
+type WriteOutcome =
+  | { ok: true; result: Extract<FileSaveResponse, { ok: true }> }
+  | { ok: false; saveAs?: false }
+  | { ok: false; saveAs: true }
+
 interface FileActions {
   openFile: () => Promise<void>
-  openFileFromPath: (result: { path: string; content: string }) => void
+  openFileFromPath: (result: FileReadResult) => void
   saveFile: () => Promise<void>
   saveFileAs: () => Promise<void>
   saveDocument: (
@@ -62,6 +91,34 @@ export function useFile(): FileActions {
   }
 
   /**
+  /** 写盘并在失败时提供「重试 / 另存为 / 取消」；成功时返回写入元信息 */
+  async function writeWithFeedback(path: string, content: string): Promise<WriteOutcome> {
+    while (true) {
+      let result: FileSaveResponse
+      try {
+        result = await window.api.saveFile(path, content)
+      } catch (err) {
+        result = {
+          ok: false,
+          path,
+          error: { code: 'io-error', message: err instanceof Error ? err.message : String(err) }
+        }
+      }
+      if (result.ok) return { ok: true, result }
+
+      const action = await confirmUnsaved(
+        '保存失败',
+        `无法写入「${path}」。\n\n${describeFileError(result.error)}\n\n可以重试，或选择其他位置另存为。`,
+        { save: '重试', discard: '另存为' },
+        true,
+        { cancelText: '取消' }
+      )
+      if (action === 'cancel') return { ok: false }
+      if (action === 'discard') return { ok: false, saveAs: true }
+    }
+  }
+
+  /**
    * 保存指定标签页。
    * 保存前会读取一次磁盘：如果文件已被其他程序修改且本地也有未保存修改，
    * 参考 VS Code 弹出冲突确认，并列出磁盘版本与本地版本的逐行差异。
@@ -75,6 +132,18 @@ export function useFile(): FileActions {
     forceDialog = false,
     skipConflictCheck = false
   ): Promise<boolean> {
+    if (doc.path && doc.readOnly && !forceDialog) {
+      const action = await confirmUnsaved(
+        '文件为只读',
+        `「${doc.name}」不是可编辑的 UTF-8 文件，或超过大小上限。\n\n可以另存为新的 UTF-8 文件后再编辑。`,
+        { save: '另存为' },
+        true,
+        { hideDiscard: true, cancelText: '取消' }
+      )
+      if (action !== 'save') return false
+      return saveDocument(doc, true)
+    }
+
     if (!doc.path || forceDialog) {
       const path = await window.api.chooseSavePath(doc.name)
       if (!path) return false
@@ -97,74 +166,126 @@ export function useFile(): FileActions {
         )
         if (action !== 'save') return false
 
-        await window.api.saveFile(path, encoded)
-        docs.replaceContent(existing.id, encoded)
-        docs.markSaved(existing.id)
+        const outcome = await writeWithFeedback(path, encoded)
+        if (!outcome.ok) return outcome.saveAs ? saveDocument(doc, true) : false
+        docs.replaceContent(existing.id, encoded, {
+          eol: doc.eol,
+          bom: doc.bom,
+          readOnly: false,
+          encoding: doc.bom ? 'utf-8-bom' : 'utf-8',
+          excludedFromSession: outcome.result.excludedFromSession,
+          missing: false
+        })
+        docs.markSaved(existing.id, undefined, {
+          excludedFromSession: outcome.result.excludedFromSession
+        })
         docs.closeDocument(doc.id)
         docs.activateDocument(existing.id)
         return true
       }
 
-      await window.api.saveFile(path, encoded)
-      docs.markSaved(doc.id, path)
+      const outcome = await writeWithFeedback(path, encoded)
+      if (!outcome.ok) return outcome.saveAs ? saveDocument(doc, true) : false
+      docs.markSaved(doc.id, path, {
+        excludedFromSession: outcome.result.excludedFromSession
+      })
       return true
     }
 
     if (!skipConflictCheck) {
       const disk = await window.api.readFile(doc.path)
-      if (disk && sameContent(disk.content, doc.content)) {
-        // 磁盘上的内容已与本地一致（例如外部程序写入了相同内容）：没有冲突
-        docs.markSaved(doc.id)
-        return true
-      }
-      if (disk && !sameContent(disk.content, doc.diskContent)) {
-        if (!doc.isModified) {
-          // 本地没有修改：以磁盘为准，避免用过期内容覆盖外部修改
-          docs.replaceContent(doc.id, disk.content)
+      if (!disk.ok) {
+        if (disk.error.code === 'not-found') {
+          // 文件被外部删除：保留本地内容并在保存时重建
+          docs.setPathMissing(doc.id, true)
+        } else {
+          await showFileOpenFailures([{ path: doc.path, error: disk.error }])
+          return false
+        }
+      } else if (disk.file.readOnly) {
+        const action = await confirmUnsaved(
+          '磁盘文件已变化',
+          `「${doc.name}」当前磁盘内容不是可编辑的 UTF-8 文件，或超过大小上限。\n\n继续保存会用本地内容以 UTF-8 覆盖磁盘文件。`,
+          { save: '覆盖磁盘' },
+          true,
+          { hideDiscard: true, cancelText: '取消' }
+        )
+        if (action !== 'save') return false
+      } else {
+        docs.setPathMissing(doc.id, false)
+        docs.setFileMeta(doc.id, {
+          readOnly: false,
+          encoding: disk.file.encoding,
+          excludedFromSession: disk.file.excludedFromSession,
+          missing: false
+        })
+        if (sameContent(disk.file.content, doc.content)) {
+          // 磁盘上的内容已与本地一致（例如外部程序写入了相同内容）：没有冲突
+          docs.markSaved(doc.id)
           return true
         }
+        if (!sameContent(disk.file.content, doc.diskContent)) {
+          if (!doc.isModified) {
+            // 本地没有修改：以磁盘为准，避免用过期内容覆盖外部修改
+            docs.replaceContent(doc.id, disk.file.content, fileMeta(disk.file))
+            return true
+          }
 
-        const action = await confirmUnsaved(
-          '文件冲突',
-          `「${doc.name}」在磁盘上已被其他程序修改，本地也有未保存的修改。`,
-          { save: '覆盖磁盘', discard: '载入磁盘' },
-          true,
-          { cancelText: '取消', diff: diffLines(decodeText(disk.content).text, doc.content) }
-        )
+          const action = await confirmUnsaved(
+            '文件冲突',
+            `「${doc.name}」在磁盘上已被其他程序修改，本地也有未保存的修改。`,
+            { save: '覆盖磁盘', discard: '载入磁盘' },
+            true,
+            {
+              cancelText: '取消',
+              diff: diffLines(decodeText(disk.file.content).text, doc.content)
+            }
+          )
 
-        if (action === 'cancel') return false
-        if (action === 'discard') {
-          // 放弃本地修改，载入磁盘版本；本次保存不再执行
-          docs.replaceContent(doc.id, disk.content)
-          return true
+          if (action === 'cancel') return false
+          if (action === 'discard') {
+            // 放弃本地修改，载入磁盘版本；本次保存不再执行
+            docs.replaceContent(doc.id, disk.file.content, fileMeta(disk.file))
+            return true
+          }
         }
       }
     }
 
     // 冲突确认可能等待用户操作，写盘前再取一次最新内容
-    await window.api.saveFile(doc.path, encodeText(doc.content, doc.eol, doc.bom))
-    docs.markSaved(doc.id)
+    const outcome = await writeWithFeedback(doc.path, encodeText(doc.content, doc.eol, doc.bom))
+    if (!outcome.ok) return outcome.saveAs ? saveDocument(doc, true) : false
+    docs.markSaved(doc.id, undefined, {
+      excludedFromSession: outcome.result.excludedFromSession
+    })
     return true
   }
 
   /** 打开文件对话框（支持多选），每个文件对应一个标签页 */
   async function openFile(): Promise<void> {
-    const files = await window.api.openFiles()
-    if (!files || files.length === 0) return
+    const result = await window.api.openFiles()
+    if (!result) return
     // 会话恢复会整体替换标签页；等待恢复完成，避免刚打开的文件被启动恢复覆盖
     await whenSessionReady()
+
     const before = new Set(docs.docs.map((doc) => doc.id))
-    const opened = files.map((file) => docs.openPathDocument(file.path, file.content))
+    const opened = result.files.map((file) =>
+      docs.openPathDocument(file.path, file.content, fileMeta(file))
+    )
     // 多选时优先激活新打开的最后一个文件；全部已在标签页中时激活最后一项，
     // 保证打开动作结束后看到的总是本次操作对应的标签
     const fresh = opened.filter((doc) => !before.has(doc.id))
     const target = fresh.length > 0 ? fresh[fresh.length - 1] : opened[opened.length - 1]
     if (target) docs.activateDocument(target.id)
+
+    await showFileOpenFailures(result.failures)
+    await showFileReadNotices(result.files.filter((file) => file.notices.length > 0))
   }
 
   /** 打开主进程发来的文件（右键"使用 MarkIt 打开" / 命令行传参） */
-  function openFileFromPath(result: { path: string; content: string }): void {
-    docs.openPathDocument(result.path, result.content)
+  function openFileFromPath(result: FileReadResult): void {
+    docs.openPathDocument(result.path, result.content, fileMeta(result))
+    void showFileReadNotices(result.notices.length > 0 ? [result] : [])
   }
 
   async function saveFile(): Promise<void> {
@@ -369,7 +490,8 @@ export function useFile(): FileActions {
   async function reconcileDiskContent(
     doc: DocumentTab,
     content: string,
-    promptOnConflict: boolean
+    promptOnConflict: boolean,
+    meta?: DocumentFileMeta
   ): Promise<void> {
     if (sameContent(content, doc.content)) {
       if (!sameContent(doc.diskContent, content)) docs.markSaved(doc.id)
@@ -378,7 +500,7 @@ export function useFile(): FileActions {
     if (sameContent(content, doc.diskContent)) return
 
     if (!doc.isModified) {
-      docs.replaceContent(doc.id, content)
+      docs.replaceContent(doc.id, content, meta)
       return
     }
 
@@ -395,7 +517,7 @@ export function useFile(): FileActions {
     if (action === 'save') {
       await saveDocument(doc, false, true)
     } else if (action === 'discard') {
-      docs.replaceContent(doc.id, content)
+      docs.replaceContent(doc.id, content, meta)
     }
   }
 
@@ -415,9 +537,27 @@ export function useFile(): FileActions {
     const doc = docs.activeDoc
     if (!doc || !doc.path) return
     const result = await window.api.readFile(doc.path)
-    if (!result) return
+    if (!result.ok) {
+      docs.setPathMissing(doc.id, result.error.code === 'not-found')
+      await showFileOpenFailures([{ path: doc.path, error: result.error }])
+      return
+    }
+    if (result.file.readOnly) {
+      // 磁盘已变成非 UTF-8 / 超大文件：保留当前内容，只更新只读状态
+      docs.setFileMeta(doc.id, fileMeta(result.file))
+      await showFileReadNotices([result.file])
+      return
+    }
 
-    if (sameContent(result.content, doc.diskContent)) {
+    docs.setPathMissing(doc.id, false)
+    docs.setFileMeta(doc.id, {
+      readOnly: false,
+      encoding: result.file.encoding,
+      excludedFromSession: result.file.excludedFromSession,
+      missing: false
+    })
+
+    if (sameContent(result.file.content, doc.diskContent)) {
       if (!doc.isModified) return
       const action = await confirmUnsaved(
         '重新载入',
@@ -426,11 +566,13 @@ export function useFile(): FileActions {
         true
       )
       if (action === 'save') await saveDocument(doc, false, true)
-      else if (action === 'discard') docs.replaceContent(doc.id, result.content)
+      else if (action === 'discard') {
+        docs.replaceContent(doc.id, result.file.content, fileMeta(result.file))
+      }
       return
     }
 
-    await reconcileDiskContent(doc, result.content, true)
+    await reconcileDiskContent(doc, result.file.content, true, fileMeta(result.file))
   }
 
   return {

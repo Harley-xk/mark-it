@@ -3,6 +3,7 @@ import { useDocumentsStore } from '../stores/documents'
 import { useAppStore } from '../stores/app'
 import { useEditorStore } from '../stores/editor'
 import { useFile } from './useFile'
+import { showFileOpenFailures, showFileReadNotices } from './file-notifications'
 import { markSessionReady } from './session-ready'
 import { captureScrollPositions } from './session-scroll'
 import { decodeText } from '../utils/text-encoding'
@@ -10,6 +11,7 @@ import { serializeEditorState } from '../utils/editor-state-transfer'
 import type { SessionData } from '../../../shared/session-types'
 import type { EditorHistoryEntries } from '../../../shared/history-types'
 import type { TabTransferPayload } from '../../../shared/window-types'
+import type { FileOpenFailure, FileReadResult } from '../../../shared/file-types'
 
 const SAVE_DEBOUNCE_MS = 800
 
@@ -29,7 +31,7 @@ export function useSession(): { flush: () => Promise<void> } {
   const file = useFile()
 
   /** 会话恢复完成前收到的命令行文件先缓存，避免与恢复结果互相覆盖 */
-  const pendingOpenFiles: { path: string; content: string }[] = []
+  const pendingOpenFiles: FileReadResult[] = []
   let restoreDone = false
   let saveTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -41,16 +43,22 @@ export function useSession(): { flush: () => Promise<void> } {
       tabs: docs.docs.map((doc) => {
         const scroll = docs.getScrollPosition(doc.id)
         const previewScroll = docs.getPreviewScrollPosition(doc.id)
+        // 超大文件只保留路径与运行期状态，避免把大段正文反复写入 session.json
+        const excludeContent = doc.excludedFromSession
         return {
           historyId: doc.historyId,
           path: doc.path,
           name: doc.name,
-          content: doc.content,
-          isModified: doc.isModified,
+          content: excludeContent ? '' : doc.content,
+          isModified: excludeContent ? false : doc.isModified,
           cursorLine: doc.cursorLine,
           cursorCol: doc.cursorCol,
           eol: doc.eol,
           bom: doc.bom,
+          readOnly: doc.readOnly,
+          encoding: doc.encoding,
+          excludedFromSession: doc.excludedFromSession,
+          missing: doc.missing,
           layoutMode: doc.layoutMode,
           outlineVisible: doc.outlineVisible,
           scrollAnchor: scroll.anchor,
@@ -127,6 +135,8 @@ export function useSession(): { flush: () => Promise<void> } {
     let pendingTransferId: string | null = null
     let pendingTransfer: TabTransferPayload | null = null
     let transferAccepted = false
+    const failures: FileOpenFailure[] = []
+    const noticeFiles: FileReadResult[] = []
     try {
       const context = await window.api.getWindowContext()
       pendingTransferId = context?.pendingTransferId ?? null
@@ -139,10 +149,23 @@ export function useSession(): { flush: () => Promise<void> } {
           saved.tabs.map(async (tab) => {
             if (!tab.path) return tab
             const fromDisk = await window.api.readFile(tab.path)
-            if (!fromDisk) return tab
-            // 以磁盘内容为准，同时把磁盘当前的换行符 / BOM 策略带回标签
-            const decoded = decodeText(fromDisk.content)
-            return { ...tab, content: decoded.text, eol: decoded.eol, bom: decoded.bom }
+            if (!fromDisk.ok) {
+              failures.push({ path: tab.path, error: fromDisk.error })
+              return { ...tab, missing: fromDisk.error.code === 'not-found' }
+            }
+            if (fromDisk.file.notices.length > 0) noticeFiles.push(fromDisk.file)
+            // 以磁盘内容为准，同时把磁盘当前的编码 / 换行符 / BOM 策略带回标签
+            const decoded = decodeText(fromDisk.file.content)
+            return {
+              ...tab,
+              content: decoded.text,
+              eol: decoded.eol,
+              bom: fromDisk.file.encoding === 'utf-8-bom' || decoded.bom,
+              readOnly: fromDisk.file.readOnly,
+              encoding: fromDisk.file.encoding,
+              excludedFromSession: fromDisk.file.excludedFromSession,
+              missing: false
+            }
           })
         )
         const serializedStates = new Map<number, unknown>()
@@ -175,13 +198,23 @@ export function useSession(): { flush: () => Promise<void> } {
         file.openFileFromPath(pending)
       }
     }
+
+    // 会话恢复完成后再提示，避免阻塞 pendingOpenFiles 放行
+    void showFileOpenFailures(failures)
+    void showFileReadNotices(noticeFiles)
   }
 
   const offOpenFile = window.api.onOpenFile((result) => {
     if (restoreDone) file.openFileFromPath(result)
     else pendingOpenFiles.push(result)
   })
-  onUnmounted(offOpenFile)
+  const offOpenFileError = window.api.onOpenFileError((failures) => {
+    void showFileOpenFailures(failures)
+  })
+  onUnmounted(() => {
+    offOpenFile()
+    offOpenFileError()
+  })
 
   onMounted(() => {
     void restore()

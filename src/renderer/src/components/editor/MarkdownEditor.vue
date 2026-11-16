@@ -46,6 +46,8 @@ let unregisterScrollCapture: (() => void) | null = null
 // 主题 compartment 定义在模块级：EditorState 会被缓存并在组件重新挂载后复用，
 // 共享同一个 compartment 才能保证重新配置主题时生效
 const themeCompartment = new Compartment()
+// 只读状态同样按标签切换；非 UTF-8 / 超大文件禁止用户输入
+const readOnlyCompartment = new Compartment()
 
 // 以编程方式替换文档内容时置位，避免被当成用户输入标记为已修改
 let isExternalUpdate = false
@@ -122,6 +124,10 @@ function getThemeExtensions(isDark: boolean): Extension[] {
     : [syntaxHighlighting(markitLight), lightEditorTheme]
 }
 
+function getReadOnlyExtensions(readOnly: boolean): Extension[] {
+  return [EditorState.readOnly.of(readOnly), EditorView.editable.of(!readOnly)]
+}
+
 const updateListener = EditorView.updateListener.of((update) => {
   const id = docs.activeId
   if (!id) return
@@ -150,7 +156,7 @@ const blockTextDrag = EditorView.domEventHandlers({
   }
 })
 
-function buildExtensions(isDark: boolean): Extension[] {
+function buildExtensions(isDark: boolean, readOnly: boolean): Extension[] {
   return [
     lineNumbers(),
     highlightActiveLineGutter(),
@@ -166,6 +172,7 @@ function buildExtensions(isDark: boolean): Extension[] {
     syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
     markdown({ base: markdownLanguage, codeLanguages: languages }),
     themeCompartment.of(getThemeExtensions(isDark)),
+    readOnlyCompartment.of(getReadOnlyExtensions(readOnly)),
     keymap.of([...defaultKeymap, ...historyKeymap, ...foldKeymap, indentWithTab]),
     blockTextDrag,
     updateListener
@@ -184,11 +191,12 @@ function cursorOffset(content: string, line: number, col: number): number {
 function createState(
   content: string,
   isDark: boolean,
-  cursor?: { cursorLine: number; cursorCol: number }
+  cursor?: { cursorLine: number; cursorCol: number },
+  readOnly = false
 ): EditorState {
   return EditorState.create({
     doc: content,
-    extensions: buildExtensions(isDark),
+    extensions: buildExtensions(isDark, readOnly),
     ...(cursor
       ? { selection: { anchor: cursorOffset(content, cursor.cursorLine, cursor.cursorCol) } }
       : {})
@@ -196,10 +204,15 @@ function createState(
 }
 
 /** 迁移标签首次挂载时恢复序列化状态；内容不一致或 JSON 损坏则安全回退 */
-function restoreTransferredState(id: string, content: string, isDark: boolean): EditorState | null {
+function restoreTransferredState(
+  id: string,
+  content: string,
+  isDark: boolean,
+  readOnly: boolean
+): EditorState | null {
   const serialized = docs.takeSerializedEditorState(id)
   if (!serialized) return null
-  const restored = restoreEditorState(serialized, buildExtensions(isDark))
+  const restored = restoreEditorState(serialized, buildExtensions(isDark, readOnly))
   return restored?.doc.toString() === content ? restored : null
 }
 
@@ -352,15 +365,18 @@ onMounted(() => {
   const cached = docs.getEditorState(doc.id)
   const state =
     cached ??
-    restoreTransferredState(doc.id, doc.content, isDark) ??
-    createState(doc.content, isDark, doc)
+    restoreTransferredState(doc.id, doc.content, isDark, doc.readOnly) ??
+    createState(doc.content, isDark, doc, doc.readOnly)
 
   view = new EditorView({ state, parent: editorRef.value })
 
   if (cached) {
-    // 缓存的状态可能是在另一套主题下创建的
+    // 缓存的状态可能是在另一套主题 / 只读状态下创建的
     view.dispatch({
-      effects: themeCompartment.reconfigure(getThemeExtensions(isDark))
+      effects: [
+        themeCompartment.reconfigure(getThemeExtensions(isDark)),
+        readOnlyCompartment.reconfigure(getReadOnlyExtensions(doc.readOnly))
+      ]
     })
   }
 
@@ -433,11 +449,14 @@ watch(
     if (cached) {
       view.setState(cached)
       view.dispatch({
-        effects: themeCompartment.reconfigure(getThemeExtensions(isDark))
+        effects: [
+          themeCompartment.reconfigure(getThemeExtensions(isDark)),
+          readOnlyCompartment.reconfigure(getReadOnlyExtensions(doc.readOnly))
+        ]
       })
     } else {
-      const transferred = restoreTransferredState(newId, doc.content, isDark)
-      view.setState(transferred ?? createState(doc.content, isDark, doc))
+      const transferred = restoreTransferredState(newId, doc.content, isDark, doc.readOnly)
+      view.setState(transferred ?? createState(doc.content, isDark, doc, doc.readOnly))
     }
     // 新标签的内容已经由该标签的 state 提供，监听器无需再比较一次全文
     lastEditorContent = doc.content
@@ -462,6 +481,17 @@ watch(
     if (!view) return
     view.dispatch({
       effects: themeCompartment.reconfigure(getThemeExtensions(theme === 'dark'))
+    })
+  }
+)
+
+// 标签切换或磁盘状态变化后同步只读状态（例如外部文件变成非 UTF-8）
+watch(
+  () => docs.activeDoc?.readOnly,
+  (readOnly) => {
+    if (!view) return
+    view.dispatch({
+      effects: readOnlyCompartment.reconfigure(getReadOnlyExtensions(readOnly === true))
     })
   }
 )

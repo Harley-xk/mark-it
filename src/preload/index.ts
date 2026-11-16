@@ -2,7 +2,14 @@ import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import type { UpdateState } from '../shared/update-types'
 import type { SessionData } from '../shared/session-types'
 import type { EditorHistoryEntries } from '../shared/history-types'
-import type { FileReadResult } from '../shared/file-types'
+import type {
+  FileOpenFailure,
+  FileReadResponse,
+  FileReadResult,
+  FileSaveResponse,
+  OpenFilesResponse
+} from '../shared/file-types'
+import type { RendererErrorReport } from '../shared/diagnostics-types'
 import type { PdfExportOptions } from '../shared/pdf-types'
 import type { ImageExportOptions, ImageExportResult } from '../shared/image-types'
 import type { ExportProgress } from '../shared/export-types'
@@ -108,17 +115,20 @@ const api = {
   settings: {
     open: (): Promise<boolean> => ipcRenderer.invoke('settings:open')
   },
-  /** 打开文件对话框，支持多选；返回每个文件的内容 */
-  openFiles: (): Promise<FileReadResult[]> => ipcRenderer.invoke('dialog:openFiles'),
-  saveFile: (path: string, content: string): Promise<boolean> =>
+  /** 打开文件对话框，支持多选；返回成功文件与失败项 */
+  openFiles: (): Promise<OpenFilesResponse> => ipcRenderer.invoke('dialog:openFiles'),
+  saveFile: (path: string, content: string): Promise<FileSaveResponse> =>
     ipcRenderer.invoke('file:save', path, content),
-  readFile: (path: string): Promise<FileReadResult | null> => ipcRenderer.invoke('file:read', path),
+  readFile: (path: string): Promise<FileReadResponse> => ipcRenderer.invoke('file:read', path),
   /** 只监视当前活跃标签对应的磁盘文件；切换标签时传新路径，传 null 取消监视 */
   watchFile: (path: string | null): Promise<boolean> => ipcRenderer.invoke('file:watch', path),
   /** 监听磁盘文件被其他程序修改（仅监听的活跃文件） */
   onExternalFileChange: (
     callback: (change: { path: string; content: string }) => void
   ): (() => void) => subscribe('file:external-change', callback),
+  /** 监听活跃文件被外部删除 */
+  onFileMissing: (callback: (change: { path: string }) => void): (() => void) =>
+    subscribe('file:missing', callback),
   /** 选择另存为路径（不写盘，由调用方确认无重复标签后再保存） */
   chooseSavePath: (defaultFileName?: string): Promise<string | null> =>
     ipcRenderer.invoke('dialog:savePath', defaultFileName),
@@ -175,6 +185,15 @@ const api = {
       ipcRenderer.send('renderer:ready')
     }
     return off
+  },
+  /** 监听启动 / 右键 / 命令行打开失败的文件，汇总提示用户 */
+  onOpenFileError: (callback: (failures: FileOpenFailure[]) => void): (() => void) =>
+    subscribe('file:open-error', callback),
+  /** 导出诊断日志；用户取消返回 null */
+  exportDiagnostics: (): Promise<string | null> => ipcRenderer.invoke('diagnostics:export'),
+  /** 上报渲染进程未捕获错误，写入主进程滚动日志 */
+  reportRendererError: (payload: RendererErrorReport): void => {
+    ipcRenderer.send('diagnostics:renderer-error', payload)
   },
   /** 监听窗口关闭请求（主进程 close 事件）；quit 表示本次关闭来自退出应用 */
   onCloseRequest: (callback: (request: { quit: boolean }) => void): (() => void) =>

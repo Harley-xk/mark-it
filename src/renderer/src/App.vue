@@ -45,7 +45,9 @@ const {
   confirmSaveText,
   confirmDiscardText,
   confirmCancelText,
-  confirmDiff
+  confirmDiff,
+  confirmHideDiscard,
+  confirmHideSave
 } = useConfirmDialog()
 
 // macOS Cmd+W 被系统菜单占用，由主进程拦截后转交这里关闭标签页
@@ -86,6 +88,8 @@ onUnmounted(() => {
     :discard-text="confirmDiscardText"
     :cancel-text="confirmCancelText"
     :diff="confirmDiff"
+    :hide-discard="confirmHideDiscard"
+    :hide-save="confirmHideSave"
     @save="resolveConfirm('save')"
     @discard="resolveConfirm('discard')"
     @cancel="resolveConfirm('cancel')"

@@ -12,6 +12,8 @@ defineProps<{
   diff?: DiffLine[]
   /** 仅需要确认 / 取消时隐藏中间的次要操作 */
   hideDiscard?: boolean
+  /** 仅展示信息时隐藏主操作，只保留取消 / 关闭 */
+  hideSave?: boolean
   /** 确认操作为破坏性动作时使用红色主按钮 */
   primaryDanger?: boolean
 }>()
@@ -67,6 +69,7 @@ function diffSign(type: DiffLine['type']): string {
               {{ discardText || '放弃修改' }}
             </button>
             <button
+              v-if="!hideSave"
               class="btn"
               :class="primaryDanger ? 'btn-danger' : 'btn-primary'"
               @click="emit('save')"

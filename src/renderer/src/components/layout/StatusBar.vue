@@ -2,10 +2,29 @@
 import { computed } from 'vue'
 import { useEditorStore } from '../../stores/editor'
 import { useAppStore } from '../../stores/app'
+import { useDocumentsStore } from '../../stores/documents'
 import ZoomControl from './ZoomControl.vue'
 
 const editor = useEditorStore()
 const app = useAppStore()
+const docs = useDocumentsStore()
+
+const encodingLabel = computed(() => {
+  const doc = docs.activeDoc
+  if (!doc?.path) return 'UTF-8'
+  switch (doc.encoding) {
+    case 'utf-8-bom':
+      return 'UTF-8 BOM'
+    case 'utf-16le':
+      return 'UTF-16 LE · 只读'
+    case 'utf-16be':
+      return 'UTF-16 BE · 只读'
+    case 'unsupported':
+      return '非 UTF-8 · 只读'
+    default:
+      return doc.readOnly ? 'UTF-8 · 只读' : 'UTF-8'
+  }
+})
 
 const exportKindLabel = computed(() => {
   if (app.exportKind === 'image') return '图片'
@@ -101,7 +120,7 @@ const exportAriaLabel = computed(() => {
       </template>
       <span class="status-item">{{ editor.wordCount }} 字</span>
       <span class="status-sep">|</span>
-      <span class="status-item">UTF-8</span>
+      <span class="status-item" :title="app.filePath || undefined">{{ encodingLabel }}</span>
       <span class="status-sep">|</span>
       <span class="status-item">{{
         app.layoutMode === 'edit-left'

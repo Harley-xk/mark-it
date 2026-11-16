@@ -9,14 +9,16 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { EditorView } from '@codemirror/view'
 import { useSearchStore } from '../../stores/search'
 import { useEditorStore } from '../../stores/editor'
+import { useDocumentsStore } from '../../stores/documents'
 import { findTextMatches } from '../../utils/search'
 
 const search = useSearchStore()
 const editor = useEditorStore()
+const docs = useDocumentsStore()
 
 const queryInput = ref<HTMLInputElement>()
 
-const canReplace = computed(() => search.surface === 'editor')
+const canReplace = computed(() => search.surface === 'editor' && docs.activeDoc?.readOnly !== true)
 
 const countText = computed(() => {
   if (search.query.length === 0) return ''

@@ -12,12 +12,18 @@ const confirmSaveText = ref('保存')
 const confirmDiscardText = ref('放弃修改')
 const confirmCancelText = ref('')
 const confirmDiff = ref<DiffLine[]>([])
+const confirmHideDiscard = ref(false)
+const confirmHideSave = ref(false)
 
 export interface ConfirmExtra {
   /** 提供后显示第三个「取消」按钮（默认只能通过关闭按钮 / 点击遮罩取消） */
   cancelText?: string
   /** 文件冲突时展示的逐行差异：remove = 磁盘内容，add = 本地内容 */
   diff?: DiffLine[]
+  /** 仅需确认时隐藏中间的次要操作 */
+  hideDiscard?: boolean
+  /** 仅需展示信息时隐藏主操作，只保留取消 / 关闭 */
+  hideSave?: boolean
 }
 
 interface ConfirmRequest {
@@ -46,6 +52,8 @@ function showNextRequest(): void {
   confirmDiscardText.value = request.labels?.discard || '放弃修改'
   confirmCancelText.value = request.extra?.cancelText || ''
   confirmDiff.value = request.extra?.diff || []
+  confirmHideDiscard.value = request.extra?.hideDiscard === true
+  confirmHideSave.value = request.extra?.hideSave === true
   pendingResolve.value = request.resolve
   showConfirm.value = true
 }
@@ -103,6 +111,8 @@ export function useConfirmDialog(): {
   confirmDiscardText: Ref<string>
   confirmCancelText: Ref<string>
   confirmDiff: Ref<DiffLine[]>
+  confirmHideDiscard: Ref<boolean>
+  confirmHideSave: Ref<boolean>
   resolveConfirm: (action: ConfirmAction) => void
 } {
   return {
@@ -113,6 +123,8 @@ export function useConfirmDialog(): {
     confirmDiscardText,
     confirmCancelText,
     confirmDiff,
+    confirmHideDiscard,
+    confirmHideSave,
     resolveConfirm
   }
 }

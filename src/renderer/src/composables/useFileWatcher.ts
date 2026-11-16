@@ -1,6 +1,7 @@
 import { onUnmounted, watch } from 'vue'
 import { useDocumentsStore } from '../stores/documents'
 import { useFile } from './useFile'
+import { showFileReadNotices } from './file-notifications'
 import { normalizePath, samePath } from '../utils/path'
 
 type DiskChange = { path: string; content: string }
@@ -71,18 +72,47 @@ export function useFileWatcher(): void {
     const generation = bumpGeneration(filePath)
     const result = await window.api.readFile(filePath)
     // 读取期间收到同一文件的新事件 / 又发起了新的读取：以更新的一方为准
-    if (!result || generations.get(pathKey(filePath)) !== generation) return
+    if (generations.get(pathKey(filePath)) !== generation) return
 
     const doc = docs.activeDoc
     if (!doc?.path || !samePath(doc.path, filePath)) return
-    enqueue({ path: doc.path, content: result.content })
+    if (!result.ok) {
+      docs.setPathMissing(doc.id, result.error.code === 'not-found')
+      return
+    }
+    const becameReadOnly = result.file.readOnly && !doc.readOnly
+    docs.setFileMeta(doc.id, {
+      readOnly: result.file.readOnly,
+      encoding: result.file.encoding,
+      excludedFromSession: result.file.excludedFromSession,
+      missing: false
+    })
+    // 非 UTF-8 / 超大文件不把替换字符或只读内容推给编辑器；仅在状态刚变化时提示
+    if (result.file.readOnly) {
+      if (becameReadOnly) void showFileReadNotices([result.file])
+      return
+    }
+    // decodeText 依赖 BOM 字符记录写回策略；主进程解码时会剥离，这里补回
+    const content =
+      result.file.encoding === 'utf-8-bom'
+        ? String.fromCharCode(0xfeff) + result.file.content
+        : result.file.content
+    enqueue({ path: doc.path, content })
   }
 
   const offExternalChange = window.api.onExternalFileChange((change) => {
     bumpGeneration(change.path)
     const doc = docs.activeDoc
     if (!doc?.path || !samePath(doc.path, change.path)) return
+    docs.setPathMissing(doc.id, false)
     enqueue(change)
+  })
+
+  // 活跃文件被外部删除：立即在标签上显示缺失，不必等待手动刷新
+  const offFileMissing = window.api.onFileMissing((change) => {
+    const doc = docs.activeDoc
+    if (!doc?.path || !samePath(doc.path, change.path)) return
+    docs.setPathMissing(doc.id, true)
   })
 
   // 活跃标签路径变化 = 切换标签 / 另存为 / 切到新建文档：
@@ -111,6 +141,7 @@ export function useFileWatcher(): void {
 
   onUnmounted(() => {
     offExternalChange()
+    offFileMissing()
     void window.api.watchFile(null)
   })
 }

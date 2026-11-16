@@ -408,6 +408,9 @@ onBeforeUnmount(() => {
         @contextmenu="openContextMenu(doc.id, $event)"
       >
         <span class="tab-name">{{ doc.name }}</span>
+        <span v-if="doc.missing" class="tab-missing" title="文件已不存在，保存时将在原路径重新创建"
+          >!</span
+        >
         <span v-if="doc.isModified" class="tab-dot" title="未保存"></span>
         <button class="tab-close" title="关闭标签页 (Ctrl+W)" @click.stop="file.closeTab(doc.id)">
           <svg
@@ -619,6 +622,20 @@ onBeforeUnmount(() => {
   height: 6px;
   border-radius: 50%;
   background: #6c9bff;
+}
+
+.tab-missing {
+  flex-shrink: 0;
+  width: 13px;
+  height: 13px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(217, 119, 6, 0.18);
+  color: #e4b76b;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
 }
 
 .tab-close {

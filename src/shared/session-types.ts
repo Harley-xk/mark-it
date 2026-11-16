@@ -1,4 +1,5 @@
 /** 主进程与渲染进程共用的会话（上次打开的标签页）类型（纯类型，无运行时依赖） */
+import type { FileTextEncoding } from './file-types'
 
 /** 编辑器布局：左编辑右预览 / 左预览右编辑 / 仅编辑 / 仅预览 */
 export type LayoutMode = 'edit-left' | 'edit-right' | 'edit-only' | 'preview-only'
@@ -18,6 +19,14 @@ export interface SessionTab {
   eol?: '\n' | '\r\n'
   /** 原文件是否带 UTF-8 BOM；缺失时按 false 处理（兼容旧会话） */
   bom?: boolean
+  /** 是否只读（非 UTF-8 或超过大小阈值）；缺失时按 false 处理 */
+  readOnly?: boolean
+  /** 原文件编码；缺失时按 utf-8 处理 */
+  encoding?: FileTextEncoding
+  /** 是否因过大不保存正文；缺失时按 false 处理 */
+  excludedFromSession?: boolean
+  /** 恢复会话时磁盘文件是否已不存在 */
+  missing?: boolean
   /** 标签自己的布局模式；缺失时按 markit-layout 回退（兼容旧会话） */
   layoutMode?: LayoutMode
   /** 标签自己的大纲显隐；缺失时按 markit-show-outline 回退（兼容旧会话） */

@@ -11,9 +11,21 @@ import type {
   SessionTab,
   SessionWindow
 } from '../shared/session-types'
+import type { FileTextEncoding } from '../shared/file-types'
 
 /** 与渲染进程 utils/layout-mode 保持一致；主进程不能引用渲染进程模块 */
 const LAYOUT_MODES: LayoutMode[] = ['edit-left', 'edit-right', 'edit-only', 'preview-only']
+const FILE_TEXT_ENCODINGS: FileTextEncoding[] = [
+  'utf-8',
+  'utf-8-bom',
+  'utf-16le',
+  'utf-16be',
+  'unsupported'
+]
+
+function isFileTextEncoding(value: unknown): value is FileTextEncoding {
+  return typeof value === 'string' && (FILE_TEXT_ENCODINGS as string[]).includes(value)
+}
 
 function isLayoutMode(value: unknown): value is LayoutMode {
   return typeof value === 'string' && (LAYOUT_MODES as string[]).includes(value)
@@ -59,6 +71,10 @@ export function normalizeSessionTab(value: unknown): SessionTab | null {
     cursorCol: positiveInt(tab.cursorCol, 1),
     eol: tab.eol === '\r\n' ? '\r\n' : '\n',
     bom: tab.bom === true,
+    readOnly: tab.readOnly === true,
+    encoding: isFileTextEncoding(tab.encoding) ? tab.encoding : undefined,
+    excludedFromSession: tab.excludedFromSession === true,
+    missing: tab.missing === true,
     // 非法 / 缺失时保持 undefined，由渲染进程按 markit-layout 兜底
     layoutMode: isLayoutMode(tab.layoutMode) ? tab.layoutMode : undefined,
     // 非法 / 缺失时保持 undefined，由渲染进程按 markit-show-outline 兜底
