@@ -82,6 +82,29 @@ export function rememberRecentFile(
   return [{ path: filePath, name: basename(filePath) || filePath, openedAt }, ...next]
 }
 
+/**
+ * 用会话恢复出的路径补齐最近列表：
+ * 只追加列表中没有的路径到末尾（`openedAt = 0`），不改变已有条目的顺序。
+ * 这样旧版本用户不需要先手动打开一次文件，也能在欢迎态看到最近记录。
+ */
+export function seedRecentFiles(
+  records: readonly RecentFileRecord[],
+  filePaths: readonly (string | null | undefined)[],
+  platform: NodeJS.Platform = process.platform
+): RecentFileRecord[] {
+  const next = [...records]
+  const seen = new Set(next.map((record) => normalizeGuardPath(record.path, platform)))
+  for (const filePath of filePaths) {
+    if (next.length >= MAX_RECENT_FILES) break
+    if (typeof filePath !== 'string' || !filePath || !isDocumentFile(filePath)) continue
+    const key = normalizeGuardPath(filePath, platform)
+    if (seen.has(key)) continue
+    seen.add(key)
+    next.push({ path: filePath, name: basename(filePath) || filePath, openedAt: 0 })
+  }
+  return next
+}
+
 /** 构造侧车文件内容 */
 export function buildRecentFilesFile(records: readonly RecentFileRecord[]): RecentFilesFile {
   return { version: 1, files: records.slice(0, MAX_RECENT_FILES) }

@@ -32,6 +32,7 @@ import {
   buildRecentFilesFile,
   parseRecentFilesFile,
   rememberRecentFile as rememberRecentFileRecord,
+  seedRecentFiles,
   type RecentFileRecord
 } from './recent-files-store'
 import type { RecentFileEntry, RecentOpenResult } from '../shared/recent-types'
@@ -399,8 +400,10 @@ function initializePersistedState(): void {
     console.error('Failed to load editor history:', err)
   }
 
+  let recentFilesFileExists = false
   try {
     if (existsSync(recentFilesFile)) {
+      recentFilesFileExists = true
       recentFileRecords = parseRecentFilesFile(
         JSON.parse(readFileSync(recentFilesFile, 'utf-8')),
         process.platform
@@ -408,6 +411,20 @@ function initializePersistedState(): void {
     }
   } catch (err) {
     console.error('Failed to load recent files:', err)
+  }
+
+  // 旧版本只保存会话、没有最近列表：仅在侧车文件不存在时补齐一次，
+  // 追加到末尾且不改变已有顺序。文件已存在（含用户主动清空后的空列表）时不再补齐，
+  // 保证「清除记录」在重启后仍然生效。
+  if (!recentFilesFileExists && sessionWindows.size > 0) {
+    const restoredPaths = Array.from(sessionWindows.values()).flatMap((window) =>
+      window.tabs.map((tab) => tab.path)
+    )
+    const seededRecords = seedRecentFiles(recentFileRecords, restoredPaths, process.platform)
+    if (seededRecords.length !== recentFileRecords.length) {
+      recentFileRecords = seededRecords
+      queuePersistRecentFilesFile()
+    }
   }
 
   const firstWindowId =

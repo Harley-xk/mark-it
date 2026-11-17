@@ -4,6 +4,7 @@ import {
   buildRecentFilesFile,
   parseRecentFilesFile,
   rememberRecentFile,
+  seedRecentFiles,
   type RecentFileRecord
 } from './recent-files-store'
 
@@ -75,6 +76,31 @@ describe('rememberRecentFile', () => {
     expect(next).toHaveLength(MAX_RECENT_FILES)
     expect(next[0].path).toBe('/notes/new.md')
     expect(next.some((record) => record.path === `/notes/${MAX_RECENT_FILES - 1}.md`)).toBe(false)
+  })
+})
+
+describe('seedRecentFiles', () => {
+  const base: RecentFileRecord[] = [{ path: '/notes/a.md', name: 'a.md', openedAt: 5 }]
+
+  it('应把会话中缺失的路径追加到末尾且不改变已有顺序', () => {
+    const next = seedRecentFiles(base, ['/notes/b.md', '/NOTES/A.MD', '/notes/c.md'], 'win32')
+    expect(next.map((record) => record.path)).toEqual(['/notes/a.md', '/notes/b.md', '/notes/c.md'])
+    expect(next[1].openedAt).toBe(0)
+    expect(base).toHaveLength(1)
+  })
+
+  it('应忽略空路径、非文档扩展名与重复项', () => {
+    const next = seedRecentFiles(base, [null, '', '/notes/pic.png', '/notes/a.md'], 'win32')
+    expect(next).toEqual(base)
+  })
+
+  it('补齐时不应超过上限', () => {
+    const records = Array.from({ length: MAX_RECENT_FILES }, (_, index) => ({
+      path: `/notes/${index}.md`,
+      name: `${index}.md`,
+      openedAt: index + 1
+    }))
+    expect(seedRecentFiles(records, ['/notes/new.md'], 'win32')).toHaveLength(MAX_RECENT_FILES)
   })
 })
 
