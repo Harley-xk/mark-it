@@ -5,6 +5,7 @@ import ConfirmDialog from './components/common/ConfirmDialog.vue'
 import UpdateNotice from './components/update/UpdateNotice.vue'
 import TabDropOverlay from './components/layout/TabDropOverlay.vue'
 import { useOutline } from './composables/useOutline'
+import { useDocumentMode } from './composables/useDocumentMode'
 import { useKeyboardShortcuts } from './composables/useKeyboardShortcuts'
 import { useScrollbarState } from './composables/useScrollbarState'
 import { useWindowZoom } from './composables/useWindowZoom'
@@ -18,6 +19,7 @@ import { saveAllBeforeExit } from './composables/useExitGuard'
 import { useI18n } from './i18n'
 
 useOutline()
+useDocumentMode()
 useKeyboardShortcuts()
 useScrollbarState()
 useWindowZoom()

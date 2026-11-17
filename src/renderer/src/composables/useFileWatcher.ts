@@ -85,9 +85,10 @@ export function useFileWatcher(): void {
       readOnly: result.file.readOnly,
       encoding: result.file.encoding,
       excludedFromSession: result.file.excludedFromSession,
+      size: result.file.size,
       missing: false
     })
-    // 非 UTF-8 / 超大文件不把替换字符或只读内容推给编辑器；仅在状态刚变化时提示
+    // 非 UTF-8 文件不把替换字符推给编辑器；仅在状态刚变化时提示
     if (result.file.readOnly) {
       if (becameReadOnly) void showFileReadNotices([result.file])
       return

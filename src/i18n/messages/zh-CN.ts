@@ -16,6 +16,7 @@ export const zhCN = {
   'common.overwriteDisk': '覆盖磁盘',
   'common.loadDisk': '载入磁盘',
   'common.resetDefaults': '恢复默认',
+  'common.continue': '继续',
   'common.export': '导出',
   'common.exporting': '导出中…',
   'common.view': '查看',
@@ -40,7 +41,7 @@ export const zhCN = {
   'file.error.notFound': '文件不存在或已被删除。',
   'file.error.permissionDenied': '没有读取或写入该文件的权限。',
   'file.error.isDirectory': '目标是一个目录，不是文件。',
-  'file.error.tooLarge': '文件超过 10 MiB，MarkIt 不支持打开这么大的文档。',
+  'file.error.tooLarge': '文件超过 50 MiB，MarkIt 不支持打开这么大的文档。',
   'file.error.diskFull': '磁盘空间不足。',
   'file.error.readOnlyFilesystem': '目标磁盘或文件系统为只读。',
   'file.error.invalidPath': '文件路径无效。',
@@ -51,7 +52,7 @@ export const zhCN = {
   'file.saveFailedMessage': '无法写入「{path}」。\n\n{reason}\n\n可以重试，或选择其他位置另存为。',
   'file.readOnlyTitle': '文件为只读',
   'file.readOnlyMessage':
-    '「{name}」不是可编辑的 UTF-8 文件，或超过大小上限。\n\n可以另存为新的 UTF-8 文件后再编辑。',
+    '「{name}」不是可编辑的 UTF-8 文件。\n\n可以另存为新的 UTF-8 文件后再编辑。',
   'file.saveAsTitle': '另存为',
   'file.alreadyOpenDirty':
     '「{path}」已在标签页「{tab}」中打开，且该标签有未保存的修改。继续会将当前内容写入该标签并关闭当前标签，已有修改将丢失。',
@@ -60,7 +61,7 @@ export const zhCN = {
   'file.mergeIntoExisting': '合并到该标签',
   'file.diskChangedTitle': '磁盘文件已变化',
   'file.diskChangedMessage':
-    '「{name}」当前磁盘内容不是可编辑的 UTF-8 文件，或超过大小上限。\n\n继续保存会用本地内容以 UTF-8 覆盖磁盘文件。',
+    '「{name}」当前磁盘内容不是可编辑的 UTF-8 文件。\n\n继续保存会用本地内容以 UTF-8 覆盖磁盘文件。',
   'file.conflictTitle': '文件冲突',
   'file.conflictMessage': '「{name}」在磁盘上已被其他程序修改，本地也有未保存的修改。',
   'file.reloadTitle': '重新载入',
@@ -75,11 +76,28 @@ export const zhCN = {
   'file.noticeNonUtf8':
     '{path}\n  编码为 {encoding}，已以只读方式打开；保存时请使用「另存为」转为 UTF-8。',
   'file.noticeLargeFile':
-    '{path}\n  文件超过 5 MiB，已以只读方式打开，且不会把正文写入会话恢复数据。',
+    '{path}\n  文件超过 5 MiB：已进入纯文本模式，关闭预览、语法高亮、大纲与字数统计；文件仍可正常编辑与保存，正文不会写入会话恢复数据。',
   'file.nonUtf8': '非 UTF-8',
+  'file.mode.large': '大文件模式',
+  'file.mode.plain': '纯文本模式',
+  'file.mode.switchToPlainTitle': '切换纯文本模式',
+  'file.mode.switchToPlain':
+    '「{name}」已超过 5 MiB。建议切换为纯文本模式，关闭预览、语法高亮、大纲与字数统计，以保持编辑流畅。',
+  'file.mode.switchToPlainAction': '切换为纯文本模式',
+  'file.mode.restoreMarkdownTitle': '恢复 Markdown 模式',
+  'file.mode.restoreMarkdownMessage':
+    '「{name}」体积较大，恢复 Markdown 模式（语法高亮、大纲等）可能造成卡顿。是否继续？',
+  'file.mode.restoreMarkdownAction': '恢复 Markdown 模式',
 
   'status.lineCol': '行 {line}, 列 {column}',
   'status.words': '{count} 字',
+  'status.wordsDisabled': '字数已关闭',
+  'status.mode.large': '大文件',
+  'status.mode.largeTitle': '预览已暂停以保持编辑流畅；文件仍可正常编辑与保存',
+  'status.mode.plain': '纯文本',
+  'status.mode.plainTitle': '已关闭预览、语法高亮、大纲与字数统计；文件仍可正常编辑与保存',
+  'status.mode.restore': '恢复 Markdown',
+  'status.mode.restoreTitle': '恢复 Markdown 模式（语法高亮、大纲等）',
   'status.exportKind.image': '图片',
   'status.exportKind.pdf': 'PDF',
   'status.exportKind.document': '文档',
@@ -177,6 +195,13 @@ export const zhCN = {
   'preview.diagramRenderFailed': '图表渲染失败（{language}）：{reason}',
   'preview.unknownError': '未知错误',
   'preview.tableResizeHint': '拖动调整列宽，双击恢复自动宽度',
+  'preview.pausedLargeFile': '文档较大，预览已暂停以保持编辑流畅；文件仍可正常编辑与保存。',
+  'preview.pausedAfterGrowth': '文档已超过 1 MiB，预览已自动暂停以避免卡顿。',
+  'preview.disabledPlain': '纯文本模式下预览已关闭。可在状态栏恢复 Markdown 模式。',
+  'preview.renderAnyway': '仍要渲染预览',
+  'preview.renderAnywayConfirmTitle': '渲染大文件预览',
+  'preview.renderAnywayConfirm':
+    '渲染「{name}」的预览可能需要数秒，期间界面可能暂时无响应。是否继续？',
 
   'export.tocTitle': '目录',
   'export.stage.prepareContent': '准备内容',
@@ -184,6 +209,11 @@ export const zhCN = {
   'export.stage.renderDiagrams': '渲染图表',
   'export.stage.buildPage': '生成导出页面',
   'export.imageAutoScaleDown': '已自动降至 {scale}×',
+  'export.largeFileConfirmTitle': '导出大文件',
+  'export.largeFileConfirm': '「{name}」较大，导出会重新构建完整页面并可能耗时较久。是否继续？',
+  'export.plainFileBlockedTitle': '已禁用大文件导出',
+  'export.plainFileBlocked':
+    '「{name}」处于纯文本模式，导出会重新渲染整篇文档，可能造成长时间卡顿。是否仍要继续？',
   'export.pdf.title': '导出 PDF',
   'export.pdf.pageSize': '纸张大小',
   'export.pdf.margin': '页边距',

@@ -58,6 +58,7 @@ export function useSession(): { flush: () => Promise<void> } {
           readOnly: doc.readOnly,
           encoding: doc.encoding,
           excludedFromSession: doc.excludedFromSession,
+          size: doc.size,
           missing: doc.missing,
           layoutMode: doc.layoutMode,
           outlineVisible: doc.outlineVisible,
@@ -161,9 +162,11 @@ export function useSession(): { flush: () => Promise<void> } {
               content: decoded.text,
               eol: decoded.eol,
               bom: fromDisk.file.encoding === 'utf-8-bom' || decoded.bom,
+              // 只读只由编码决定；超大文件按磁盘大小重新判定能力模式
               readOnly: fromDisk.file.readOnly,
               encoding: fromDisk.file.encoding,
               excludedFromSession: fromDisk.file.excludedFromSession,
+              size: fromDisk.file.size,
               missing: false
             }
           })

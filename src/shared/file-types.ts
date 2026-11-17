@@ -38,9 +38,9 @@ export interface FileReadResult {
   encoding: FileTextEncoding
   /** 文件字节数 */
   size: number
-  /** 是否只读：非 UTF-8 或超过警告阈值 */
+  /** 是否只读：仅由编码能否安全写回决定，UTF-8 文件无论多大都可编辑 */
   readOnly: boolean
-  /** 是否因超过警告阈值而不把正文写入会话快照 */
+  /** 是否因超过会话排除阈值而不把正文写入会话快照 */
   excludedFromSession: boolean
   /** 需要在界面提示的原因 */
   notices: FileOpenNotice[]

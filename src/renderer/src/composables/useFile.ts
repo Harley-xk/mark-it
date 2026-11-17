@@ -29,6 +29,7 @@ function fileMeta(file: FileReadResult): {
   readOnly: boolean
   encoding: FileReadResult['encoding']
   excludedFromSession: boolean
+  size: number
   missing: boolean
 } {
   const decoded = decodeText(file.content)
@@ -39,6 +40,7 @@ function fileMeta(file: FileReadResult): {
     readOnly: file.readOnly,
     encoding: file.encoding,
     excludedFromSession: file.excludedFromSession,
+    size: file.size,
     missing: false
   }
 }
@@ -177,10 +179,12 @@ export function useFile(): FileActions {
           readOnly: false,
           encoding: doc.bom ? 'utf-8-bom' : 'utf-8',
           excludedFromSession: outcome.result.excludedFromSession,
+          size: outcome.result.size,
           missing: false
         })
         docs.markSaved(existing.id, undefined, {
-          excludedFromSession: outcome.result.excludedFromSession
+          excludedFromSession: outcome.result.excludedFromSession,
+          size: outcome.result.size
         })
         docs.closeDocument(doc.id)
         docs.activateDocument(existing.id)
@@ -190,7 +194,8 @@ export function useFile(): FileActions {
       const outcome = await writeWithFeedback(path, encoded)
       if (!outcome.ok) return outcome.saveAs ? saveDocument(doc, true) : false
       docs.markSaved(doc.id, path, {
-        excludedFromSession: outcome.result.excludedFromSession
+        excludedFromSession: outcome.result.excludedFromSession,
+        size: outcome.result.size
       })
       return true
     }
@@ -220,6 +225,7 @@ export function useFile(): FileActions {
           readOnly: false,
           encoding: disk.file.encoding,
           excludedFromSession: disk.file.excludedFromSession,
+          size: disk.file.size,
           missing: false
         })
         if (sameContent(disk.file.content, doc.content)) {
@@ -259,7 +265,8 @@ export function useFile(): FileActions {
     const outcome = await writeWithFeedback(doc.path, encodeText(doc.content, doc.eol, doc.bom))
     if (!outcome.ok) return outcome.saveAs ? saveDocument(doc, true) : false
     docs.markSaved(doc.id, undefined, {
-      excludedFromSession: outcome.result.excludedFromSession
+      excludedFromSession: outcome.result.excludedFromSession,
+      size: outcome.result.size
     })
     return true
   }
@@ -558,6 +565,7 @@ export function useFile(): FileActions {
       readOnly: false,
       encoding: result.file.encoding,
       excludedFromSession: result.file.excludedFromSession,
+      size: result.file.size,
       missing: false
     })
 

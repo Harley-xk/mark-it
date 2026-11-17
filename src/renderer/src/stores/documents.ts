@@ -9,6 +9,14 @@ import { isLayoutMode, loadSavedLayoutMode } from '../utils/layout-mode'
 import { loadSavedOutlineVisible } from '../utils/outline-visibility'
 import { moveItem } from '../utils/tab-order'
 import { decodeText, normalizeToLf, type LineEnding } from '../utils/text-encoding'
+import {
+  PLAIN_TEXT_BYTES,
+  PREVIEW_DEGRADE_BYTES,
+  applyDocumentSize,
+  selectDocumentMode,
+  utf8ByteLength,
+  type DocumentMode
+} from '../utils/document-mode'
 import { manualContent } from '../utils/manual'
 import { useI18n } from '../i18n'
 
@@ -37,6 +45,18 @@ export interface DocumentTab {
   encoding: FileTextEncoding
   /** 是否因过大而不把正文写入会话快照 */
   excludedFromSession: boolean
+  /** 文件字节数；未保存文档按 UTF-8 编码后的字节数 */
+  size: number
+  /** 能力模式：大小只决定降级，不影响编辑与保存 */
+  mode: DocumentMode
+  /** 用户显式要求在大文件模式下渲染预览；仅本次会话有效 */
+  previewOverride: boolean
+  /** 预览是否因内容增长被自动暂停（用于区分提示文案） */
+  previewAutoPaused: boolean
+  /** 编辑中跨过纯文本阈值，等待用户确认切换 */
+  plainSuggested: boolean
+  /** 用户已拒绝切换纯文本模式；内容缩小到阈值以下前不再提示 */
+  plainPromptDismissed: boolean
   /** 磁盘文件是否已不存在 */
   missing: boolean
   /** 当前标签的布局模式；切换标签时由 app.layoutMode 读取 */
@@ -52,6 +72,7 @@ export interface DocumentFileMeta {
   readOnly?: boolean
   encoding?: FileTextEncoding
   excludedFromSession?: boolean
+  size?: number
   missing?: boolean
 }
 
@@ -152,6 +173,7 @@ export const useDocumentsStore = defineStore('documents', () => {
     // 编辑器内部统一使用 LF；原文件的换行符与 BOM 记在标签上，保存时还原
     const decoded = decodeText(content)
     const text = decoded.text
+    const size = meta?.size ?? utf8ByteLength(text)
     return {
       id: nextDocId(),
       historyId: meta?.historyId ?? crypto.randomUUID(),
@@ -169,10 +191,24 @@ export const useDocumentsStore = defineStore('documents', () => {
       readOnly: meta?.readOnly ?? false,
       encoding: meta?.encoding ?? (decoded.bom ? 'utf-8-bom' : 'utf-8'),
       excludedFromSession: meta?.excludedFromSession ?? false,
+      size,
+      // 打开时按磁盘字节数确定模式；之后的内容增长遵循 6.2 的降级规则
+      mode: selectDocumentMode({ bytes: size }),
+      previewOverride: false,
+      previewAutoPaused: false,
+      plainSuggested: false,
+      plainPromptDismissed: false,
       missing: meta?.missing ?? false,
       layoutMode: meta?.layoutMode ?? defaultTabLayoutMode(),
       outlineVisible: meta?.outlineVisible ?? defaultTabOutlineVisible()
     }
+  }
+
+  /** 更新字节数并按阈值推进能力模式（状态迁移由纯函数维护） */
+  function applySize(doc: DocumentTab, size: number): void {
+    if (!Number.isFinite(size) || size < 0) return
+    doc.size = size
+    applyDocumentSize(doc, size)
   }
 
   /** 用主进程读取结果刷新标签的磁盘状态（不改写内容） */
@@ -180,6 +216,7 @@ export const useDocumentsStore = defineStore('documents', () => {
     if (meta.readOnly !== undefined) doc.readOnly = meta.readOnly
     if (meta.encoding !== undefined) doc.encoding = meta.encoding
     if (meta.excludedFromSession !== undefined) doc.excludedFromSession = meta.excludedFromSession
+    if (meta.size !== undefined) applySize(doc, meta.size)
     if (meta.missing !== undefined) doc.missing = meta.missing
   }
 
@@ -244,6 +281,8 @@ export const useDocumentsStore = defineStore('documents', () => {
       readOnly: tab.readOnly === true,
       encoding: tab.encoding,
       excludedFromSession: tab.excludedFromSession === true,
+      // 旧会话没有 size 时按正文 UTF-8 字节数兜底；排除正文的标签由磁盘读取结果覆盖
+      size: typeof tab.size === 'number' && Number.isFinite(tab.size) ? tab.size : undefined,
       missing: tab.missing === true,
       layoutMode,
       outlineVisible
@@ -371,6 +410,9 @@ export const useDocumentsStore = defineStore('documents', () => {
     if (doc.content === normalized) return normalized
     doc.content = normalized
     doc.isModified = true
+    // 纯文本模式下跳过全文扫描：字数与字节数都不再实时维护
+    if (doc.mode === 'plain') return normalized
+    applySize(doc, utf8ByteLength(normalized))
     doc.wordCount = countWords(normalized)
     return normalized
   }
@@ -386,8 +428,10 @@ export const useDocumentsStore = defineStore('documents', () => {
     doc.eol = meta?.eol ?? decoded.eol
     doc.bom = meta?.bom ?? decoded.bom
     doc.isModified = false
-    doc.wordCount = countWords(decoded.text)
     if (meta) applyFileMeta(doc, { missing: false, ...meta })
+    // 主进程返回的 size 是磁盘真实字节数；缺失时按内部文本估算
+    if (meta?.size === undefined) applySize(doc, utf8ByteLength(decoded.text))
+    if (doc.mode !== 'plain') doc.wordCount = countWords(decoded.text)
     // 缓存的 EditorState 仍是旧内容；继续使用会让重新激活的标签显示过期文本
     editorStates.delete(id)
     serializedEditorStates.delete(id)
@@ -421,7 +465,7 @@ export const useDocumentsStore = defineStore('documents', () => {
   function markSaved(
     id: string,
     filePath?: string,
-    meta?: { excludedFromSession?: boolean }
+    meta?: { excludedFromSession?: boolean; size?: number }
   ): void {
     const doc = getDoc(id)
     if (!doc) return
@@ -430,6 +474,8 @@ export const useDocumentsStore = defineStore('documents', () => {
     doc.missing = false
     doc.readOnly = false
     doc.encoding = doc.bom ? 'utf-8-bom' : 'utf-8'
+    // 写盘后文件为 UTF-8，字节数可直接使用写入结果
+    applySize(doc, meta?.size ?? utf8ByteLength(doc.content))
     if (meta?.excludedFromSession !== undefined) {
       doc.excludedFromSession = meta.excludedFromSession
     }
@@ -437,6 +483,47 @@ export const useDocumentsStore = defineStore('documents', () => {
       doc.path = filePath
       doc.name = baseName(filePath)
     }
+  }
+
+  /** 大文件模式下用户显式要求渲染预览；纯文本模式需先恢复 Markdown 模式 */
+  function setPreviewOverride(id: string, override: boolean): void {
+    const doc = getDoc(id)
+    if (!doc || doc.mode === 'plain') return
+    doc.previewOverride = override
+    if (override) doc.previewAutoPaused = false
+  }
+
+  /** 用户确认把编辑中的文档切换为纯文本模式 */
+  function switchToPlainMode(id: string): void {
+    const doc = getDoc(id)
+    if (!doc) return
+    doc.mode = 'plain'
+    doc.previewOverride = false
+    doc.previewAutoPaused = false
+    doc.plainSuggested = false
+    doc.plainPromptDismissed = true
+    doc.headings = []
+  }
+
+  /** 用户拒绝切换纯文本模式：内容缩小到阈值以下前不再提示 */
+  function dismissPlainSuggestion(id: string): void {
+    const doc = getDoc(id)
+    if (!doc) return
+    doc.plainSuggested = false
+    doc.plainPromptDismissed = true
+  }
+
+  /** 从纯文本模式恢复 Markdown 能力；大文件仍需用户显式点击「仍要渲染预览」 */
+  function restoreMarkdownMode(id: string): void {
+    const doc = getDoc(id)
+    if (!doc || doc.mode !== 'plain') return
+    const size = utf8ByteLength(doc.content)
+    doc.size = size
+    doc.mode = size > PREVIEW_DEGRADE_BYTES ? 'large' : 'normal'
+    doc.previewOverride = false
+    doc.previewAutoPaused = false
+    doc.plainSuggested = false
+    doc.plainPromptDismissed = size > PLAIN_TEXT_BYTES
   }
 
   /** 更新标签的磁盘状态（只读 / 编码 / 会话排除 / 缺失） */
@@ -510,6 +597,10 @@ export const useDocumentsStore = defineStore('documents', () => {
     setLayoutMode,
     setOutlineVisible,
     markSaved,
+    setPreviewOverride,
+    switchToPlainMode,
+    dismissPlainSuggestion,
+    restoreMarkdownMode,
     setFileMeta,
     setPathMissing,
     setEditorState,

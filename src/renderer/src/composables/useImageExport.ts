@@ -14,6 +14,7 @@ import { useEditorStore } from '../stores/editor'
 import { useStyleStore } from '../stores/style'
 import { getDiagramTheme } from '../utils/diagram-theme'
 import { renderMermaidDiagramsForExport } from '../utils/export-markdown'
+import { confirmExportForMode } from './useExportGuard'
 import { parseFrontmatter, renderFrontmatterTable } from '../utils/frontmatter'
 import { installHeadingAnchors } from '../utils/headings'
 import { normalizeImageExportSettings } from '../utils/image-export-settings'
@@ -50,6 +51,7 @@ export function useImageExport(): UseImageExport {
 
     const doc = documents.activeDoc
     if (!doc) return
+    if (!(await confirmExportForMode(doc))) return
 
     const settings = normalizeImageExportSettings(options)
     const theme = settings.theme === 'preview' ? app.resolvedTheme : settings.theme

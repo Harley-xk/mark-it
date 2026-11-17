@@ -5,6 +5,7 @@ import { useDocumentsStore } from '../stores/documents'
 import { useAppStore } from '../stores/app'
 import { getDiagramTheme } from '../utils/diagram-theme'
 import { renderMermaidDiagramsForExport } from '../utils/export-markdown'
+import { confirmExportForMode } from './useExportGuard'
 import { parseFrontmatter, renderFrontmatterTable } from '../utils/frontmatter'
 import { installLocalImageRule } from '../utils/local-image'
 import { installHeadingAnchors, parseHeadings, type ParsedHeading } from '../utils/headings'
@@ -71,6 +72,8 @@ export function usePdfExport(): UsePdfExport {
   async function exportPdf(options: PdfExportOptions): Promise<void> {
     // 防重入：导出期间忽略再次触发（对话框同时会禁用按钮）
     if (exporting.value || app.exportStatus === 'exporting') return
+    const doc = documents.activeDoc
+    if (doc && !(await confirmExportForMode(doc))) return
     exporting.value = true
     app.setExportStatus('pdf', 'exporting')
     app.setExportProgress('pdf', 2, t('export.stage.prepareContent'))

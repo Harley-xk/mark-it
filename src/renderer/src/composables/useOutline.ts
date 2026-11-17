@@ -65,6 +65,11 @@ export function useOutline(): void {
   function applyHeadings(): void {
     const doc = docs.activeDoc
     if (!doc) return
+    // 纯文本模式关闭大纲：不解析，也不保留旧大纲
+    if (doc.mode === 'plain') {
+      if (doc.headings.length > 0) editorStore.setHeadings([])
+      return
+    }
     if (headingSources.get(doc) === doc.content) return
     editorStore.setHeadings(extractHeadings(doc.content))
     headingSources.set(doc, doc.content)
@@ -86,6 +91,16 @@ export function useOutline(): void {
 
   // 正文输入：尾部防抖，避免每个字符都整篇解析
   watch(() => editorStore.content, scheduleHeadings)
+  // 能力模式变化：切到纯文本模式时立即清空大纲；恢复 Markdown 时强制重新解析
+  watch(
+    () => docs.activeDoc?.mode,
+    (mode) => {
+      cancelPendingHeadings()
+      const doc = docs.activeDoc
+      if (doc && mode !== 'plain') headingSources.delete(doc)
+      applyHeadings()
+    }
+  )
   // 切换标签：取消防抖并立即补齐，不能显示上一个文档或旧内容的大纲
   watch(
     () => docs.activeId,

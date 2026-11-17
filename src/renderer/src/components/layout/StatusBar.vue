@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { useEditorStore } from '../../stores/editor'
 import { useAppStore } from '../../stores/app'
 import { useDocumentsStore } from '../../stores/documents'
+import { confirmUnsaved } from '../../composables/useConfirmUnsaved'
 import { useI18n } from '../../i18n'
 import ZoomControl from './ZoomControl.vue'
 
@@ -61,6 +62,37 @@ const layoutLabel = computed(() => {
       return t('status.layout.previewOnly')
   }
 })
+
+const modeLabel = computed(() => {
+  const doc = docs.activeDoc
+  if (!doc || doc.mode === 'normal') return ''
+  return doc.mode === 'plain' ? t('status.mode.plain') : t('status.mode.large')
+})
+
+const modeTitle = computed(() => {
+  const doc = docs.activeDoc
+  return doc?.mode === 'plain' ? t('status.mode.plainTitle') : t('status.mode.largeTitle')
+})
+
+const wordsLabel = computed(() =>
+  docs.activeDoc?.mode === 'plain'
+    ? t('status.wordsDisabled')
+    : t('status.words', { count: editor.wordCount })
+)
+
+/** 纯文本模式恢复 Markdown 能力；恢复前提示可能卡顿 */
+async function restoreMarkdownMode(): Promise<void> {
+  const doc = docs.activeDoc
+  if (!doc || doc.mode !== 'plain') return
+  const action = await confirmUnsaved(
+    t('file.mode.restoreMarkdownTitle'),
+    t('file.mode.restoreMarkdownMessage', { name: doc.name }),
+    { save: t('file.mode.restoreMarkdownAction') },
+    true,
+    { hideDiscard: true, cancelText: t('common.cancel') }
+  )
+  if (action === 'save') docs.restoreMarkdownMode(doc.id)
+}
 
 const exportAriaLabel = computed(() => {
   if (app.exportStatus === 'exporting') {
@@ -142,7 +174,21 @@ const exportAriaLabel = computed(() => {
         </span>
         <span class="status-sep">|</span>
       </template>
-      <span class="status-item">{{ t('status.words', { count: editor.wordCount }) }}</span>
+      <template v-if="modeLabel">
+        <span class="status-item status-mode" :title="modeTitle">{{ modeLabel }}</span>
+        <template v-if="docs.activeDoc?.mode === 'plain'">
+          <button
+            type="button"
+            class="status-mode-action"
+            :title="t('status.mode.restoreTitle')"
+            @click="restoreMarkdownMode"
+          >
+            {{ t('status.mode.restore') }}
+          </button>
+        </template>
+        <span class="status-sep">|</span>
+      </template>
+      <span class="status-item">{{ wordsLabel }}</span>
       <span class="status-sep">|</span>
       <span class="status-item" :title="app.filePath || undefined">{{ encodingLabel }}</span>
       <span class="status-sep">|</span>
@@ -183,6 +229,31 @@ const exportAriaLabel = computed(() => {
 
 .status-warning {
   color: #e0a04a;
+}
+
+.status-mode {
+  color: #e0a04a;
+}
+
+.status-mode-action {
+  height: 18px;
+  padding: 0 6px;
+  border: 1px solid rgba(224, 160, 74, 0.4);
+  border-radius: 4px;
+  background: rgba(224, 160, 74, 0.1);
+  color: #e0a04a;
+  font-family: inherit;
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    background 0.12s ease,
+    border-color 0.12s ease;
+}
+
+.status-mode-action:hover {
+  background: rgba(224, 160, 74, 0.2);
+  border-color: rgba(224, 160, 74, 0.65);
 }
 
 .status-export-anchor {
@@ -348,8 +419,20 @@ const exportAriaLabel = computed(() => {
   color: rgba(0, 0, 0, 0.1);
 }
 
-:global(.light .status-warning) {
+:global(.light .status-warning),
+:global(.light .status-mode) {
   color: #b45309;
+}
+
+:global(.light .status-mode-action) {
+  border-color: rgba(180, 83, 9, 0.35);
+  background: rgba(180, 83, 9, 0.06);
+  color: #b45309;
+}
+
+:global(.light .status-mode-action:hover) {
+  background: rgba(180, 83, 9, 0.12);
+  border-color: rgba(180, 83, 9, 0.55);
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -3,8 +3,8 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import {
-  FILE_SIZE_MAX_BYTES,
   FILE_SIZE_WARN_BYTES,
+  LOAD_MAX_BYTES,
   mapFileError,
   readTextFile,
   writeTextFile,
@@ -69,13 +69,13 @@ describe('文件读取', () => {
     expect(result.file.notices).toContain('non-utf8')
   })
 
-  it('超过警告阈值应只读并排除会话正文', async () => {
+  it('超过警告阈值应保持可编辑，仅排除会话正文', async () => {
     const path = join(workDir, 'large.md')
     writeFileSync(path, '0123456789', 'utf-8')
     const result = await readTextFile(path, policy([path], { warnBytes: 4, maxBytes: 1024 }))
     expect(result.ok).toBe(true)
     if (!result.ok) return
-    expect(result.file.readOnly).toBe(true)
+    expect(result.file.readOnly).toBe(false)
     expect(result.file.excludedFromSession).toBe(true)
     expect(result.file.notices).toContain('large-file')
   })
@@ -137,8 +137,8 @@ describe('错误映射', () => {
     expect(mapFileError(new Error('unknown')).code).toBe('io-error')
   })
 
-  it('默认阈值应为 5 MiB / 10 MiB', () => {
+  it('默认阈值应为会话排除 5 MiB / 加载上限 50 MiB', () => {
     expect(FILE_SIZE_WARN_BYTES).toBe(5 * 1024 * 1024)
-    expect(FILE_SIZE_MAX_BYTES).toBe(10 * 1024 * 1024)
+    expect(LOAD_MAX_BYTES).toBe(50 * 1024 * 1024)
   })
 })

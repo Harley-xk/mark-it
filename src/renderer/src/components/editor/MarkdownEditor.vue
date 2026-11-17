@@ -33,6 +33,7 @@ import { registerScrollCapture } from '../../composables/session-scroll'
 import { findTextMatches, type TextMatch } from '../../utils/search'
 import { applySearchDecorations, searchMatchExtension } from '../../utils/editor-search'
 import { restoreEditorState } from '../../utils/editor-state-transfer'
+import type { DocumentMode } from '../../utils/document-mode'
 
 const editorStore = useEditorStore()
 const appStore = useAppStore()
@@ -46,8 +47,10 @@ let unregisterScrollCapture: (() => void) | null = null
 // 主题 compartment 定义在模块级：EditorState 会被缓存并在组件重新挂载后复用，
 // 共享同一个 compartment 才能保证重新配置主题时生效
 const themeCompartment = new Compartment()
-// 只读状态同样按标签切换；非 UTF-8 / 超大文件禁止用户输入
+// 只读状态同样按标签切换；只由编码能否安全写回决定
 const readOnlyCompartment = new Compartment()
+// 能力模式：纯文本模式移除 Markdown 语言、折叠与 Markdown 相关扩展
+const modeCompartment = new Compartment()
 
 // 以编程方式替换文档内容时置位，避免被当成用户输入标记为已修改
 let isExternalUpdate = false
@@ -128,6 +131,20 @@ function getReadOnlyExtensions(readOnly: boolean): Extension[] {
   return [EditorState.readOnly.of(readOnly), EditorView.editable.of(!readOnly)]
 }
 
+/**
+ * 纯文本模式只保留基础编辑能力：没有 Markdown 语言就不会生成语法树，
+ * 高亮、折叠与括号匹配也随之失效；行号、历史、搜索与只读控制保持不变。
+ */
+function getModeExtensions(mode: DocumentMode): Extension[] {
+  if (mode === 'plain') return []
+  return [
+    markdown({ base: markdownLanguage, codeLanguages: languages }),
+    foldGutter(),
+    indentOnInput(),
+    bracketMatching()
+  ]
+}
+
 const updateListener = EditorView.updateListener.of((update) => {
   const id = docs.activeId
   if (!id) return
@@ -156,21 +173,18 @@ const blockTextDrag = EditorView.domEventHandlers({
   }
 })
 
-function buildExtensions(isDark: boolean, readOnly: boolean): Extension[] {
+function buildExtensions(isDark: boolean, readOnly: boolean, mode: DocumentMode): Extension[] {
   return [
     lineNumbers(),
     highlightActiveLineGutter(),
     highlightActiveLine(),
     history(),
-    foldGutter(),
     drawSelection(),
     EditorState.allowMultipleSelections.of(true),
-    indentOnInput(),
-    bracketMatching(),
     rectangularSelection(),
     searchMatchExtension,
     syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
-    markdown({ base: markdownLanguage, codeLanguages: languages }),
+    modeCompartment.of(getModeExtensions(mode)),
     themeCompartment.of(getThemeExtensions(isDark)),
     readOnlyCompartment.of(getReadOnlyExtensions(readOnly)),
     keymap.of([...defaultKeymap, ...historyKeymap, ...foldKeymap, indentWithTab]),
@@ -191,12 +205,13 @@ function cursorOffset(content: string, line: number, col: number): number {
 function createState(
   content: string,
   isDark: boolean,
+  mode: DocumentMode,
   cursor?: { cursorLine: number; cursorCol: number },
   readOnly = false
 ): EditorState {
   return EditorState.create({
     doc: content,
-    extensions: buildExtensions(isDark, readOnly),
+    extensions: buildExtensions(isDark, readOnly, mode),
     ...(cursor
       ? { selection: { anchor: cursorOffset(content, cursor.cursorLine, cursor.cursorCol) } }
       : {})
@@ -208,11 +223,12 @@ function restoreTransferredState(
   id: string,
   content: string,
   isDark: boolean,
-  readOnly: boolean
+  readOnly: boolean,
+  mode: DocumentMode
 ): EditorState | null {
   const serialized = docs.takeSerializedEditorState(id)
   if (!serialized) return null
-  const restored = restoreEditorState(serialized, buildExtensions(isDark, readOnly))
+  const restored = restoreEditorState(serialized, buildExtensions(isDark, readOnly, mode))
   return restored?.doc.toString() === content ? restored : null
 }
 
@@ -365,17 +381,18 @@ onMounted(() => {
   const cached = docs.getEditorState(doc.id)
   const state =
     cached ??
-    restoreTransferredState(doc.id, doc.content, isDark, doc.readOnly) ??
-    createState(doc.content, isDark, doc, doc.readOnly)
+    restoreTransferredState(doc.id, doc.content, isDark, doc.readOnly, doc.mode) ??
+    createState(doc.content, isDark, doc.mode, doc, doc.readOnly)
 
   view = new EditorView({ state, parent: editorRef.value })
 
   if (cached) {
-    // 缓存的状态可能是在另一套主题 / 只读状态下创建的
+    // 缓存的状态可能是在另一套主题 / 只读状态 / 能力模式下创建的
     view.dispatch({
       effects: [
         themeCompartment.reconfigure(getThemeExtensions(isDark)),
-        readOnlyCompartment.reconfigure(getReadOnlyExtensions(doc.readOnly))
+        readOnlyCompartment.reconfigure(getReadOnlyExtensions(doc.readOnly)),
+        modeCompartment.reconfigure(getModeExtensions(doc.mode))
       ]
     })
   }
@@ -451,12 +468,19 @@ watch(
       view.dispatch({
         effects: [
           themeCompartment.reconfigure(getThemeExtensions(isDark)),
-          readOnlyCompartment.reconfigure(getReadOnlyExtensions(doc.readOnly))
+          readOnlyCompartment.reconfigure(getReadOnlyExtensions(doc.readOnly)),
+          modeCompartment.reconfigure(getModeExtensions(doc.mode))
         ]
       })
     } else {
-      const transferred = restoreTransferredState(newId, doc.content, isDark, doc.readOnly)
-      view.setState(transferred ?? createState(doc.content, isDark, doc, doc.readOnly))
+      const transferred = restoreTransferredState(
+        newId,
+        doc.content,
+        isDark,
+        doc.readOnly,
+        doc.mode
+      )
+      view.setState(transferred ?? createState(doc.content, isDark, doc.mode, doc, doc.readOnly))
     }
     // 新标签的内容已经由该标签的 state 提供，监听器无需再比较一次全文
     lastEditorContent = doc.content
@@ -492,6 +516,17 @@ watch(
     if (!view) return
     view.dispatch({
       effects: readOnlyCompartment.reconfigure(getReadOnlyExtensions(readOnly === true))
+    })
+  }
+)
+
+// 编辑中跨过阈值 / 用户切换纯文本模式后，按新能力模式重配扩展
+watch(
+  () => docs.activeDoc?.mode,
+  (mode) => {
+    if (!view || !mode) return
+    view.dispatch({
+      effects: modeCompartment.reconfigure(getModeExtensions(mode))
     })
   }
 )

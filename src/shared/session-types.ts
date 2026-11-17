@@ -19,8 +19,10 @@ export interface SessionTab {
   eol?: '\n' | '\r\n'
   /** 原文件是否带 UTF-8 BOM；缺失时按 false 处理（兼容旧会话） */
   bom?: boolean
-  /** 是否只读（非 UTF-8 或超过大小阈值）；缺失时按 false 处理 */
+  /** 是否只读（仅非 UTF-8 编码）；缺失时按 false 处理 */
   readOnly?: boolean
+  /** 文件字节数；缺失时按会话正文的 UTF-8 字节数或磁盘读取结果判定 */
+  size?: number
   /** 原文件编码；缺失时按 utf-8 处理 */
   encoding?: FileTextEncoding
   /** 是否因过大不保存正文；缺失时按 false 处理 */

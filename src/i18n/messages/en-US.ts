@@ -17,6 +17,7 @@ export const enUS: Record<MessageKey, string> = {
   'common.overwriteDisk': 'Overwrite Disk',
   'common.loadDisk': 'Load Disk Version',
   'common.resetDefaults': 'Reset to defaults',
+  'common.continue': 'Continue',
   'common.export': 'Export',
   'common.exporting': 'Exporting…',
   'common.view': 'View',
@@ -41,7 +42,7 @@ export const enUS: Record<MessageKey, string> = {
   'file.error.notFound': 'The file does not exist or has been deleted.',
   'file.error.permissionDenied': 'You do not have permission to read or write this file.',
   'file.error.isDirectory': 'The target is a directory, not a file.',
-  'file.error.tooLarge': 'The file is larger than 10 MiB, which MarkIt cannot open.',
+  'file.error.tooLarge': 'The file is larger than 50 MiB, which MarkIt cannot open.',
   'file.error.diskFull': 'The disk is full.',
   'file.error.readOnlyFilesystem': 'The target disk or file system is read-only.',
   'file.error.invalidPath': 'The file path is invalid.',
@@ -55,7 +56,7 @@ export const enUS: Record<MessageKey, string> = {
     'Could not write "{path}".\n\n{reason}\n\nYou can retry, or save to another location.',
   'file.readOnlyTitle': 'Read-only File',
   'file.readOnlyMessage':
-    '"{name}" is not an editable UTF-8 file, or it exceeds the size limit.\n\nSave it as a new UTF-8 file to edit it.',
+    '"{name}" is not an editable UTF-8 file.\n\nSave it as a new UTF-8 file to edit it.',
   'file.saveAsTitle': 'Save As',
   'file.alreadyOpenDirty':
     '"{path}" is already open in the tab "{tab}", and that tab has unsaved changes. Continuing will write the current content into that tab and close this tab, discarding its changes.',
@@ -64,7 +65,7 @@ export const enUS: Record<MessageKey, string> = {
   'file.mergeIntoExisting': 'Merge into That Tab',
   'file.diskChangedTitle': 'Disk File Changed',
   'file.diskChangedMessage':
-    'The content of "{name}" on disk is not an editable UTF-8 file, or it exceeds the size limit.\n\nContinuing will overwrite the disk file with the local content as UTF-8.',
+    'The content of "{name}" on disk is not an editable UTF-8 file.\n\nContinuing will overwrite the disk file with the local content as UTF-8.',
   'file.conflictTitle': 'File Conflict',
   'file.conflictMessage':
     '"{name}" was changed on disk by another program, and you also have unsaved local changes.',
@@ -82,11 +83,30 @@ export const enUS: Record<MessageKey, string> = {
   'file.noticeNonUtf8':
     '{path}\n  The encoding is {encoding}; the file was opened read-only. Use "Save As" to convert it to UTF-8 before saving.',
   'file.noticeLargeFile':
-    '{path}\n  The file is larger than 5 MiB; it was opened read-only and its content will not be stored in session recovery data.',
+    '{path}\n  The file is larger than 5 MiB: it opened in plain text mode with preview, syntax highlighting, outline, and word count off. Editing and saving still work, and its content will not be stored in session recovery data.',
   'file.nonUtf8': 'Non-UTF-8',
+  'file.mode.large': 'Large file mode',
+  'file.mode.plain': 'Plain text mode',
+  'file.mode.switchToPlainTitle': 'Switch to Plain Text Mode',
+  'file.mode.switchToPlain':
+    '"{name}" is now larger than 5 MiB. Switching to plain text mode turns off preview, syntax highlighting, outline, and word count to keep editing responsive.',
+  'file.mode.switchToPlainAction': 'Switch to Plain Text Mode',
+  'file.mode.restoreMarkdownTitle': 'Restore Markdown Mode',
+  'file.mode.restoreMarkdownMessage':
+    '"{name}" is a large document; restoring Markdown mode (syntax highlighting, outline, and so on) may cause lag. Continue?',
+  'file.mode.restoreMarkdownAction': 'Restore Markdown Mode',
 
   'status.lineCol': 'Ln {line}, Col {column}',
   'status.words': 'Words: {count}',
+  'status.wordsDisabled': 'Word count off',
+  'status.mode.large': 'Large file',
+  'status.mode.largeTitle':
+    'Preview is paused to keep editing responsive; the file can still be edited and saved',
+  'status.mode.plain': 'Plain text',
+  'status.mode.plainTitle':
+    'Preview, syntax highlighting, outline, and word count are off; the file can still be edited and saved',
+  'status.mode.restore': 'Restore Markdown',
+  'status.mode.restoreTitle': 'Restore Markdown mode (syntax highlighting, outline, and so on)',
   'status.exportKind.image': 'Image',
   'status.exportKind.pdf': 'PDF',
   'status.exportKind.document': 'Document',
@@ -186,6 +206,16 @@ export const enUS: Record<MessageKey, string> = {
   'preview.diagramRenderFailed': 'Failed to render diagram ({language}): {reason}',
   'preview.unknownError': 'Unknown error',
   'preview.tableResizeHint': 'Drag to resize the column; double-click to restore automatic width',
+  'preview.pausedLargeFile':
+    'This document is large, so preview is paused to keep editing responsive. The file can still be edited and saved.',
+  'preview.pausedAfterGrowth':
+    'The document has grown beyond 1 MiB, so preview was paused automatically to avoid lag.',
+  'preview.disabledPlain':
+    'Preview is off in plain text mode. You can restore Markdown mode from the status bar.',
+  'preview.renderAnyway': 'Render Preview Anyway',
+  'preview.renderAnywayConfirmTitle': 'Render Large File Preview',
+  'preview.renderAnywayConfirm':
+    'Rendering the preview for "{name}" may take several seconds and the interface may briefly stop responding. Continue?',
 
   'export.tocTitle': 'Contents',
   'export.stage.prepareContent': 'Preparing content',
@@ -193,6 +223,12 @@ export const enUS: Record<MessageKey, string> = {
   'export.stage.renderDiagrams': 'Rendering diagrams',
   'export.stage.buildPage': 'Building export page',
   'export.imageAutoScaleDown': 'Automatically reduced to {scale}×',
+  'export.largeFileConfirmTitle': 'Export Large File',
+  'export.largeFileConfirm':
+    '"{name}" is large; exporting rebuilds the full page and may take a while. Continue?',
+  'export.plainFileBlockedTitle': 'Large File Export Disabled',
+  'export.plainFileBlocked':
+    '"{name}" is in plain text mode; exporting re-renders the whole document and may cause a long freeze. Continue anyway?',
   'export.pdf.title': 'Export PDF',
   'export.pdf.pageSize': 'Page size',
   'export.pdf.margin': 'Margins',

@@ -604,7 +604,7 @@ async function pushExternalChange(
     }
     return
   }
-  // 编码不受支持 / 超大文件不推送，保留编辑器现有内容
+  // 编码不受支持（只读）不推送，保留编辑器现有内容；大文件仍按新的磁盘内容刷新
   if (result.file.readOnly) return
   // TextDecoder 会剥离 UTF-8 BOM；这里补回，保证与写盘时 watchedContent 的可比性，
   // 同时让渲染进程能继续通过 decodeText 识别 BOM

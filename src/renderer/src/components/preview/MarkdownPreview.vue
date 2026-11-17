@@ -28,6 +28,7 @@ import { createMarkdownRenderer } from '../../utils/markdown'
 import { sanitizeMarkdownHtml } from '../../utils/sanitize'
 import { collectPreviewRanges } from '../../utils/search'
 import { LruCache } from '../../utils/lru-cache'
+import { confirmUnsaved } from '../../composables/useConfirmUnsaved'
 import { useI18n } from '../../i18n'
 import type { Locale } from '../../../../shared/locale-types'
 import SearchPanel from '../common/SearchPanel.vue'
@@ -71,6 +72,30 @@ let unregisterScrollCapture: (() => void) | null = null
 const isDark = computed(() => appStore.resolvedTheme === 'dark')
 const diagramTheme = computed(() => getDiagramTheme(isDark.value))
 const currentCss = computed(() => styleStore.currentCss(isDark.value))
+
+/**
+ * 大文件默认暂停预览；纯文本模式始终不渲染。
+ * 用户显式覆盖按标签记录在本次会话内，不写入会话、不跨重启保留。
+ */
+const previewPaused = computed(() => {
+  const doc = documentsStore.activeDoc
+  if (!doc) return false
+  if (doc.mode === 'plain') return true
+  return doc.mode === 'large' && !doc.previewOverride
+})
+
+const pausedTitle = computed(() =>
+  documentsStore.activeDoc?.mode === 'plain' ? t('file.mode.plain') : t('file.mode.large')
+)
+
+const pausedDescription = computed(() => {
+  const doc = documentsStore.activeDoc
+  if (!doc) return ''
+  if (doc.mode === 'plain') return t('preview.disabledPlain')
+  return doc.previewAutoPaused ? t('preview.pausedAfterGrowth') : t('preview.pausedLargeFile')
+})
+
+const canRenderAnyway = computed(() => documentsStore.activeDoc?.mode === 'large')
 
 const contentStyle = computed(() => ({
   maxWidth: appStore.previewWidthMode === 'fixed' ? `${appStore.previewWidth}px` : 'none'
@@ -249,9 +274,25 @@ function pruneLayers(): void {
   }
 }
 
+/** 暂停预览：隐藏现有层并清空预览内容登记，保留缓存层供恢复时复用 */
+function hidePreviewLayers(): void {
+  cancelPendingRender()
+  if (activeLayer) {
+    hideLayer(activeLayer)
+    activeLayer = null
+  }
+  editorStore.setPreviewContent(null)
+  updateSpacer()
+}
+
 /** 把激活文档切到它自己的预览层；返回是否重建了该层的 DOM */
 function applyActiveLayer(): boolean {
   cancelPendingRender()
+
+  if (previewPaused.value) {
+    hidePreviewLayers()
+    return false
+  }
 
   const doc = documentsStore.activeDoc
   if (!doc || !previewRef.value) {
@@ -301,9 +342,10 @@ function cancelPendingRender(): void {
   pendingRenderTimer = null
 }
 
-/** 正文变化后合并渲染，避免每个字符都整篇重算 */
+/** 正文变化后合并渲染，避免每个字符都整篇重算；预览暂停时直接跳过 */
 function scheduleDocumentRender(): void {
   cancelPendingRender()
+  if (previewPaused.value) return
   pendingRenderTimer = setTimeout(() => {
     pendingRenderTimer = null
     if (applyActiveLayer()) void schedulePostRender()
@@ -311,6 +353,37 @@ function scheduleDocumentRender(): void {
 }
 
 watch(() => documentsStore.activeDoc?.content, scheduleDocumentRender)
+
+/** 模式 / 手动覆盖变化：暂停时隐藏预览，恢复时按缓存重建并重新渲染 */
+watch(previewPaused, async (paused) => {
+  if (paused) {
+    hidePreviewLayers()
+    clearPreviewSearch()
+    // 预览关闭后不再有可搜索的渲染结果，避免计数停留在暂停前的值
+    if (search.surface === 'preview') search.updateResult(0, true)
+    return
+  }
+  const rebuilt = applyActiveLayer()
+  if (rebuilt) await schedulePostRender()
+  else {
+    applyPreviewSearch(false)
+    updateSpacer()
+  }
+})
+
+/** 大文件模式下用户明确要求渲染预览：先提示预计耗时 */
+async function renderAnyway(): Promise<void> {
+  const doc = documentsStore.activeDoc
+  if (!doc) return
+  const action = await confirmUnsaved(
+    t('preview.renderAnywayConfirmTitle'),
+    t('preview.renderAnywayConfirm', { name: doc.name }),
+    { save: t('preview.renderAnyway') },
+    true,
+    { hideDiscard: true, cancelText: t('common.cancel') }
+  )
+  if (action === 'save') documentsStore.setPreviewOverride(doc.id, true)
+}
 
 // 关闭标签（含批量关闭其他标签）后及时释放对应的预览层
 watch(() => documentsStore.docs.length, pruneLayers)
@@ -976,7 +1049,7 @@ watch(
     // 切换到该标签自己的预览层：已渲染过的标签只切换显示状态，
     // 同时取消正文输入遗留的防抖任务，避免旧内容覆盖新标签
     const rebuilt = applyActiveLayer()
-    if (!newId) return
+    if (!newId || previewPaused.value) return
 
     // 预览内容切换后会重新异步渲染（Mermaid、图片、表格列宽），高度在渲染
     // 前后不同。整个恢复窗口都必须屏蔽滚动联动：先按缓存恢复一次避免看到
@@ -1006,7 +1079,7 @@ watch(
 
 onMounted(async () => {
   applyActiveLayer()
-  await schedulePostRender()
+  if (!previewPaused.value) await schedulePostRender()
   if (previewRef.value) {
     registerPreview(previewRef.value)
     // 写会话前把活跃标签的实时预览滚动位置刷回 store
@@ -1050,6 +1123,21 @@ onUnmounted(() => {
       <div ref="spacerRef" class="preview-spacer"></div>
     </div>
 
+    <div v-if="previewPaused" class="preview-paused">
+      <div class="preview-paused-card">
+        <div class="preview-paused-badge">{{ pausedTitle }}</div>
+        <p class="preview-paused-text">{{ pausedDescription }}</p>
+        <button
+          v-if="canRenderAnyway"
+          type="button"
+          class="preview-paused-action"
+          @click="renderAnyway"
+        >
+          {{ t('preview.renderAnyway') }}
+        </button>
+      </div>
+    </div>
+
     <SearchPanel v-if="search.isOpen && search.surface === 'preview'" />
     <DiagramPreviewModal
       :visible="diagramModalVisible"
@@ -1082,6 +1170,97 @@ onUnmounted(() => {
 /* 绝对定位的预览层不参与流式布局，由这个占位元素撑起滚动高度 */
 .preview-spacer {
   width: 1px;
+}
+
+/* ── 预览暂停占位（大文件 / 纯文本模式） ── */
+.preview-paused {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(18, 18, 24, 0.55);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+.preview-paused-card {
+  max-width: 420px;
+  padding: 22px 24px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  background: rgba(30, 30, 42, 0.96);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.35);
+  text-align: center;
+}
+
+.preview-paused-badge {
+  display: inline-block;
+  margin-bottom: 10px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: rgba(224, 160, 74, 0.14);
+  color: #e0a04a;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+
+.preview-paused-text {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.68);
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.preview-paused-action {
+  margin-top: 16px;
+  height: 30px;
+  padding: 0 14px;
+  border: 1px solid rgba(108, 155, 255, 0.45);
+  border-radius: 6px;
+  background: rgba(108, 155, 255, 0.14);
+  color: #b9cfff;
+  font-family: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  transition:
+    background 0.12s ease,
+    border-color 0.12s ease;
+}
+
+.preview-paused-action:hover {
+  background: rgba(108, 155, 255, 0.24);
+  border-color: rgba(108, 155, 255, 0.7);
+}
+
+:global(.light .preview-paused) {
+  background: rgba(255, 255, 255, 0.55);
+}
+
+:global(.light .preview-paused-card) {
+  background: #ffffff;
+  border-color: rgba(0, 0, 0, 0.08);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.12);
+}
+
+:global(.light .preview-paused-badge) {
+  background: rgba(180, 83, 9, 0.1);
+  color: #b45309;
+}
+
+:global(.light .preview-paused-text) {
+  color: rgba(0, 0, 0, 0.65);
+}
+
+:global(.light .preview-paused-action) {
+  border-color: rgba(37, 99, 235, 0.4);
+  background: rgba(37, 99, 235, 0.08);
+  color: #2563eb;
+}
+
+:global(.light .preview-paused-action:hover) {
+  background: rgba(37, 99, 235, 0.14);
 }
 
 :global(.light .preview-container) {

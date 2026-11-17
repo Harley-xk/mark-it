@@ -21,7 +21,7 @@ describe('文件错误文案', () => {
     expect(describeFileError({ code: 'permission-denied', message: 'EACCES' }, 'zh-CN')).toContain(
       '权限'
     )
-    expect(describeFileError({ code: 'too-large', message: 'big' }, 'zh-CN')).toContain('10 MiB')
+    expect(describeFileError({ code: 'too-large', message: 'big' }, 'zh-CN')).toContain('50 MiB')
     expect(describeFileError({ code: 'protected-path', message: 'protected' }, 'zh-CN')).toContain(
       '启动目录'
     )
@@ -59,8 +59,8 @@ describe('打开失败列表', () => {
   })
 })
 
-describe('只读提示', () => {
-  it('应分别说明非 UTF-8 与超大文件的原因', () => {
+describe('打开提示', () => {
+  it('应分别说明非 UTF-8 只读与大文件降级的原因', () => {
     const text = formatReadNotices(
       [
         file({
@@ -72,7 +72,8 @@ describe('只读提示', () => {
         file({
           path: 'D:/docs/big.md',
           size: 6 * 1024 * 1024,
-          readOnly: true,
+          readOnly: false,
+          excludedFromSession: true,
           notices: ['large-file']
         })
       ],
@@ -81,7 +82,9 @@ describe('只读提示', () => {
     expect(text).toContain('非 UTF-8')
     expect(text).toContain('另存为')
     expect(text).toContain('超过 5 MiB')
-    expect(text).toContain('不会把正文写入会话')
+    expect(text).toContain('纯文本模式')
+    expect(text).toContain('仍可正常编辑与保存')
+    expect(text).toContain('正文不会写入会话恢复数据')
   })
 
   it('UTF-16 提示应显示实际编码', () => {

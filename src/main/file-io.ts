@@ -15,10 +15,10 @@ import type {
 import { decodeFileBuffer } from './file-encoding'
 import { findProtectedRoot, isTrustedPath } from './path-guard'
 
-/** 超过该大小只读打开，且不把正文写入会话快照 */
+/** 超过该大小不把正文写入会话快照（仍可正常编辑与保存） */
 export const FILE_SIZE_WARN_BYTES = 5 * 1024 * 1024
-/** 超过该大小直接拒绝打开 */
-export const FILE_SIZE_MAX_BYTES = 10 * 1024 * 1024
+/** 加载上限：超过该大小才拒绝打开，仅用于内存兜底 */
+export const LOAD_MAX_BYTES = 50 * 1024 * 1024
 
 export interface FileIoPolicy {
   platform: NodeJS.Platform
@@ -27,6 +27,7 @@ export interface FileIoPolicy {
   /** 已归一化的受保护目录 */
   protectedRoots: readonly string[]
   warnBytes?: number
+  /** 加载上限；超过后拒绝读取 */
   maxBytes?: number
 }
 
@@ -75,7 +76,7 @@ function checkProtected(filePath: string, policy: FileIoPolicy): FileIoError | n
     : null
 }
 
-/** 读取文本文件；非 UTF-8 与超大文件返回只读结果而不是失败 */
+/** 读取文本文件；非 UTF-8 与超出加载上限的文件分别返回只读结果与失败 */
 export async function readTextFile(
   filePath: string,
   policy: FileIoPolicy
@@ -84,7 +85,7 @@ export async function readTextFile(
   if (trustError) return { ok: false, path: filePath, error: trustError }
 
   const warnBytes = policy.warnBytes ?? FILE_SIZE_WARN_BYTES
-  const maxBytes = policy.maxBytes ?? FILE_SIZE_MAX_BYTES
+  const maxBytes = policy.maxBytes ?? LOAD_MAX_BYTES
 
   try {
     const info = await stat(filePath)
@@ -132,7 +133,8 @@ export async function readTextFile(
         content: decoded.text,
         encoding: decoded.encoding,
         size,
-        readOnly: notices.length > 0,
+        // 只读只由编码能否安全写回决定：UTF-8 文件无论多大都可编辑
+        readOnly: !decoded.writable,
         excludedFromSession: size > warnBytes,
         notices
       }

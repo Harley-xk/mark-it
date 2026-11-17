@@ -47,7 +47,7 @@ This built-in welcome document serves two purposes:
 | Save As        | `Ctrl + Shift + S` | Saving to a new path renames the tab automatically                 |
 | Manual refresh | `F5` or `Ctrl + R` | Forces a disk read; disk changes normally sync automatically       |
 
-UTF-8 files (including BOM) can be edited and saved normally. UTF-16, GBK, and other non-UTF-8 files open **read-only** so saving cannot damage the original; use Save As to convert them to UTF-8 first. Documents larger than 5 MiB also open read-only and their content is not stored in session recovery data; files larger than 10 MiB are rejected.
+UTF-8 files (including BOM) can be edited and saved regardless of size. UTF-16, GBK, and other non-UTF-8 files open **read-only** so saving cannot damage the original; use Save As to convert them to UTF-8 first. To keep large documents responsive, preview is paused by default above 1 MiB (click "Render Preview Anyway" in the preview area). Above 5 MiB the editor enters plain text mode, turning off preview, syntax highlighting, outline, and word count (click "Restore Markdown" in the status bar to re-enable them). Files larger than 50 MiB are rejected. The content of large files is not stored in session recovery data.
 
 On Windows you can also double-click a `.md` file or choose "Open with MarkIt" from the context menu.
 
