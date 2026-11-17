@@ -46,6 +46,8 @@ flowchart TD
     SETTINGS["独立设置窗口.md"]
     VSCODE["VSCode资源管理器集成.md"]
     TABORDER["标签拖拽排序.md"]
+    RECENT["最近打开与拖拽打开.md"]
+    AUTOSAVE["自动保存与草稿恢复.md"]
   end
 
   subgraph EDITING["编辑与预览"]
@@ -119,6 +121,9 @@ flowchart TD
   LARGEFILE --> WORKERTIMEOUT
   PREVIEWPLAN --> WORKERTIMEOUT
   TABORDER --> MULTI
+  FILE --> RECENT
+  SESSION --> AUTOSAVE
+  FILE --> AUTOSAVE
   MULTI --> WINDOWRULE
   MULTI --> SESSION
   MULTI --> MULTIDEC
@@ -166,8 +171,10 @@ flowchart TD
 
 1. [文件与冲突处理](./文件与窗口/文件与冲突处理.md) —— 打开、保存、监听、冲突判定
 2. [会话恢复与窗口状态](./文件与窗口/会话恢复与窗口状态.md) —— 重启恢复、窗口尺寸、缩放、关闭守卫
-3. [状态与数据模型](./架构与契约/状态与数据模型.md) —— `diskContent`、会话结构、localStorage 键
-4. [窗口放置与单实例规则](./文件与窗口/窗口放置与单实例规则.md) —— 多显示器归属、重复打开、未来窗口的强制检查项
+3. [最近打开与拖拽打开](./文件与窗口/最近打开与拖拽打开.md) —— 最近列表、拖拽打开、路径信任
+4. [自动保存与草稿恢复](./文件与窗口/自动保存与草稿恢复.md) —— 自动保存间隔、冲突跳过、草稿恢复边界
+5. [状态与数据模型](./架构与契约/状态与数据模型.md) —— `diskContent`、会话结构、localStorage 键
+6. [窗口放置与单实例规则](./文件与窗口/窗口放置与单实例规则.md) —— 多显示器归属、重复打开、未来窗口的强制检查项
 
 ### 3.3 修改预览 / 图表 / 导出 / 设置
 

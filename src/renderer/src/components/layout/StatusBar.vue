@@ -168,6 +168,20 @@ const exportAriaLabel = computed(() => {
       <template v-if="app.exportStatus !== 'idle'">
         <span class="status-sep">|</span>
       </template>
+      <template v-if="app.autoSaveFailure">
+        <span
+          class="status-item status-warning"
+          :title="
+            t('status.autoSaveFailedTitle', {
+              path: app.autoSaveFailure.path,
+              reason: app.autoSaveFailure.reason
+            })
+          "
+        >
+          {{ t('status.autoSaveFailed') }}
+        </span>
+        <span class="status-sep">|</span>
+      </template>
       <template v-if="app.sessionSaveFailed">
         <span class="status-item status-warning" :title="t('status.sessionSaveFailedTitle')">
           {{ t('status.sessionSaveFailed') }}

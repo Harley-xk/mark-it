@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { useAppStore } from '../../stores/app'
 import { useFile } from '../../composables/useFile'
 import { useI18n } from '../../i18n'
+import RecentFilesMenu from './RecentFilesMenu.vue'
 import type { LayoutMode } from '../../types'
 
 const app = useAppStore()
@@ -68,6 +69,7 @@ const layouts = computed<{ mode: LayoutMode; icon: string; tip: string }[]>(() =
           <polyline points="9 14 12 11 15 14" />
         </svg>
       </button>
+      <RecentFilesMenu />
       <button class="tb-btn" :title="t('toolbar.save')" @click="file.saveFile()">
         <svg
           width="15"

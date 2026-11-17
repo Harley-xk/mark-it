@@ -12,6 +12,7 @@ import { useAppStore } from '../stores/app'
 import { useUpdateStore } from '../stores/update'
 import { useWindowZoom } from '../composables/useWindowZoom'
 import { useGlobalZoom } from '../composables/useGlobalZoom'
+import { AUTO_SAVE_INTERVALS } from '../utils/auto-save'
 import type { ThemeMode } from '../types'
 import type { Locale, LocalePreference } from '../../../shared/locale-types'
 import { SUPPORTED_LOCALES, type MessageKey } from '../../../i18n'
@@ -40,6 +41,16 @@ const showRollbackConfirm = ref(false)
 const exportingDiagnostics = ref(false)
 const diagnosticsMessage = ref('')
 const searchShortcutLabel = platform === 'darwin' ? '⌘ K' : 'Ctrl K'
+
+const autoSaveOptions = computed(() =>
+  AUTO_SAVE_INTERVALS.map((value) => ({
+    value,
+    label:
+      value === 0
+        ? t('settings.editor.autoSaveOff')
+        : t('settings.editor.autoSaveSeconds', { seconds: value })
+  }))
+)
 
 // 设置窗口与编辑窗口共享同一全局缩放，这里同步主进程广播的比例并提供操作入口
 useWindowZoom()
@@ -121,6 +132,12 @@ const searchEntries = computed<SearchEntry[]>(() => [
     label: t('settings.search.widthLabel'),
     hint: t('settings.search.widthHint'),
     keywords: t('settings.search.widthKeywords')
+  },
+  {
+    tab: 'editor',
+    label: t('settings.search.autoSaveLabel'),
+    hint: t('settings.search.autoSaveHint'),
+    keywords: t('settings.search.autoSaveKeywords')
   },
   {
     tab: 'integration',
@@ -880,6 +897,37 @@ onUnmounted(() => {
                 <span></span>
                 <span></span>
                 <span></span>
+              </div>
+            </div>
+          </div>
+
+          <div class="section">
+            <div class="section-heading">
+              <div>
+                <h2>{{ t('settings.editor.autoSaveTitle') }}</h2>
+                <p>{{ t('settings.editor.autoSaveDescription') }}</p>
+              </div>
+            </div>
+
+            <div class="setting-card">
+              <div class="setting-row">
+                <div class="setting-copy">
+                  <div class="setting-title-line">
+                    <h3>{{ t('settings.editor.autoSaveLabel') }}</h3>
+                    <span class="status-badge">{{ t('settings.editor.autoSaveBadge') }}</span>
+                  </div>
+                  <p>{{ t('settings.editor.autoSaveHint') }}</p>
+                </div>
+                <div class="mode-segment" :aria-label="t('settings.editor.autoSaveLabel')">
+                  <button
+                    v-for="option in autoSaveOptions"
+                    :key="option.value"
+                    :class="{ active: app.autoSaveInterval === option.value }"
+                    @click="app.setAutoSaveInterval(option.value)"
+                  >
+                    {{ option.label }}
+                  </button>
+                </div>
               </div>
             </div>
           </div>

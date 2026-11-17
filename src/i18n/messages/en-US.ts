@@ -122,6 +122,8 @@ export const enUS: Record<MessageKey, string> = {
   'status.sessionSaveFailed': 'Session save failed',
   'status.sessionSaveFailedTitle':
     'Could not write the session file; tabs may not be restored on the next launch',
+  'status.autoSaveFailed': 'Auto save failed',
+  'status.autoSaveFailedTitle': 'Could not auto save "{path}": {reason}',
   'status.layout.editLeft': 'Editor left, preview right',
   'status.layout.editRight': 'Preview left, editor right',
   'status.layout.editOnly': 'Editor only',
@@ -142,6 +144,12 @@ export const enUS: Record<MessageKey, string> = {
   'toolbar.outline': 'Outline (Ctrl+Shift+O)',
   'toolbar.manual': 'User Manual',
   'toolbar.settings': 'Settings (Ctrl+,)',
+  'toolbar.recent': 'Recent files',
+  'recent.title': 'Recent Files',
+  'recent.empty': 'No recent files yet',
+  'recent.clear': 'Clear list',
+  'recent.missing': 'File not found',
+  'drop.hint': 'Drop to open Markdown files',
   'toolbar.format.bold': 'Bold (Ctrl+B)',
   'toolbar.format.italic': 'Italic (Ctrl+I)',
   'toolbar.format.strikethrough': 'Strikethrough',
@@ -297,6 +305,9 @@ export const enUS: Record<MessageKey, string> = {
   'settings.search.widthLabel': 'Preview width',
   'settings.search.widthHint': 'Fixed width or automatic',
   'settings.search.widthKeywords': 'width preview 固定 自适应 宽度',
+  'settings.search.autoSaveLabel': 'Auto save',
+  'settings.search.autoSaveHint': 'Write to disk after you stop typing',
+  'settings.search.autoSaveKeywords': 'auto save 自动保存 草稿 draft',
   'settings.search.vscodeLabel': 'VS Code Explorer',
   'settings.search.vscodeHint': 'Install or remove the MarkIt extension',
   'settings.search.vscodeKeywords': 'vscode code integration 编辑器 集成',
@@ -361,6 +372,15 @@ export const enUS: Record<MessageKey, string> = {
   'settings.editor.widthFixedHint':
     '720–960 px is recommended for easier scanning of long paragraphs.',
   'settings.editor.cssTooLarge': 'The CSS file is too large. The limit is {size} KB.',
+  'settings.editor.autoSaveTitle': 'Auto Save',
+  'settings.editor.autoSaveDescription':
+    'Write changes to disk after you stop typing, reducing loss from crashes or power loss. Off by default.',
+  'settings.editor.autoSaveLabel': 'Auto save interval',
+  'settings.editor.autoSaveBadge': 'Global',
+  'settings.editor.autoSaveHint':
+    'Applies only to documents with a file on disk. If the file was changed or deleted externally, auto save skips it and manual save decides what happens. Unsaved content is also restored as a draft on restart.',
+  'settings.editor.autoSaveOff': 'Off',
+  'settings.editor.autoSaveSeconds': '{seconds} s',
   'settings.updates.channelTitle': 'Update Channel',
   'settings.updates.channelDescription':
     'Stable releases are more reliable; Beta releases receive new features earlier and may contain regressions.',

@@ -3,6 +3,7 @@ import { ref, computed, watch } from 'vue'
 import type { ExportKind, ExportStatus, LayoutMode, PreviewWidthMode, ThemeMode } from '../types'
 import { LAYOUT_MODES, loadSavedLayoutMode, saveLayoutMode } from '../utils/layout-mode'
 import { loadSavedOutlineVisible, saveOutlineVisible } from '../utils/outline-visibility'
+import { normalizeAutoSaveInterval, serializeAutoSaveInterval } from '../utils/auto-save'
 import { useI18n } from '../i18n'
 import { useDocumentsStore } from './documents'
 
@@ -33,8 +34,13 @@ const APP_STORAGE_KEYS = new Set([
   'markit-outline-width',
   'markit-split-ratio',
   'markit-preview-width-mode',
-  'markit-preview-width'
+  'markit-preview-width',
+  'markit-auto-save-interval'
 ])
+
+function loadSavedAutoSaveInterval(): number {
+  return normalizeAutoSaveInterval(localStorage.getItem('markit-auto-save-interval'))
+}
 
 const EXPORT_STATUS_VISIBLE_MS = 3000
 
@@ -57,6 +63,10 @@ export const useAppStore = defineStore('app', () => {
   const splitRatio = ref(loadClampedNumber('markit-split-ratio', 0.5, 0.3, 0.7))
   const previewWidthMode = ref<PreviewWidthMode>(loadSavedPreviewWidthMode())
   const previewWidth = ref(loadClampedNumber('markit-preview-width', 800, 400, 1600))
+  /** 自动保存静默间隔（秒）；0 表示关闭 */
+  const autoSaveInterval = ref<number>(loadSavedAutoSaveInterval())
+  /** 最近一次自动保存失败；状态栏据此提示，成功或禁用后清除 */
+  const autoSaveFailure = ref<{ path: string; reason: string } | null>(null)
   // 文件相关状态取自当前激活的标签页
   const fileName = computed(() => documents.activeDoc?.name ?? 'untitled.md')
   const filePath = computed(() => documents.activeDoc?.path ?? null)
@@ -102,6 +112,7 @@ export const useAppStore = defineStore('app', () => {
     splitRatio.value = loadClampedNumber('markit-split-ratio', 0.5, 0.3, 0.7)
     previewWidthMode.value = loadSavedPreviewWidthMode()
     previewWidth.value = loadClampedNumber('markit-preview-width', 800, 400, 1600)
+    autoSaveInterval.value = loadSavedAutoSaveInterval()
   })
 
   watch(themeMode, (mode) => {
@@ -122,6 +133,9 @@ export const useAppStore = defineStore('app', () => {
   })
   watch(previewWidth, (w) => {
     localStorage.setItem('markit-preview-width', String(w))
+  })
+  watch(autoSaveInterval, (seconds) => {
+    localStorage.setItem('markit-auto-save-interval', serializeAutoSaveInterval(seconds))
   })
 
   function setLayoutMode(mode: LayoutMode): void {
@@ -157,6 +171,16 @@ export const useAppStore = defineStore('app', () => {
 
   function setSessionSaveFailed(failed: boolean): void {
     sessionSaveFailed.value = failed
+  }
+
+  /** 设置自动保存间隔（秒）；传入非法值时按关闭处理 */
+  function setAutoSaveInterval(seconds: number): void {
+    autoSaveInterval.value = normalizeAutoSaveInterval(seconds)
+  }
+
+  /** 记录 / 清除自动保存失败提示 */
+  function setAutoSaveFailure(failure: { path: string; reason: string } | null): void {
+    autoSaveFailure.value = failure
   }
 
   function setExportStatus(kind: ExportKind, status: ExportStatus, detail = ''): void {
@@ -207,6 +231,8 @@ export const useAppStore = defineStore('app', () => {
     splitRatio,
     previewWidthMode,
     previewWidth,
+    autoSaveInterval,
+    autoSaveFailure,
     fileName,
     filePath,
     isModified,
@@ -230,6 +256,8 @@ export const useAppStore = defineStore('app', () => {
     cycleTheme,
     toggleOutline,
     setSessionSaveFailed,
+    setAutoSaveInterval,
+    setAutoSaveFailure,
     setExportStatus,
     setExportProgress
   }

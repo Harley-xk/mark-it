@@ -27,6 +27,14 @@ import type {
 } from '../shared/file-types'
 import type { RendererErrorReport } from '../shared/diagnostics-types'
 import { readTextFile, writeTextFile, type FileIoPolicy } from './file-io'
+import { DOCUMENT_FILE_EXTENSION, sanitizeDroppedPaths } from './document-files'
+import {
+  buildRecentFilesFile,
+  parseRecentFilesFile,
+  rememberRecentFile as rememberRecentFileRecord,
+  type RecentFileRecord
+} from './recent-files-store'
+import type { RecentFileEntry, RecentOpenResult } from '../shared/recent-types'
 import { isTrustedPath, registerTrustedPath, startupDirectories } from './path-guard'
 import { exportDiagnostics, installLogger, reportRendererError } from './logger'
 import type { ExportKind, ExportProgress } from '../shared/export-types'
@@ -97,8 +105,6 @@ installLogger()
 
 /** 用户通过打开 / 保存 / 会话恢复接触过的文件路径；只保存在内存中 */
 const trustedFilePaths = new Set<string>()
-/** 会话恢复只信任文档扩展名，避免损坏的会话文件变成任意路径白名单 */
-const DOCUMENT_FILE_EXTENSION = /\.(?:md|markdown|txt)$/i
 
 /** 写入这些目录会形成持久化或破坏安装的风险，打包产物中一律拒绝 */
 function buildProtectedRoots(): string[] {
@@ -213,6 +219,8 @@ const sessionWindows = new Map<string, SessionData>()
 let sessionFileData: SessionFile = { version: 2, windows: [] }
 const editorHistoryFileData: EditorHistoryFile = { version: 1, windows: {} }
 let windowStateFileData: WindowStateFile = { version: 3, zoomFactor: 1, windows: {} }
+/** 最近打开列表全局共享；主进程独享读写，渲染进程只通过 IPC 查看与清除 */
+let recentFileRecords: RecentFileRecord[] = []
 
 // --- 整窗缩放 ---
 
@@ -223,6 +231,7 @@ const windowStateFile = join(app.getPath('userData'), 'window-state.json')
 /** 上次打开的标签页（含未保存内容），更新重启后据此恢复文档 */
 const sessionFile = join(app.getPath('userData'), 'session.json')
 const editorHistoryFile = join(app.getPath('userData'), 'editor-history.json')
+const recentFilesFile = join(app.getPath('userData'), 'recent-files.json')
 const vscodeIntegrationConfigFile = join(app.getPath('userData'), 'vscode-integration.json')
 const DEFAULT_WINDOW_STATE: WindowState = {
   width: 1280,
@@ -234,6 +243,7 @@ const EDITOR_MIN_HEIGHT = 600
 const MAX_RESTORED_WINDOWS = 8
 let sessionWriteTimer: ReturnType<typeof setTimeout> | null = null
 let windowStateWriteTimer: ReturnType<typeof setTimeout> | null = null
+let recentWriteTimer: ReturnType<typeof setTimeout> | null = null
 let historyWriteChain: Promise<void> = Promise.resolve()
 let appQuitAllowed = false
 let quitPreparationInProgress = false
@@ -307,6 +317,46 @@ function queuePersistWindowStateFile(): void {
   }, 300)
 }
 
+function persistRecentFilesFile(): void {
+  void writeFileAtomic(
+    recentFilesFile,
+    JSON.stringify(buildRecentFilesFile(recentFileRecords))
+  ).catch((err) => {
+    console.error('Failed to save recent files:', err)
+  })
+}
+
+function queuePersistRecentFilesFile(): void {
+  if (recentWriteTimer) clearTimeout(recentWriteTimer)
+  recentWriteTimer = setTimeout(() => {
+    recentWriteTimer = null
+    persistRecentFilesFile()
+  }, 300)
+}
+
+/** 列表变化后广播给全部编辑窗口，各窗口重新拉取以保持顺序一致 */
+function notifyRecentFilesChanged(): void {
+  for (const context of editorWindows.values()) {
+    if (!context.win.isDestroyed()) context.win.webContents.send('recent:changed')
+  }
+}
+
+/** 记录一次用户主动打开或另存为选中的路径 */
+function rememberRecentFile(filePath: string): void {
+  if (typeof filePath !== 'string' || !DOCUMENT_FILE_EXTENSION.test(filePath)) return
+  recentFileRecords = rememberRecentFileRecord(recentFileRecords, filePath, Date.now())
+  queuePersistRecentFilesFile()
+  notifyRecentFilesChanged()
+}
+
+/** 最近列表条目附带磁盘存在性，供界面显示缺失状态 */
+function listRecentFiles(): RecentFileEntry[] {
+  return recentFileRecords.map((record) => ({
+    ...record,
+    missing: !existsSync(record.path)
+  }))
+}
+
 function initializePersistedState(): void {
   try {
     if (existsSync(sessionFile)) {
@@ -347,6 +397,17 @@ function initializePersistedState(): void {
     }
   } catch (err) {
     console.error('Failed to load editor history:', err)
+  }
+
+  try {
+    if (existsSync(recentFilesFile)) {
+      recentFileRecords = parseRecentFilesFile(
+        JSON.parse(readFileSync(recentFilesFile, 'utf-8')),
+        process.platform
+      )
+    }
+  } catch (err) {
+    console.error('Failed to load recent files:', err)
   }
 
   const firstWindowId =
@@ -525,6 +586,7 @@ async function openFileAtPath(filePath: string, target?: EditorWindowContext): P
     deliverOpenError(context, { path: filePath, error: result.error })
     return
   }
+  rememberRecentFile(filePath)
 
   // 读取期间页面可能开始重载，此时发送会丢，重新排队等下一次 ready
   if (!editorWindows.get(context.webContentsId)?.rendererReady || context.win.isDestroyed()) {
@@ -1475,18 +1537,15 @@ registerOn('renderer:ready', (event) => {
   if (queued.length > 0) void openFilesAtPaths(queued, context)
 })
 
-registerHandle('dialog:openFiles', async (event): Promise<OpenFilesResponse> => {
-  const parent = windowForSender(event)
-  if (!parent) return { files: [], failures: [] }
-  const result = await dialog.showOpenDialog(parent, {
-    properties: ['openFile', 'multiSelections'],
-    filters: [{ name: 'Markdown', extensions: ['md', 'markdown', 'txt'] }]
-  })
-  if (result.canceled || result.filePaths.length === 0) return { files: [], failures: [] }
-
+/**
+ * 读取一组用户显式选择的路径（打开对话框 / 拖拽）。
+ * 已在其他窗口打开的文件直接投递到该窗口，其余返回给调用窗口；
+ * 读取成功的文件同时写入最近打开列表。
+ */
+async function readOpenedPaths(filePaths: string[]): Promise<OpenFilesResponse> {
   const files: FileReadResult[] = []
   const failures: FileOpenFailure[] = []
-  for (const filePath of result.filePaths) {
+  for (const filePath of filePaths) {
     trustFile(filePath)
     const read = await readTextFile(filePath, getFileIoPolicy())
     if (!read.ok) {
@@ -1494,6 +1553,7 @@ registerHandle('dialog:openFiles', async (event): Promise<OpenFilesResponse> => 
       failures.push({ path: filePath, error: read.error })
       continue
     }
+    rememberRecentFile(filePath)
     const owner = findEditorWindowForOpenPath(filePath)
     if (owner) {
       deliverOpenFile(owner, read.file)
@@ -1502,6 +1562,79 @@ registerHandle('dialog:openFiles', async (event): Promise<OpenFilesResponse> => 
     files.push(read.file)
   }
   return { files, failures }
+}
+
+registerHandle('dialog:openFiles', async (event): Promise<OpenFilesResponse> => {
+  const parent = windowForSender(event)
+  if (!parent) return { files: [], failures: [] }
+  const result = await dialog.showOpenDialog(parent, {
+    properties: ['openFile', 'multiSelections'],
+    filters: [{ name: 'Markdown', extensions: ['md', 'markdown', 'txt'] }]
+  })
+  if (result.canceled || result.filePaths.length === 0) return { files: [], failures: [] }
+  return readOpenedPaths(result.filePaths)
+})
+
+/** 拖拽打开：只接受 preload 从真实 File 解析出的路径，主进程再校验扩展名与数量 */
+registerHandle('file:open-dropped', async (event, paths: unknown): Promise<OpenFilesResponse> => {
+  if (!isEditorWindowSender(event.sender)) return { files: [], failures: [] }
+  return readOpenedPaths(sanitizeDroppedPaths(paths, process.platform))
+})
+
+registerHandle('recent:list', (event): RecentFileEntry[] => {
+  if (!isEditorWindowSender(event.sender)) return []
+  return listRecentFiles()
+})
+
+registerHandle('recent:open', async (event, filePath: unknown): Promise<RecentOpenResult> => {
+  if (!isEditorWindowSender(event.sender) || typeof filePath !== 'string') {
+    return { status: 'failed', path: '', error: { code: 'invalid-path', message: 'Invalid path' } }
+  }
+  // 只接受列表内路径：渲染进程不能借最近打开接口读取任意文件
+  const entry = recentFileRecords.find((item) => sameFilePath(item.path, filePath))
+  if (!entry) {
+    return {
+      status: 'failed',
+      path: filePath,
+      error: { code: 'not-trusted', message: 'Path is not in the recent files list' }
+    }
+  }
+
+  const context = getEditorWindowBySender(event.sender)
+  trustFile(entry.path)
+  const read = await readTextFile(entry.path, getFileIoPolicy())
+  if (!read.ok) {
+    console.error('Failed to open recent file:', entry.path, read.error.message)
+    return { status: 'failed', path: entry.path, error: read.error }
+  }
+  rememberRecentFile(entry.path)
+
+  // 已在其他窗口打开：投递到那个窗口并聚焦，本窗口不重复开标签
+  const owner = findEditorWindowForOpenPath(entry.path)
+  if (owner && owner !== context) {
+    deliverOpenFile(owner, read.file)
+    return { status: 'focused' }
+  }
+  return { status: 'opened', file: read.file }
+})
+
+registerHandle('recent:clear', async (event): Promise<boolean> => {
+  if (!isEditorWindowSender(event.sender)) return false
+  if (recentFileRecords.length === 0) return true
+  recentFileRecords = []
+  if (recentWriteTimer) {
+    clearTimeout(recentWriteTimer)
+    recentWriteTimer = null
+  }
+  // 清除后立即落盘：用户可能在点击清除后很快退出应用
+  try {
+    await writeFileAtomic(recentFilesFile, JSON.stringify(buildRecentFilesFile(recentFileRecords)))
+  } catch (err) {
+    console.error('Failed to save recent files:', err)
+    return false
+  }
+  notifyRecentFilesChanged()
+  return true
 })
 
 registerHandle(
@@ -1665,6 +1798,7 @@ registerHandle('dialog:savePath', async (event, defaultFileName?: string) => {
   })
   if (result.canceled || !result.filePath) return null
   trustFile(result.filePath)
+  rememberRecentFile(result.filePath)
   return result.filePath
 })
 
@@ -2278,6 +2412,11 @@ if (!gotTheLock) {
 // 退出应用时协调所有编辑窗口，而不是假定只有一个主窗口。
 app.on('before-quit', (event) => {
   if (activeTabDrag) clearTabDragHighlight()
+  if (recentWriteTimer) {
+    clearTimeout(recentWriteTimer)
+    recentWriteTimer = null
+    persistRecentFilesFile()
+  }
   if (appQuitAllowed || editorWindows.size === 0) return
   event.preventDefault()
   if (quitPreparationInProgress) return

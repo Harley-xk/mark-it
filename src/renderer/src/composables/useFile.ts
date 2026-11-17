@@ -11,8 +11,15 @@ import { describeFileError } from '../utils/file-errors'
 import { manualContent } from '../utils/manual'
 import { useI18n } from '../i18n'
 import { showFileOpenFailures, showFileReadNotices } from './file-notifications'
+import { canAutoSave } from '../utils/auto-save'
 import type { TabDropOptions, TabTransferPayload } from '../../../shared/window-types'
-import type { FileReadResult, FileSaveResponse } from '../../../shared/file-types'
+import type {
+  FileIoError,
+  FileReadResult,
+  FileSaveResponse,
+  OpenFilesResponse
+} from '../../../shared/file-types'
+import type { RecentFileEntry } from '../../../shared/recent-types'
 
 /**
  * 比较内容时忽略换行符与 BOM 差异：编辑器内部统一使用 \n，
@@ -50,9 +57,22 @@ type WriteOutcome =
   | { ok: false; saveAs?: false }
   | { ok: false; saveAs: true }
 
+/** 自动保存结果：静默执行，不弹任何确认框 */
+export type AutoSaveOutcome =
+  | { status: 'saved'; path: string }
+  | { status: 'skipped' }
+  | { status: 'conflict' }
+  | { status: 'failed'; path: string; error: FileIoError }
+
 interface FileActions {
   openFile: () => Promise<void>
   openFileFromPath: (result: FileReadResult) => void
+  /** 拖拽打开：File 路径由 preload 解析，主进程校验 */
+  openDroppedFiles: (files: File[]) => Promise<void>
+  /** 从最近打开列表打开文件 */
+  openRecentFile: (entry: RecentFileEntry) => Promise<void>
+  /** 静默自动保存单个标签，不弹确认框 */
+  autoSaveDocument: (doc: DocumentTab) => Promise<AutoSaveOutcome>
   saveFile: () => Promise<void>
   saveFileAs: () => Promise<void>
   saveDocument: (
@@ -271,13 +291,55 @@ export function useFile(): FileActions {
     return true
   }
 
-  /** 打开文件对话框（支持多选），每个文件对应一个标签页 */
-  async function openFile(): Promise<void> {
-    const result = await window.api.openFiles()
-    if (!result) return
-    // 会话恢复会整体替换标签页；等待恢复完成，避免刚打开的文件被启动恢复覆盖
-    await whenSessionReady()
+  /**
+   * 静默自动保存：先确认磁盘没有被外部修改，再写盘。
+   * 外部冲突、文件缺失、只读与写入失败都不弹窗，由调用方汇总到状态栏。
+   */
+  async function autoSaveDocument(doc: DocumentTab): Promise<AutoSaveOutcome> {
+    if (!canAutoSave(doc) || !doc.path) return { status: 'skipped' }
+    const targetPath = doc.path
 
+    const disk = await window.api.readFile(targetPath)
+    if (!disk.ok) {
+      if (disk.error.code === 'not-found') {
+        docs.setPathMissing(doc.id, true)
+        return { status: 'skipped' }
+      }
+      return { status: 'failed', path: targetPath, error: disk.error }
+    }
+    if (disk.file.readOnly) return { status: 'skipped' }
+    // 磁盘内容已不是上次同步的版本：交给手动保存走冲突确认，绝不静默覆盖
+    if (!sameContent(disk.file.content, doc.diskContent)) return { status: 'conflict' }
+
+    const savedContent = doc.content
+    let result: FileSaveResponse
+    try {
+      result = await window.api.saveFile(targetPath, encodeText(savedContent, doc.eol, doc.bom))
+    } catch (err) {
+      result = {
+        ok: false,
+        path: targetPath,
+        error: { code: 'io-error', message: err instanceof Error ? err.message : String(err) }
+      }
+    }
+    if (!result.ok) return { status: 'failed', path: targetPath, error: result.error }
+
+    // 写盘期间用户可能另存为或继续输入：只在路径未变时同步磁盘状态
+    const current = docs.getDoc(doc.id)
+    if (!current || !current.path || !samePath(current.path, targetPath)) {
+      return { status: 'saved', path: targetPath }
+    }
+    docs.markSaved(
+      doc.id,
+      undefined,
+      { excludedFromSession: result.excludedFromSession, size: result.size },
+      savedContent
+    )
+    return { status: 'saved', path: targetPath }
+  }
+
+  /** 应用一次“读取成功 + 失败项”的打开结果，多个入口共用 */
+  async function applyOpenFiles(result: OpenFilesResponse): Promise<void> {
     const before = new Set(docs.docs.map((doc) => doc.id))
     const opened = result.files.map((file) =>
       docs.openPathDocument(file.path, file.content, fileMeta(file))
@@ -290,6 +352,44 @@ export function useFile(): FileActions {
 
     await showFileOpenFailures(result.failures)
     await showFileReadNotices(result.files.filter((file) => file.notices.length > 0))
+  }
+
+  /** 打开文件对话框（支持多选），每个文件对应一个标签页 */
+  async function openFile(): Promise<void> {
+    const result = await window.api.openFiles()
+    if (!result) return
+    // 会话恢复会整体替换标签页；等待恢复完成，避免刚打开的文件被启动恢复覆盖
+    await whenSessionReady()
+    await applyOpenFiles(result)
+  }
+
+  /** 拖拽打开：File → 路径的转换在 preload 中完成，主进程再次校验 */
+  async function openDroppedFiles(files: File[]): Promise<void> {
+    if (files.length === 0) return
+    await whenSessionReady()
+    try {
+      const result = await window.api.openDroppedFiles(files)
+      await applyOpenFiles(result)
+    } catch (err) {
+      console.error('Failed to open dropped files:', err)
+    }
+  }
+
+  /** 从最近打开列表打开文件；主进程只接受列表内路径 */
+  async function openRecentFile(entry: RecentFileEntry): Promise<void> {
+    if (!entry || entry.missing) return
+    await whenSessionReady()
+    try {
+      const result = await window.api.recent.open(entry.path)
+      if (result.status === 'opened') {
+        docs.openPathDocument(result.file.path, result.file.content, fileMeta(result.file))
+        await showFileReadNotices(result.file.notices.length > 0 ? [result.file] : [])
+      } else if (result.status === 'failed') {
+        await showFileOpenFailures([{ path: result.path, error: result.error }])
+      }
+    } catch (err) {
+      console.error('Failed to open recent file:', entry.path, err)
+    }
   }
 
   /** 打开主进程发来的文件（右键"使用 MarkIt 打开" / 命令行传参） */
@@ -590,6 +690,9 @@ export function useFile(): FileActions {
   return {
     openFile,
     openFileFromPath,
+    openDroppedFiles,
+    openRecentFile,
+    autoSaveDocument,
     saveFile,
     saveFileAs,
     saveDocument,

@@ -461,21 +461,29 @@ export const useDocumentsStore = defineStore('documents', () => {
     if (doc) doc.outlineVisible = visible
   }
 
-  /** 保存成功后调用；传入路径表示另存为 */
+  /**
+   * 保存成功后调用；传入路径表示另存为。
+   * `savedContent` 是本次实际写入的内容：异步写盘期间用户继续输入时，
+   * 用它区分「已落盘版本」与「当前编辑内容」，避免误判为已保存。
+   */
   function markSaved(
     id: string,
     filePath?: string,
-    meta?: { excludedFromSession?: boolean; size?: number }
+    meta?: { excludedFromSession?: boolean; size?: number },
+    savedContent?: string
   ): void {
     const doc = getDoc(id)
     if (!doc) return
-    doc.isModified = false
-    doc.diskContent = doc.content
+    doc.diskContent = savedContent ?? doc.content
+    doc.isModified = doc.content !== doc.diskContent
     doc.missing = false
     doc.readOnly = false
     doc.encoding = doc.bom ? 'utf-8-bom' : 'utf-8'
-    // 写盘后文件为 UTF-8，字节数可直接使用写入结果
-    applySize(doc, meta?.size ?? utf8ByteLength(doc.content))
+    // 写盘后文件为 UTF-8，字节数可直接使用写入结果；
+    // 若保存期间内容继续变化，则保留更新时已计算的字节数
+    if (doc.content === doc.diskContent) {
+      applySize(doc, meta?.size ?? utf8ByteLength(doc.content))
+    }
     if (meta?.excludedFromSession !== undefined) {
       doc.excludedFromSession = meta.excludedFromSession
     }

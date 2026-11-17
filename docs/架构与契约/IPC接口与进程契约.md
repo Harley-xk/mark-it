@@ -60,12 +60,12 @@
 
 ## 2. 通道总览
 
-| 方向                                  | 数量   | 说明                                                                              |
-| ------------------------------------- | ------ | --------------------------------------------------------------------------------- |
-| renderer → main `invoke`（请求-响应） | 40     | 文件 5、对话框 3、窗口 12、系统 2、会话 2、历史 2、导出 2、更新 8、集成 3、诊断 1 |
-| renderer → main `send`（单向）        | 8      | 就绪、窗口关闭、迁移确认 / 拒绝、拖拽开始 / 结束、退出协调、渲染错误上报          |
-| main → renderer `send`（事件推送）    | 13     | 见 3.8                                                                            |
-| **合计**                              | **61** | 全部经 `window.api` 白名单暴露                                                    |
+| 方向                                  | 数量   | 说明                                                                                                |
+| ------------------------------------- | ------ | --------------------------------------------------------------------------------------------------- |
+| renderer → main `invoke`（请求-响应） | 44     | 文件 6、对话框 3、窗口 12、系统 2、会话 2、历史 2、导出 2、更新 8、集成 3、诊断 1、最近打开 3        |
+| renderer → main `send`（单向）        | 8      | 就绪、窗口关闭、迁移确认 / 拒绝、拖拽开始 / 结束、退出协调、渲染错误上报                             |
+| main → renderer `send`（事件推送）    | 14     | 见 3.8                                                                                              |
+| **合计**                              | **66** | 全部经 `window.api` 白名单暴露                                                                      |
 
 > 计数口径：按 `registerHandle` / `registerOn` / `webContents.send` 中实际出现的通道名去重统计。`window:zoom-changed` 在两个位置发送但只算一个通道。
 
@@ -82,6 +82,15 @@
 | `file:watch`           | R→M invoke | `watchFile(path)`         | `path: string \| null`            | `Promise<boolean>`                                       | [`src/main/index.ts`](../../src/main/index.ts) | **只监视当前活跃标签的文件**；传 `null` 或空串取消；路径不可信时返回 `false`            |
 | `file:reveal`          | R→M invoke | `showItemInFolder(path)`  | `path: string`                    | `Promise<boolean>`                                       | [`src/main/index.ts`](../../src/main/index.ts) | 文件存在则 `shell.showItemInFolder`；文件已删除则打开父目录；父目录也不存在返回 `false` |
 | `file:sync-open-paths` | R→M invoke | `syncOpenFiles(paths)`    | `paths: string[]`                 | `Promise<boolean>`                                       | [`src/main/index.ts`](../../src/main/index.ts) | 按编辑窗口同步当前打开文件索引；仅用于常规打开去重与窗口路由，不缓存内容                |
+| `file:open-dropped`    | R→M invoke | `openDroppedFiles(files)` | `paths: string[]`（preload 由 `File` 转换） | `Promise<OpenFilesResponse>`                    | [`src/main/index.ts`](../../src/main/index.ts) | 拖拽打开；主进程校验绝对路径、文档扩展名、去重与 20 个上限，成功项同时写入最近打开     |
+
+### 3.1.1 最近打开
+
+| 通道名          | 方向       | preload 方法      | 参数           | 返回值                       | 主进程处理位置                                 | 备注                                                                                     |
+| --------------- | ---------- | ----------------- | -------------- | ---------------------------- | ---------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `recent:list`   | R→M invoke | `recent.list()`   | 无             | `Promise<RecentFileEntry[]>` | [`src/main/index.ts`](../../src/main/index.ts) | 全局列表；按磁盘存在性补充 `missing`；只接受编辑窗口                                     |
+| `recent:open`   | R→M invoke | `recent.open(path)` | `path: string` | `Promise<RecentOpenResult>` | [`src/main/index.ts`](../../src/main/index.ts) | **只接受列表内路径**；已在其他窗口打开时投递并返回 `status: 'focused'`                   |
+| `recent:clear`  | R→M invoke | `recent.clear()`  | 无             | `Promise<boolean>`           | [`src/main/index.ts`](../../src/main/index.ts) | 清空并持久化，随后广播 `recent:changed`                                                  |
 
 ### 3.2 对话框
 
@@ -179,6 +188,7 @@
 | `renderer:ready`              | R→M send | `onOpenFile` 内部自动发送     | 无                                                                                 | 渲染进程首次注册 `open-file-from-argv` 监听后 | [`src/main/index.ts`](../../src/main/index.ts)                                        | 每个页面只发送一次；主进程只置发送方窗口的 `rendererReady` 并放行该窗口队列       |
 | `file:external-change`        | M→R send | `onExternalFileChange(cb)`    | `{ path: string; content: string }`                                                | 监视文件内容真实变化                          | [`src/main/index.ts`](../../src/main/index.ts)                                        | 只在内容与 `watchedContent` 不同时发送；**返回取消监听函数**                      |
 | `file:missing`                | M→R send | `onFileMissing(cb)`           | `{ path: string }`                                                                 | 监视中的活跃文件被外部删除                    | [`src/main/index.ts`](../../src/main/index.ts)                                        | 只发给该文件所属窗口；标签显示缺失提示，重建文件后由外部变更事件清除              |
+| `recent:changed`              | M→R send | `recent.onChanged(cb)`        | 无                                                                                 | 打开成功 / 另存为 / 清除最近打开记录          | [`src/main/index.ts`](../../src/main/index.ts)                                        | 广播给全部编辑窗口；各窗口的 `recent` store 重新拉取列表                          |
 | `window:zoom-changed`         | M→R send | `onZoomChange(cb)`            | `number`（全局缩放比例）                                                           | 应用缩放、页面加载完成恢复缩放                | [`src/main/index.ts:160`](../../src/main/index.ts)、[`:437`](../../src/main/index.ts) | 广播到全部编辑窗口与设置窗口；页面重载会重置缩放，`did-finish-load` 后重发        |
 | `window:fullscreen`           | M→R send | `onFullscreenChange(cb)`      | `boolean`                                                                          | 进入 / 退出全屏                               | [`src/main/index.ts:374`](../../src/main/index.ts)                                    | 标题栏据此移除两侧留白                                                            |
 | `window:close-request`        | M→R send | `onCloseRequest(cb)`          | `{ quit: boolean }`                                                                | 编辑窗口 `close` 事件被拦截时                 | [`src/main/index.ts`](../../src/main/index.ts)                                        | 只发送给触发关闭的编辑窗口；应用退出统一走 `app:prepare-exit`                     |
@@ -239,6 +249,18 @@
 | `progress?`      | `UpdateProgress` | `percent` / `bytesPerSecond` / `transferred` / `total`                                                    |
 | `error?`         | `string`         | 失败原因                                                                                                  |
 
+**RecentFileEntry / RecentOpenResult**（[`src/shared/recent-types.ts`](../../src/shared/recent-types.ts)）：
+
+| 类型               | 字段                                          | 说明                                                         |
+| ------------------ | --------------------------------------------- | ------------------------------------------------------------ |
+| `RecentFileEntry`  | `path: string`                                | 文件绝对路径                                                 |
+|                    | `name: string`                                | 展示名（`basename`）                                         |
+|                    | `openedAt: number`                            | 最近一次打开时间戳（毫秒）                                   |
+|                    | `missing: boolean`                            | 返回时按磁盘存在性计算；只用于界面置灰，不构成读取信任       |
+| `RecentOpenResult` | `{ status: 'opened', file: FileReadResult }`  | 由本窗口打开                                                 |
+|                    | `{ status: 'focused' }`                       | 已在其他窗口打开，已聚焦该窗口                               |
+|                    | `{ status: 'failed', path, error }`           | 路径不在列表内、文件缺失或读取失败                           |
+
 ### 4.2 内联对象类型
 
 | 结构                | 出现通道                                               | 字段                                                                                                                                                                              |
@@ -247,7 +269,7 @@
 | 图片保存参数        | `dialog:saveImage`                                     | `fileName: string`、`data: Uint8Array`、`extension: 'svg' \| 'png'`                                                                                                               |
 | PDF 选项            | `export:pdf`                                           | `PdfExportOptions`（[`src/shared/pdf-types.ts`](../../src/shared/pdf-types.ts)）：`pageSize`、`margin`、`showPageNumbers`、`showToc`、`showFrontmatter`、`fileName`、`sourcePath` |
 | 长图选项 / 结果     | `export:image`                                         | `ImageExportOptions`：`format`、`contentWidth`、`scale`、`theme`、`includeFrontmatter`、`fileName`、`sourcePath`；返回 `ImageExportResult`：路径、格式、请求 / 实际倍率与像素尺寸 |
-| 文件读取结果        | `dialog:openFiles`、`file:read`、`open-file-from-argv` | `FileReadResult`（[`src/shared/file-types.ts`](../../src/shared/file-types.ts)）：`path`、`content`、`encoding`、`size`、`readOnly`、`excludedFromSession`、`notices`             |
+| 文件读取结果        | `dialog:openFiles`、`file:open-dropped`、`file:read`、`open-file-from-argv`、`recent:open` | `FileReadResult`（[`src/shared/file-types.ts`](../../src/shared/file-types.ts)）：`path`、`content`、`encoding`、`size`、`readOnly`、`excludedFromSession`、`notices`             |
 | 文件读写响应        | `file:read`、`file:save`、`dialog:openFiles`           | `FileReadResponse` / `FileSaveResponse` / `OpenFilesResponse`：成功为 `{ ok: true, ... }`，失败为 `{ ok: false, path, error }`；`error` 含 `code` 与 `message`                    |
 
 > `PdfExportOptions`、`ImageExportOptions`、`FileReadResult` 与文件错误类型都放在 `src/shared`，preload、主进程与渲染进程共用同一份声明，不再维护内联重复类型。新增字段时改共享类型即可，类型检查会覆盖三处调用。
@@ -345,10 +367,12 @@
 
 ### 5.10 文件路径信任
 
-1. `file:read` / `file:save` / `file:watch` 只接受主进程「信任集合」中的路径；集合由用户打开对话框、保存对话框、启动参数、系统 `open-file`、二次启动、会话恢复（扩展名合法）与标签迁移写入。
+1. `file:read` / `file:save` / `file:watch` 只接受主进程「信任集合」中的路径；集合由用户打开对话框、保存对话框、拖拽打开、启动参数、系统 `open-file`、二次启动、会话恢复（扩展名合法）与标签迁移写入。
 2. 集合外路径返回 `error.code = 'not-trusted'`，不执行任何 `fs` 操作；渲染内容被注入时也不能借此读写任意文件。
 3. `file:save` 额外拒绝应用自身目录（仅打包产物）与系统开机启动目录，返回 `'protected-path'`。
 4. 信任集合只保存在主进程内存中，不写盘；重启后由上述入口重新建立。
+5. `recent:open` 不直接信任渲染进程传来的路径：先与主进程维护的最近列表比对，命中后才写入信任集合并读取。
+6. `file:open-dropped` 的路径由 preload 用 `webUtils.getPathForFile` 从真实 `File` 解析（伪造对象返回空串），主进程再做绝对路径、扩展名、去重与数量校验。
 
 ### 5.11 诊断日志
 

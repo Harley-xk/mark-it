@@ -4,8 +4,12 @@ import AppLayout from './components/layout/AppLayout.vue'
 import ConfirmDialog from './components/common/ConfirmDialog.vue'
 import UpdateNotice from './components/update/UpdateNotice.vue'
 import TabDropOverlay from './components/layout/TabDropOverlay.vue'
+import FileDropOverlay from './components/layout/FileDropOverlay.vue'
 import { useOutline } from './composables/useOutline'
 import { useDocumentMode } from './composables/useDocumentMode'
+import { useAutoSave } from './composables/useAutoSave'
+import { useFileDrop } from './composables/useFileDrop'
+import { useRecentStore } from './stores/recent'
 import { useKeyboardShortcuts } from './composables/useKeyboardShortcuts'
 import { useScrollbarState } from './composables/useScrollbarState'
 import { useWindowZoom } from './composables/useWindowZoom'
@@ -27,6 +31,13 @@ useWindowZoom()
 useFileWatcher()
 // 负责启动时恢复上次打开的文档，并在关闭/更新重启前保存会话
 useSession()
+// 可选自动保存：停止输入后静默写盘
+useAutoSave()
+// 拖拽系统文件到窗口时打开
+const { dragActive } = useFileDrop()
+// 最近打开列表在所有编辑窗口间共享，任一窗口变化后重新拉取
+const recent = useRecentStore()
+recent.init()
 
 const update = useUpdateStore()
 update.init()
@@ -78,6 +89,7 @@ onUnmounted(() => {
   offCloseTabShortcut()
   offCloseRequest()
   offPrepareExit()
+  recent.dispose()
   update.dispose()
 })
 </script>
@@ -100,6 +112,7 @@ onUnmounted(() => {
   />
   <UpdateNotice />
   <TabDropOverlay />
+  <FileDropOverlay :active="dragActive" />
 </template>
 
 <style>

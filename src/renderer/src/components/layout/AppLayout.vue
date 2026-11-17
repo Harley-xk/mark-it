@@ -12,6 +12,7 @@ import MarkdownPreview from '../preview/MarkdownPreview.vue'
 import PdfExportDialog from '../export/PdfExportDialog.vue'
 import ImageExportDialog from '../export/ImageExportDialog.vue'
 import SearchHud from '../common/SearchHud.vue'
+import WelcomeRecentFiles from './WelcomeRecentFiles.vue'
 import type { ImageExportOptions, PdfExportOptions } from '../../types'
 
 const app = useAppStore()
@@ -58,6 +59,7 @@ async function onExportImage(options: ImageExportOptions): Promise<void> {
         </SplitPane>
         <EditorPane v-else-if="app.layoutMode === 'edit-only'" class="full-pane" />
         <MarkdownPreview v-else class="full-pane" />
+        <WelcomeRecentFiles />
         <SearchHud />
       </div>
     </div>

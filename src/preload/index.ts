@@ -1,4 +1,5 @@
-import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
+import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron'
+import type { RecentFileEntry, RecentOpenResult } from '../shared/recent-types'
 import type { UpdateState } from '../shared/update-types'
 import type { SessionData } from '../shared/session-types'
 import type { Locale } from '../shared/locale-types'
@@ -120,6 +121,16 @@ const api = {
   },
   /** 打开文件对话框，支持多选；返回成功文件与失败项 */
   openFiles: (): Promise<OpenFilesResponse> => ipcRenderer.invoke('dialog:openFiles'),
+  /**
+   * 拖拽打开：File 对象由 preload 用 webUtils 解析成真实磁盘路径。
+   * 渲染进程无法伪造 File 的路径，因此不能借此读取任意文件。
+   */
+  openDroppedFiles: (files: File[]): Promise<OpenFilesResponse> => {
+    const paths = files
+      .map((file) => webUtils.getPathForFile(file))
+      .filter((filePath): filePath is string => typeof filePath === 'string' && filePath.length > 0)
+    return ipcRenderer.invoke('file:open-dropped', paths)
+  },
   saveFile: (path: string, content: string): Promise<FileSaveResponse> =>
     ipcRenderer.invoke('file:save', path, content),
   readFile: (path: string): Promise<FileReadResponse> => ipcRenderer.invoke('file:read', path),
@@ -192,6 +203,14 @@ const api = {
   /** 监听启动 / 右键 / 命令行打开失败的文件，汇总提示用户 */
   onOpenFileError: (callback: (failures: FileOpenFailure[]) => void): (() => void) =>
     subscribe('file:open-error', callback),
+  /** 最近打开文件：全局列表由主进程维护，渲染进程只读取与清除 */
+  recent: {
+    list: (): Promise<RecentFileEntry[]> => ipcRenderer.invoke('recent:list'),
+    open: (path: string): Promise<RecentOpenResult> => ipcRenderer.invoke('recent:open', path),
+    clear: (): Promise<boolean> => ipcRenderer.invoke('recent:clear'),
+    /** 列表变化（任一窗口打开文件 / 清除）后广播 */
+    onChanged: (callback: () => void): (() => void) => subscribeVoid('recent:changed', callback)
+  },
   /** 导出诊断日志；用户取消返回 null */
   exportDiagnostics: (): Promise<string | null> => ipcRenderer.invoke('diagnostics:export'),
   /** 上报渲染进程未捕获错误，写入主进程滚动日志 */
