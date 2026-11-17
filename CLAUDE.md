@@ -1,8 +1,10 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+本文档是 Claude Code 工作空间的入口文档。
 
 ## 项目规则（必须遵守，冲突时以 base.md 为准）
+
+思考过程和输出结果一律使用 **简体中文**
 
 @rules/base.md
 @rules/code-style.md

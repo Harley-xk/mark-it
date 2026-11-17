@@ -101,7 +101,7 @@ Mark It 是 **Electron + Vue 3 + TypeScript** 的桌面 Markdown 编辑器，**�
 
 ## 6. 提交信息规范
 
-沿用仓库既有的 **Conventional Commits** 风格，提交信息统一使用固定格式：
+完成一项工作后自动提交，沿用仓库既有的 **Conventional Commits** 风格，提交信息统一使用固定格式：
 
 ```text
 <type>(<scope>): 内容概述
