@@ -17,6 +17,19 @@ Var ShortcutOptStartMenu
 Var ShortcutOptDesktopCheckbox
 Var ShortcutOptStartMenuCheckbox
 
+; 安装范围只在首次安装时询问：检测到已有安装就沿用原范围并跳过「为谁安装」页。
+; electron-builder 的安装范围页不像目录页那样在更新时自动跳过，这里借 customInstallMode
+; 把 initMultiUser 读到的已有范围转成强制模式，页面函数随即 Abort。
+!macro customInstallMode
+  ${If} $hasPerMachineInstallation == "1"
+  ${AndIf} $hasPerUserInstallation == "0"
+    StrCpy $isForceMachineInstall "1"
+  ${ElseIf} $hasPerUserInstallation == "1"
+  ${AndIf} $hasPerMachineInstallation == "0"
+    StrCpy $isForceCurrentInstall "1"
+  ${EndIf}
+!macroend
+
 ; 在卸载旧版本之前执行：记录当前快捷方式状态，作为默认值与静默升级依据
 !macro customInit
   !insertmacro setLinkVars

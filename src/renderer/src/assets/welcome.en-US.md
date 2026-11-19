@@ -921,7 +921,7 @@ MarkIt is a local editor: saving writes to the file you choose and never uploads
 
 ### 10.5 What Can I Choose During Installation?
 
-The Windows installer asks for the install scope (just me / all users), the install directory, and whether to create desktop and Start menu shortcuts. When MarkIt is already installed, the shortcut options are preselected from the current state; automatic updates run silently and do not change your earlier shortcut choices.
+On a first install, the Windows installer asks for the install scope (just me / all users), the install directory, and whether to create desktop and Start menu shortcuts. When MarkIt is already installed, the install scope reuses your previous choice and is no longer asked (uninstall first to change it); the shortcut options are preselected from the current state, and automatic updates run silently without changing your earlier shortcut choices.
 
 ### 10.6 Does MarkIt Upload Usage Data?
 
