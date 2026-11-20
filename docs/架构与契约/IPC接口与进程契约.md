@@ -83,6 +83,7 @@
 | `file:reveal`          | R→M invoke | `showItemInFolder(path)`  | `path: string`                    | `Promise<boolean>`                                       | [`src/main/index.ts`](../../src/main/index.ts) | 文件存在则 `shell.showItemInFolder`；文件已删除则打开父目录；父目录也不存在返回 `false` |
 | `file:sync-open-paths` | R→M invoke | `syncOpenFiles(paths)`    | `paths: string[]`                 | `Promise<boolean>`                                       | [`src/main/index.ts`](../../src/main/index.ts) | 按编辑窗口同步当前打开文件索引；仅用于常规打开去重与窗口路由，不缓存内容                |
 | `file:open-dropped`    | R→M invoke | `openDroppedFiles(files)` | `paths: string[]`（preload 由 `File` 转换） | `Promise<OpenFilesResponse>`                    | [`src/main/index.ts`](../../src/main/index.ts) | 拖拽打开；主进程校验绝对路径、文档扩展名、去重与 20 个上限，成功项同时写入最近打开     |
+| `file:open-linked`     | R→M invoke | `openLinkedMarkdown(path)` | `path: string`                   | `Promise<OpenFilesResponse>`                             | [`src/main/index.ts`](../../src/main/index.ts) | 预览区 Ctrl/Cmd + 单击本地 Markdown 链接；只接受绝对路径与 `md` / `markdown` 扩展名，校验后登记信任并复用常规打开流程 |
 
 ### 3.1.1 最近打开
 
@@ -284,8 +285,8 @@
 | 预览载荷 | `preview:open`、`preview:take-payload`、`preview:payload` | `PreviewWindowPayload`（[`src/shared/preview-types.ts`](../../src/shared/preview-types.ts)）：`theme: 'light' \| 'dark'` 与 `media`（图表 SVG / 图片地址、尺寸、背景、文件名、本地路径、远程标记） |
 | PDF 选项            | `export:pdf`                                           | `PdfExportOptions`（[`src/shared/pdf-types.ts`](../../src/shared/pdf-types.ts)）：`pageSize`、`margin`、`showPageNumbers`、`showToc`、`showFrontmatter`、`fileName`、`sourcePath` |
 | 长图选项 / 结果     | `export:image`                                         | `ImageExportOptions`：`format`、`contentWidth`、`scale`、`theme`、`includeFrontmatter`、`fileName`、`sourcePath`；返回 `ImageExportResult`：路径、格式、请求 / 实际倍率与像素尺寸 |
-| 文件读取结果        | `dialog:openFiles`、`file:open-dropped`、`file:read`、`open-file-from-argv`、`recent:open` | `FileReadResult`（[`src/shared/file-types.ts`](../../src/shared/file-types.ts)）：`path`、`content`、`encoding`、`size`、`readOnly`、`excludedFromSession`、`notices`             |
-| 文件读写响应        | `file:read`、`file:save`、`dialog:openFiles`           | `FileReadResponse` / `FileSaveResponse` / `OpenFilesResponse`：成功为 `{ ok: true, ... }`，失败为 `{ ok: false, path, error }`；`error` 含 `code` 与 `message`                    |
+| 文件读取结果        | `dialog:openFiles`、`file:open-dropped`、`file:open-linked`、`file:read`、`open-file-from-argv`、`recent:open` | `FileReadResult`（[`src/shared/file-types.ts`](../../src/shared/file-types.ts)）：`path`、`content`、`encoding`、`size`、`readOnly`、`excludedFromSession`、`notices`             |
+| 文件读写响应        | `file:read`、`file:save`、`dialog:openFiles`、`file:open-linked` | `FileReadResponse` / `FileSaveResponse` / `OpenFilesResponse`：成功为 `{ ok: true, ... }`，失败为 `{ ok: false, path, error }`；`error` 含 `code` 与 `message`                    |
 
 > `PdfExportOptions`、`ImageExportOptions`、`FileReadResult` 与文件错误类型都放在 `src/shared`，preload、主进程与渲染进程共用同一份声明，不再维护内联重复类型。新增字段时改共享类型即可，类型检查会覆盖三处调用。
 
@@ -384,7 +385,7 @@
 
 ### 5.10 文件路径信任
 
-1. `file:read` / `file:save` / `file:watch` 只接受主进程「信任集合」中的路径；集合由用户打开对话框、保存对话框、拖拽打开、启动参数、系统 `open-file`、二次启动、会话恢复（扩展名合法）与标签迁移写入。
+1. `file:read` / `file:save` / `file:watch` 只接受主进程「信任集合」中的路径；集合由用户打开对话框、保存对话框、拖拽打开、启动参数、系统 `open-file`、二次启动、会话恢复（扩展名合法）、标签迁移，以及预览区 Ctrl/Cmd + 单击的本地 Markdown 链接（`file:open-linked`，扩展名限制为 `md` / `markdown`）写入。
 2. 集合外路径返回 `error.code = 'not-trusted'`，不执行任何 `fs` 操作；渲染内容被注入时也不能借此读写任意文件。
 3. `file:save` 额外拒绝应用自身目录（仅打包产物）与系统开机启动目录，返回 `'protected-path'`。
 4. 信任集合只保存在主进程内存中，不写盘；重启后由上述入口重新建立。

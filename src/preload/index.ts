@@ -150,6 +150,9 @@ const api = {
   saveFile: (path: string, content: string): Promise<FileSaveResponse> =>
     ipcRenderer.invoke('file:save', path, content),
   readFile: (path: string): Promise<FileReadResponse> => ipcRenderer.invoke('file:read', path),
+  /** 打开文档内链接指向的本地 Markdown 文件（仅接受绝对路径与 md / markdown 扩展名） */
+  openLinkedMarkdown: (path: string): Promise<OpenFilesResponse> =>
+    ipcRenderer.invoke('file:open-linked', path),
   /** 只监视当前活跃标签对应的磁盘文件；切换标签时传新路径，传 null 取消监视 */
   watchFile: (path: string | null): Promise<boolean> => ipcRenderer.invoke('file:watch', path),
   /** 监听磁盘文件被其他程序修改（仅监听的活跃文件） */

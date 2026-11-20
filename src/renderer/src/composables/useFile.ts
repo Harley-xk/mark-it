@@ -71,6 +71,8 @@ interface FileActions {
   openDroppedFiles: (files: File[]) => Promise<void>
   /** 从最近打开列表打开文件 */
   openRecentFile: (entry: RecentFileEntry) => Promise<void>
+  /** 打开文档内的本地 Markdown 链接：已打开时激活对应标签，否则读取磁盘后新建标签 */
+  openLinkedDocument: (filePath: string) => Promise<void>
   /** 静默自动保存单个标签，不弹确认框 */
   autoSaveDocument: (doc: DocumentTab) => Promise<AutoSaveOutcome>
   saveFile: () => Promise<void>
@@ -392,6 +394,20 @@ export function useFile(): FileActions {
     }
   }
 
+  /**
+   * 打开文档内的本地 Markdown 链接（预览区 Ctrl/Cmd + 单击）。
+   * 主进程校验路径后按常规打开流程处理：已有标签只激活，不覆盖未保存内容。
+   */
+  async function openLinkedDocument(filePath: string): Promise<void> {
+    await whenSessionReady()
+    try {
+      const result = await window.api.openLinkedMarkdown(filePath)
+      await applyOpenFiles(result)
+    } catch (err) {
+      console.error('Failed to open linked document:', filePath, err)
+    }
+  }
+
   /** 打开主进程发来的文件（右键"使用 MarkIt 打开" / 命令行传参） */
   function openFileFromPath(result: FileReadResult): void {
     docs.openPathDocument(result.path, result.content, fileMeta(result))
@@ -692,6 +708,7 @@ export function useFile(): FileActions {
     openFileFromPath,
     openDroppedFiles,
     openRecentFile,
+    openLinkedDocument,
     autoSaveDocument,
     saveFile,
     saveFileAs,

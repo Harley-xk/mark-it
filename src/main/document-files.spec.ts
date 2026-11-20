@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isDocumentFile, sanitizeDroppedPaths } from './document-files'
+import { isDocumentFile, sanitizeDroppedPaths, sanitizeLinkedMarkdownPath } from './document-files'
 
 describe('isDocumentFile', () => {
   it('只接受 md / markdown / txt 扩展名', () => {
@@ -37,5 +37,16 @@ describe('sanitizeDroppedPaths', () => {
 
   it('应去掉路径首尾空白', () => {
     expect(sanitizeDroppedPaths(['  /notes/a.md  '], 'win32')).toEqual(['/notes/a.md'])
+  })
+})
+
+describe('sanitizeLinkedMarkdownPath', () => {
+  it('只接受绝对路径且扩展名为 md / markdown', () => {
+    expect(sanitizeLinkedMarkdownPath('/notes/a.md')).toBe('/notes/a.md')
+    expect(sanitizeLinkedMarkdownPath('  /notes/a.MARKDOWN  ')).toBe('/notes/a.MARKDOWN')
+    expect(sanitizeLinkedMarkdownPath('relative/a.md')).toBeNull()
+    expect(sanitizeLinkedMarkdownPath('/notes/a.txt')).toBeNull()
+    expect(sanitizeLinkedMarkdownPath('https://example.com/a.md')).toBeNull()
+    expect(sanitizeLinkedMarkdownPath(null)).toBeNull()
   })
 })

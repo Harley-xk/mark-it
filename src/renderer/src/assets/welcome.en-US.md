@@ -266,6 +266,7 @@ Click behavior in the preview:
 
 - `http` / `https` / `mailto` links open in the system browser
 - Local file links are revealed in the system file manager
+- **`Ctrl` / `Cmd` + click** on a link to a local `.md` / `.markdown` file opens that document in a new tab; if it is already open, the existing tab is activated
 - In-page anchors keep native navigation; all other protocols are ignored
 
 ### 3.7 Images

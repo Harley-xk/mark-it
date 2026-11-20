@@ -10,11 +10,26 @@ import { normalizeGuardPath } from './path-guard'
 /** 可打开的文档扩展名；与打开对话框的过滤器保持一致 */
 export const DOCUMENT_FILE_EXTENSION = /\.(?:md|markdown|txt)$/i
 
+/** 文档内链接允许在标签中打开的本地文档扩展名：仅限 Markdown */
+export const LINKED_MARKDOWN_EXTENSION = /\.(?:md|markdown)$/i
+
 /** 一次拖拽最多处理的文件数，避免误拖整个目录造成大量读取 */
 export const MAX_DROPPED_FILES = 20
 
 export function isDocumentFile(filePath: string): boolean {
   return DOCUMENT_FILE_EXTENSION.test(filePath)
+}
+
+/**
+ * 校验预览区链接传入的本地路径：
+ * 只接受绝对路径且扩展名为 `.md` / `.markdown`，
+ * 避免渲染进程借该入口读取任意文件。
+ */
+export function sanitizeLinkedMarkdownPath(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const filePath = value.trim()
+  if (!filePath || !isAbsolute(filePath) || !LINKED_MARKDOWN_EXTENSION.test(filePath)) return null
+  return filePath
 }
 
 /**

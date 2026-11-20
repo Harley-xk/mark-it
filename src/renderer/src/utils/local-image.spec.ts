@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  isMarkdownPath,
   localPathFromImageSrc,
   resolveImageSrc,
   resolveLocalPath,
@@ -64,5 +65,20 @@ describe('本地链接解析', () => {
 
   it('file:// 地址应返回本地路径', () => {
     expect(resolveLocalPath('file:///D:/docs/other.md', null)).toBe('D:/docs/other.md')
+  })
+})
+
+describe('本地 Markdown 扩展名判定', () => {
+  it('应识别 md / markdown 且忽略大小写', () => {
+    expect(isMarkdownPath('D:/docs/other.md')).toBe(true)
+    expect(isMarkdownPath('D:/docs/OTHER.MD')).toBe(true)
+    expect(isMarkdownPath('D:/docs/guide.markdown')).toBe(true)
+  })
+
+  it('其它扩展名与伪装后缀不应视为 Markdown', () => {
+    expect(isMarkdownPath('D:/docs/a.txt')).toBe(false)
+    expect(isMarkdownPath('D:/docs/a.png')).toBe(false)
+    expect(isMarkdownPath('D:/docs/a.md.bak')).toBe(false)
+    expect(isMarkdownPath('D:/docs/md')).toBe(false)
   })
 })

@@ -24,6 +24,7 @@ import { saveDiagram, serializeSvg } from '../../utils/diagram-export'
 import { isRemoteImageSrc, suggestImageFileName } from '../../utils/media-preview'
 import {
   installLocalImageRule,
+  isMarkdownPath,
   localPathFromImageSrc,
   resolveImageSrc,
   resolveLocalPath
@@ -35,6 +36,7 @@ import { sanitizeMarkdownHtml } from '../../utils/sanitize'
 import { collectPreviewRanges } from '../../utils/search'
 import { LruCache } from '../../utils/lru-cache'
 import { confirmUnsaved } from '../../composables/useConfirmUnsaved'
+import { useFile } from '../../composables/useFile'
 import { useI18n } from '../../i18n'
 import type { Locale } from '../../../../shared/locale-types'
 import SearchPanel from '../common/SearchPanel.vue'
@@ -68,6 +70,7 @@ const editorStore = useEditorStore()
 const appStore = useAppStore()
 const styleStore = useStyleStore()
 const search = useSearchStore()
+const file = useFile()
 const { locale, t } = useI18n()
 const { suspendSync, registerPreview, unregisterPreview } = useScrollSync()
 const previewRef = ref<HTMLDivElement>()
@@ -420,7 +423,8 @@ function scrollToPreviewAnchor(rawId: string): void {
 
 /**
  * 预览区链接点击分流：页内锚点在当前预览层内跳转；
- * 网络链接交给默认浏览器；本地文件链接在资源管理器中定位，无法定位则不处理。
+ * 网络链接交给默认浏览器；Ctrl/Cmd + 单击本地 Markdown 链接在新标签中打开目标文档；
+ * 其余本地文件链接在资源管理器中定位，无法定位则不处理。
  * 其余协议（ftp、tel、javascript 等）一律忽略，避免编辑窗口被导航走。
  */
 function handlePreviewLinkClick(event: MouseEvent): void {
@@ -449,7 +453,15 @@ function handlePreviewLinkClick(event: MouseEvent): void {
     if (!isFileUrl && LINK_SCHEME.test(href) && !WINDOWS_DRIVE_PATH.test(href)) return
 
     const localPath = resolveLocalPath(href, documentsStore.activeDoc?.path)
-    if (localPath) void window.api.showItemInFolder(localPath)
+    if (!localPath) return
+
+    // 类似浏览器在新标签页打开链接：仅限本地 Markdown 文档
+    if ((event.ctrlKey || event.metaKey) && isMarkdownPath(localPath)) {
+      void file.openLinkedDocument(localPath)
+      return
+    }
+
+    void window.api.showItemInFolder(localPath)
     return
   }
 

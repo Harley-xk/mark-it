@@ -38,7 +38,11 @@ import type {
 } from '../shared/file-types'
 import type { RendererErrorReport } from '../shared/diagnostics-types'
 import { readTextFile, writeTextFile, type FileIoPolicy } from './file-io'
-import { DOCUMENT_FILE_EXTENSION, sanitizeDroppedPaths } from './document-files'
+import {
+  DOCUMENT_FILE_EXTENSION,
+  sanitizeDroppedPaths,
+  sanitizeLinkedMarkdownPath
+} from './document-files'
 import {
   buildRecentFilesFile,
   parseRecentFilesFile,
@@ -1705,6 +1709,31 @@ registerHandle('file:read', async (_e, filePath: string) => {
     console.error('Failed to read file:', filePath, result.error.message)
   }
   return result
+})
+
+/**
+ * 预览区 Ctrl/Cmd + 单击本地 Markdown 链接。
+ * 路径必须是绝对路径且扩展名为 md / markdown；读取成功后按常规打开流程处理，
+ * 已在其它窗口打开时投递到该窗口，不重复创建标签。
+ */
+registerHandle('file:open-linked', async (event, filePath: unknown): Promise<OpenFilesResponse> => {
+  if (!isEditorWindowSender(event.sender)) return { files: [], failures: [] }
+  const target = sanitizeLinkedMarkdownPath(filePath)
+  if (!target) {
+    return {
+      files: [],
+      failures: [
+        {
+          path: typeof filePath === 'string' ? filePath : '',
+          error: {
+            code: 'invalid-path',
+            message: 'Linked document must be an absolute Markdown path'
+          }
+        }
+      ]
+    }
+  }
+  return readOpenedPaths([target])
 })
 
 /** 只监视渲染进程当前活跃标签的文件；切换标签时由渲染进程重新指定 */

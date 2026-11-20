@@ -144,6 +144,14 @@ export function resolveLocalPath(href: string, documentPath?: string | null): st
   return normalizePath(`${docDir}/${decoded}`)
 }
 
+/** 本地 Markdown 文档扩展名：Ctrl/Cmd + 单击链接在标签中打开时使用 */
+const MARKDOWN_PATH = /\.(?:md|markdown)$/i
+
+/** 判断链接目标是否为本地 Markdown 文档（调用方已确认它是本地路径） */
+export function isMarkdownPath(filePath: string): boolean {
+  return MARKDOWN_PATH.test(filePath)
+}
+
 /**
  * 给 MarkdownIt 实例安装图片地址解析：预览与 PDF 导出共用。
  * getDocumentPath 在渲染时调用，保证 Vue 能收集到当前文档的依赖。
