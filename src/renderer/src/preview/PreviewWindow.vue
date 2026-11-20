@@ -418,15 +418,6 @@ onUnmounted(() => {
             {{ media.remote ? t('preview.downloadImage') : t('preview.saveImageAs') }}
           </button>
         </template>
-        <span class="preview-separator"></span>
-        <button
-          class="preview-btn preview-close"
-          type="button"
-          :title="t('common.close')"
-          @click="closeWindow"
-        >
-          ✕
-        </button>
       </div>
     </header>
 
@@ -572,10 +563,6 @@ onUnmounted(() => {
 
 .preview-window.light .preview-separator {
   background: rgba(0, 0, 0, 0.1);
-}
-
-.preview-close {
-  font-size: 13px;
 }
 
 .preview-viewport {

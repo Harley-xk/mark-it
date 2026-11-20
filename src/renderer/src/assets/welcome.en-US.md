@@ -284,7 +284,7 @@ Click an image in the preview to open the large view in a **separate window**:
 - The preview window has its own title bar and system window buttons, so it never covers the editor's title bar or status bar
 - Scroll the wheel, or hold `Ctrl` / `Cmd` and scroll to zoom around the mouse pointer; `−` / `＋` zoom around the window center
 - **Fit** keeps the whole image visible; resizing or maximizing the window re-fits it
-- Local images offer **Show in folder** and **Save as**; web images can be downloaded locally; `Esc`, the `✕` in the window, and the system close button all close only the preview window
+- Local images offer **Show in folder** and **Save as**; web images can be downloaded locally; `Esc` and the system close button both close only the preview window
 - When an image is inside a link, clicking it follows the link instead of opening the preview
 
 ### 3.8 Code
@@ -830,7 +830,7 @@ Click the **Preview** button in the diagram toolbar to open the large view in a 
 - Wheel zoom is anchored at the mouse pointer and button zoom at the window center, so the diagram does not jump to the top-left corner
 - Useful for inspecting the details of a complex diagram
 - Download SVG / PNG directly from the preview window
-- `Esc`, the `✕` in the window, and the system close button all close only the preview window
+- `Esc` and the system close button both close only the preview window
 
 Images and diagrams share the same preview window; see "3.7 Images" for image save and download actions.
 
