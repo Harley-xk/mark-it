@@ -26,6 +26,8 @@ export interface DocumentTab {
   historyId: string
   path: string | null
   name: string
+  /** 标签创建时间戳，用于标签总览的相对打开时间；不写入会话 */
+  openedAt: number
   /** 编辑器内部内容，统一使用 LF 换行 */
   content: string
   /** 最近一次从磁盘载入 / 保存后的内容（LF），用于判断磁盘是否真的发生了变化 */
@@ -179,6 +181,7 @@ export const useDocumentsStore = defineStore('documents', () => {
       historyId: meta?.historyId ?? crypto.randomUUID(),
       path,
       name: name || (path ? baseName(path) : uniqueUntitledName()),
+      openedAt: Date.now(),
       content: text,
       diskContent: text,
       isModified: false,

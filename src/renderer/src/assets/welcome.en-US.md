@@ -46,7 +46,7 @@ This built-in welcome document serves two purposes:
 | Save           | `Ctrl + S`         | The first save of a new document opens the Save As dialog          |
 | Save As        | `Ctrl + Shift + S` | Saving to a new path renames the tab automatically                 |
 | Manual refresh | `F5` or `Ctrl + R` | Forces a disk read; disk changes normally sync automatically       |
-| Recent files   | Clock button in the toolbar | Lists recently opened files with a clear action            |
+| Tab overview   | Leftmost button in the tab bar | Lists open tabs and recent files, with a clear action   |
 | Drop to open   | Drag files into the window  | Up to 20 files; accepts `.md`, `.markdown`, and `.txt`    |
 
 UTF-8 files (including BOM) can be edited and saved regardless of size. UTF-16, GBK, and other non-UTF-8 files open **read-only** so saving cannot damage the original; use Save As to convert them to UTF-8 first. To keep large documents responsive, preview is paused by default above 1 MiB (click "Render Preview Anyway" in the preview area). Above 5 MiB the editor enters plain text mode, turning off preview, syntax highlighting, outline, and word count (click "Restore Markdown" in the status bar to re-enable them). Files larger than 50 MiB are rejected. The content of large files is not stored in session recovery data.
@@ -57,7 +57,7 @@ When saving fails (full disk, no write permission, file in use, and so on), a me
 
 MarkIt follows disk changes automatically: when the active tab's file is changed by another program it syncs immediately, and switching to an inactive tab reads the disk once first. Unsaved local changes are never interrupted immediately; the conflict is detected on save (`Ctrl + S`), where the disk and local versions are shown as a line-by-line diff.
 
-Drag files from your file manager into any MarkIt window to open them. Recent files appear in the top-right corner of the welcome or blank tab, and are also available from the clock button in the toolbar, where the list can be cleared. The recent list stays on this machine and is never uploaded.
+Drag files from your file manager into any MarkIt window to open them. Click the list button at the far left of the tab bar to see open tabs and recent files (only files not already open in this window are listed), and to clear the recent list. The recent list stays on this machine and is never uploaded.
 
 Auto save is off by default. In Settings → Editor → Auto Save, choose to write to disk 2, 5, or 10 seconds after you stop typing. If a file was changed or deleted externally, auto save skips it and manual save decides what happens. Unsaved content is also restored as a draft after a restart.
 

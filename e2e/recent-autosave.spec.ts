@@ -24,22 +24,29 @@ test('最近打开在欢迎态与工具栏展示，清除后重启不再出现',
   let app = await launchApp(['.', `--user-data-dir=${userDataDir}`])
   try {
     const window = await app.firstWindow()
-    await expect(window.locator('.welcome-recent')).toBeVisible()
-    await expect(window.locator('.welcome-recent .recent-item')).toContainText('recent.md')
 
-    // 从欢迎态浮层打开后应激活对应标签
-    await window.locator('.welcome-recent .recent-item').click()
+    // 标签总览第二组列出未打开的最近文件
+    await window.locator('.tab-overview-btn').click()
+    await expect(window.locator('.tab-overview-popover')).toBeVisible()
+    await expect(window.locator('.overview-recent-list .overview-item')).toContainText('recent.md')
+
+    // 从最近文件打开后应激活对应标签，并关闭弹窗
+    await window.locator('.overview-recent-list .overview-item').click()
     await expect(window.locator('.tab-name', { hasText: 'recent.md' })).toBeVisible()
-    await expect(window.locator('.welcome-recent')).toHaveCount(0)
+    await expect(window.locator('.tab-overview-popover')).toHaveCount(0)
 
-    // 工具栏下拉列出同一条记录
-    await window.locator('.recent-menu-root .tb-btn').click()
-    await expect(window.locator('.recent-popover')).toBeVisible()
-    await expect(window.locator('.recent-popover .recent-item')).toContainText('recent.md')
-    await window.locator('.recent-clear').click()
-    await expect(window.locator('.recent-popover .recent-empty')).toBeVisible()
+    // 已打开的标签移到第一组，不再重复出现在最近文件组
+    await window.locator('.tab-overview-btn').click()
+    await expect(
+      window.locator('.overview-tab-list .overview-item', { hasText: 'recent.md' })
+    ).toBeVisible()
+    await expect(
+      window.locator('.overview-recent-list .overview-item', { hasText: 'recent.md' })
+    ).toHaveCount(0)
+    await window.locator('.overview-clear').click()
+    await expect(window.locator('.overview-empty')).toBeVisible()
     await window.keyboard.press('Escape')
-    await expect(window.locator('.recent-popover')).toHaveCount(0)
+    await expect(window.locator('.tab-overview-popover')).toHaveCount(0)
 
     // 等会话快照包含当前文件，验证「清除记录」不会被会话恢复补齐覆盖
     const sessionPath = join(userDataDir, 'session.json')
@@ -57,9 +64,11 @@ test('最近打开在欢迎态与工具栏展示，清除后重启不再出现',
   try {
     const window = await app.firstWindow()
     await expect(window.locator('.app-layout')).toBeVisible()
-    await expect(window.locator('.welcome-recent')).toHaveCount(0)
-    await window.locator('.recent-menu-root .tb-btn').click()
-    await expect(window.locator('.recent-popover .recent-empty')).toBeVisible()
+    await window.locator('.tab-overview-btn').click()
+    await expect(
+      window.locator('.overview-tab-list .overview-item', { hasText: 'recent.md' })
+    ).toBeVisible()
+    await expect(window.locator('.overview-recent-list .overview-item')).toHaveCount(0)
   } finally {
     await app.close()
     rmSync(workDir, { recursive: true, force: true })
@@ -97,8 +106,23 @@ test('会话恢复出的路径会补齐最近列表', async () => {
   try {
     const window = await app.firstWindow()
     await expect(window.locator('.tab-name', { hasText: 'restored.md' })).toBeVisible()
-    await window.locator('.recent-menu-root .tb-btn').click()
-    await expect(window.locator('.recent-popover .recent-item')).toContainText('restored.md')
+
+    // 会话恢复出的文件在「当前标签」组，最近文件组不重复列出
+    await window.locator('.tab-overview-btn').click()
+    await expect(
+      window.locator('.overview-tab-list .overview-item', { hasText: 'restored.md' })
+    ).toBeVisible()
+    await expect(window.locator('.overview-recent-list .overview-item')).toHaveCount(0)
+    await window.keyboard.press('Escape')
+
+    // 新建标签后关闭 restored.md，它会转入最近文件组
+    await window.locator('.tab-new').click()
+    await window.locator('.tab', { hasText: 'restored.md' }).click({ button: 'right' })
+    await window.locator('.ctx-item', { hasText: '关闭' }).first().click()
+    await window.locator('.tab-overview-btn').click()
+    await expect(window.locator('.overview-recent-list .overview-item')).toContainText(
+      'restored.md'
+    )
   } finally {
     await app.close()
     rmSync(workDir, { recursive: true, force: true })

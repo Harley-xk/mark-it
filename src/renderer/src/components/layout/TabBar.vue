@@ -5,6 +5,7 @@ import { useFile } from '../../composables/useFile'
 import { useAppStore } from '../../stores/app'
 import { findInsertBefore } from '../../utils/tab-order'
 import { useI18n } from '../../i18n'
+import TabOverviewMenu from './TabOverviewMenu.vue'
 import type { EditorWindowSummary } from '../../../../shared/window-types'
 
 const docs = useDocumentsStore()
@@ -387,6 +388,7 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="tab-bar">
+    <TabOverviewMenu />
     <div ref="scrollRef" class="tab-scroll" @wheel="onWheel">
       <div
         v-for="(doc, index) in docs.docs"

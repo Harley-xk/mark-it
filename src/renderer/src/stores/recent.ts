@@ -2,7 +2,7 @@
  * 作者: Harley-xk
  * 创建: 2026-11-17
  *
- * 描述: 最近打开文件列表的前端缓存、跨窗口刷新与欢迎态浮层状态
+ * 描述: 最近打开文件列表的前端缓存与跨窗口刷新
  */
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
@@ -11,8 +11,6 @@ import type { RecentFileEntry } from '../../../shared/recent-types'
 export const useRecentStore = defineStore('recent', () => {
   const entries = ref<RecentFileEntry[]>([])
   const loaded = ref(false)
-  /** 欢迎态浮层是否已在本次窗口会话内被手动关闭 */
-  const welcomeDismissed = ref(false)
   let offChanged: (() => void) | null = null
 
   async function load(): Promise<void> {
@@ -49,9 +47,5 @@ export const useRecentStore = defineStore('recent', () => {
     }
   }
 
-  function dismissWelcome(): void {
-    welcomeDismissed.value = true
-  }
-
-  return { entries, loaded, welcomeDismissed, init, dispose, load, clear, dismissWelcome }
+  return { entries, loaded, init, dispose, load, clear }
 })
