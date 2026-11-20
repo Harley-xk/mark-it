@@ -98,7 +98,9 @@
 | ------------------ | ---------- | -------------------------------------- | ------------------------------------------------------------------- | ----------------------------------------------------- | ---------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
 | `dialog:openFiles` | R→M invoke | `openFiles()`                          | 无                                                                  | `Promise<OpenFilesResponse>`（`{ files, failures }`） | [`src/main/index.ts`](../../src/main/index.ts) | 多选；过滤 `md` / `markdown` / `txt`；用户取消返回空结果；失败项带路径与原因返回，由渲染进程汇总提示  |
 | `dialog:savePath`  | R→M invoke | `chooseSavePath(defaultFileName?)`     | `defaultFileName?: string`                                          | `Promise<string \| null>`                             | [`src/main/index.ts`](../../src/main/index.ts) | **只选择路径，不写盘**；默认文件名清洗非法字符；取消返回 `null`；调用方确认无重复标签后走 `file:save` |
-| `dialog:saveImage` | R→M invoke | `saveImage(fileName, data, extension)` | `fileName: string`, `data: Uint8Array`, `extension: 'svg' \| 'png'` | `Promise<string \| null>`                             | [`src/main/index.ts`](../../src/main/index.ts) | 预览区 Mermaid 图表下载；写 `Buffer.from(data)`；取消返回 `null`                                      |
+| `dialog:saveImage` | R→M invoke | `saveImage(fileName, data, extension)` | `fileName: string`, `data: Uint8Array`, `extension: ImageFileExtension`（`png` / `jpg` / `jpeg` / `gif` / `webp` / `bmp` / `svg` / `avif` / `ico` / `tif` / `tiff`） | `Promise<string \| null>` | [`src/main/index.ts`](../../src/main/index.ts) | 预览区 Mermaid 图表与 `data:` / `blob:` 图片保存；校验扩展名白名单后写 `Buffer.from(data)`；取消返回 `null` |
+| `dialog:saveImageFromPath` | R→M invoke | `saveImageFromPath(sourcePath, fileName)` | `sourcePath: string`, `fileName: string` | `Promise<string \| null>` | [`src/main/index.ts`](../../src/main/index.ts) | 本地预览图片另存为；源文件必须是已存在的图片，弹保存对话框后 `copyFile`；取消或源文件缺失返回 `null` |
+| `dialog:downloadImage` | R→M invoke | `downloadImage(url, fileName)` | `url: string`, `fileName: string` | `Promise<string \| null>` | [`src/main/index.ts`](../../src/main/index.ts) | 远程图片下载；仅放行 `http` / `https`，主进程 `net.fetch` 拉取，体积上限 64 MiB，取消返回 `null`；响应内容不回传渲染进程 |
 
 ### 3.3 窗口与系统
 
@@ -266,7 +268,8 @@
 | 结构                | 出现通道                                               | 字段                                                                                                                                                                              |
 | ------------------- | ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `{ path, content }` | `file:external-change`                                 | `path: string`、`content: string`                                                                                                                                                 |
-| 图片保存参数        | `dialog:saveImage`                                     | `fileName: string`、`data: Uint8Array`、`extension: 'svg' \| 'png'`                                                                                                               |
+| 图片保存参数        | `dialog:saveImage`                                     | `fileName: string`、`data: Uint8Array`、`extension: ImageFileExtension`（[`src/shared/image-types.ts`](../../src/shared/image-types.ts)）                                          |
+| 图片另存 / 下载参数 | `dialog:saveImageFromPath`、`dialog:downloadImage`     | 前者 `sourcePath: string`、`fileName: string`；后者 `url: string`、`fileName: string`；均返回保存路径或 `null`                                                                     |
 | PDF 选项            | `export:pdf`                                           | `PdfExportOptions`（[`src/shared/pdf-types.ts`](../../src/shared/pdf-types.ts)）：`pageSize`、`margin`、`showPageNumbers`、`showToc`、`showFrontmatter`、`fileName`、`sourcePath` |
 | 长图选项 / 结果     | `export:image`                                         | `ImageExportOptions`：`format`、`contentWidth`、`scale`、`theme`、`includeFrontmatter`、`fileName`、`sourcePath`；返回 `ImageExportResult`：路径、格式、请求 / 实际倍率与像素尺寸 |
 | 文件读取结果        | `dialog:openFiles`、`file:open-dropped`、`file:read`、`open-file-from-argv`、`recent:open` | `FileReadResult`（[`src/shared/file-types.ts`](../../src/shared/file-types.ts)）：`path`、`content`、`encoding`、`size`、`readOnly`、`excludedFromSession`、`notices`             |
@@ -305,6 +308,7 @@
 2. 仅 `http` / `https` / `mailto` 放行给系统默认程序；`file:` 转为在文件管理器中定位；`ftp`、`tel`、`javascript:` 等其余协议一律忽略。
 3. 主进程还有兜底：`setWindowOpenHandler` 一律拒绝新窗口并转交系统打开；`will-navigate` 对非应用自身页面地址 `preventDefault` 后转交系统打开，避免编辑窗口被导航走导致界面丢失。
 4. 页内锚点（`#heading-N`）保留浏览器原生跳转，不经过主进程。
+5. 预览中的图片单击只打开大图窗口；远程图片下载必须由用户显式点击，由主进程 `dialog:downloadImage` 发起，渲染进程不能借该通道读取任意地址的响应内容。
 
 ### 5.4 `markit-file://` 协议
 

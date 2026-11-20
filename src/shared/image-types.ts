@@ -7,6 +7,10 @@
 
 export type ImageExportFormat = 'png' | 'jpeg'
 
+/** 预览图片保存 / 下载允许的扩展名（主进程与渲染进程共用） */
+export type ImageFileExtension =
+  'png' | 'jpg' | 'jpeg' | 'gif' | 'webp' | 'bmp' | 'svg' | 'avif' | 'ico' | 'tif' | 'tiff'
+
 export type ImageExportTheme = 'preview' | 'light' | 'dark'
 
 export type ImageContentWidth = 640 | 800 | 1000 | 1200

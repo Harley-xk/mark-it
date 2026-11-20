@@ -21,7 +21,17 @@ import {
 } from '../../utils/diagram-renderer'
 import { parseFrontmatter, renderFrontmatterTable } from '../../utils/frontmatter'
 import { saveDiagram, serializeSvg } from '../../utils/diagram-export'
-import { installLocalImageRule, resolveImageSrc, resolveLocalPath } from '../../utils/local-image'
+import {
+  isRemoteImageSrc,
+  suggestImageFileName,
+  type MediaPreviewItem
+} from '../../utils/media-preview'
+import {
+  installLocalImageRule,
+  localPathFromImageSrc,
+  resolveImageSrc,
+  resolveLocalPath
+} from '../../utils/local-image'
 import { installHeadingAnchors } from '../../utils/headings'
 import { installLinkTitles } from '../../utils/link-title'
 import { createMarkdownRenderer } from '../../utils/markdown'
@@ -32,7 +42,7 @@ import { confirmUnsaved } from '../../composables/useConfirmUnsaved'
 import { useI18n } from '../../i18n'
 import type { Locale } from '../../../../shared/locale-types'
 import SearchPanel from '../common/SearchPanel.vue'
-import DiagramPreviewModal from './DiagramPreviewModal.vue'
+import MediaPreviewModal from './MediaPreviewModal.vue'
 
 /** 单个标签的预览渲染结果；路径参与校验，因为相对图片在渲染时已解析为绝对地址 */
 interface CachedPreviewHtml {
@@ -420,30 +430,39 @@ function scrollToPreviewAnchor(rawId: string): void {
 function handlePreviewLinkClick(event: MouseEvent): void {
   if (event.defaultPrevented || event.button !== 0) return
   if (!(event.target instanceof Element)) return
+
   const anchor = event.target.closest('a')
-  if (!(anchor instanceof HTMLAnchorElement)) return
+  if (anchor instanceof HTMLAnchorElement) {
+    const href = anchor.getAttribute('href')?.trim()
+    if (!href) return
 
-  const href = anchor.getAttribute('href')?.trim()
-  if (!href) return
+    if (href.startsWith('#')) {
+      event.preventDefault()
+      scrollToPreviewAnchor(href.slice(1))
+      return
+    }
 
-  if (href.startsWith('#')) {
     event.preventDefault()
-    scrollToPreviewAnchor(href.slice(1))
+
+    if (EXTERNAL_LINK.test(href)) {
+      void window.api.openExternal(href)
+      return
+    }
+
+    const isFileUrl = /^file:/i.test(href)
+    if (!isFileUrl && LINK_SCHEME.test(href) && !WINDOWS_DRIVE_PATH.test(href)) return
+
+    const localPath = resolveLocalPath(href, documentsStore.activeDoc?.path)
+    if (localPath) void window.api.showItemInFolder(localPath)
     return
   }
 
-  event.preventDefault()
-
-  if (EXTERNAL_LINK.test(href)) {
-    void window.api.openExternal(href)
-    return
+  // 链接优先；没有链接时单击图片打开大图预览
+  const image = event.target.closest('img')
+  if (image instanceof HTMLImageElement) {
+    event.preventDefault()
+    openImagePreview(image)
   }
-
-  const isFileUrl = /^file:/i.test(href)
-  if (!isFileUrl && LINK_SCHEME.test(href) && !WINDOWS_DRIVE_PATH.test(href)) return
-
-  const localPath = resolveLocalPath(href, documentsStore.activeDoc?.path)
-  if (localPath) void window.api.showItemInFolder(localPath)
 }
 
 const MIN_SCALE = 0.25
@@ -477,24 +496,40 @@ function clearViewportObservers(): void {
   fitCallbacks.clear()
 }
 
-// 图表弹窗预览
-const diagramModalVisible = ref(false)
-const diagramPreview = ref({
-  svgXml: '',
-  width: 800,
-  height: 600,
-  background: '#ffffff'
-})
+// 图表 / 图片大图预览
+const mediaPreviewVisible = ref(false)
+const mediaPreviewItem = ref<MediaPreviewItem | null>(null)
 
 function openDiagramPreview(svgEl: SVGSVGElement): void {
   const { xml, width, height } = serializeSvg(svgEl)
-  diagramPreview.value = {
+  mediaPreviewItem.value = {
+    kind: 'diagram',
     svgXml: xml,
     width,
     height,
     background: diagramTheme.value.background
   }
-  diagramModalVisible.value = true
+  mediaPreviewVisible.value = true
+}
+
+/** 单击预览中的图片打开大图；链接内的图片已在前面的链接分支处理 */
+function openImagePreview(img: HTMLImageElement): void {
+  if (!img.complete || img.naturalWidth === 0 || img.naturalHeight === 0) return
+  const src = img.getAttribute('src') || img.currentSrc || ''
+  if (!src) return
+
+  const fallbackName = img.alt.trim() || `image-${Date.now()}`
+  mediaPreviewItem.value = {
+    kind: 'image',
+    src,
+    width: img.naturalWidth,
+    height: img.naturalHeight,
+    background: diagramTheme.value.background,
+    fileName: suggestImageFileName(src, fallbackName),
+    localPath: localPathFromImageSrc(src),
+    remote: isRemoteImageSrc(src)
+  }
+  mediaPreviewVisible.value = true
 }
 
 /**
@@ -1139,13 +1174,10 @@ onUnmounted(() => {
     </div>
 
     <SearchPanel v-if="search.isOpen && search.surface === 'preview'" />
-    <DiagramPreviewModal
-      :visible="diagramModalVisible"
-      :svg-xml="diagramPreview.svgXml"
-      :width="diagramPreview.width"
-      :height="diagramPreview.height"
-      :background="diagramPreview.background"
-      @close="diagramModalVisible = false"
+    <MediaPreviewModal
+      :visible="mediaPreviewVisible"
+      :item="mediaPreviewItem"
+      @close="mediaPreviewVisible = false"
     />
   </div>
 </template>
@@ -1170,6 +1202,11 @@ onUnmounted(() => {
 /* 绝对定位的预览层不参与流式布局，由这个占位元素撑起滚动高度 */
 .preview-spacer {
   width: 1px;
+}
+
+/* 单击图片可打开大图预览；链接内的图片保持链接光标 */
+:deep(.preview-content img:not(a > img)) {
+  cursor: zoom-in;
 }
 
 /* ── 预览暂停占位（大文件 / 纯文本模式） ── */

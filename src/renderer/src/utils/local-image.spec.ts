@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { resolveImageSrc, resolveLocalPath, toLocalFileUrl } from './local-image'
+import {
+  localPathFromImageSrc,
+  resolveImageSrc,
+  resolveLocalPath,
+  toLocalFileUrl
+} from './local-image'
 
 describe('图片地址解析', () => {
   it('网络地址、data URL 与页内锚点应保持原样', () => {
@@ -28,6 +33,22 @@ describe('图片地址解析', () => {
     expect(resolveImageSrc('file:///D:/img/%E5%9B%BE%201.png', null)).toBe(
       toLocalFileUrl('D:/img/图 1.png')
     )
+  })
+})
+
+describe('预览图片本地路径还原', () => {
+  it('markit-file 地址应还原为绝对路径', () => {
+    expect(localPathFromImageSrc(toLocalFileUrl('D:/docs/图 1.png'))).toBe('D:/docs/图 1.png')
+  })
+
+  it('file:// 地址应还原为本地路径', () => {
+    expect(localPathFromImageSrc('file:///D:/img/%E5%9B%BE%201.png')).toBe('D:/img/图 1.png')
+  })
+
+  it('远程与 data URL 不应被当作本地图片', () => {
+    expect(localPathFromImageSrc('https://example.com/a.png')).toBeNull()
+    expect(localPathFromImageSrc('data:image/png;base64,AAAA')).toBeNull()
+    expect(localPathFromImageSrc('')).toBeNull()
   })
 })
 

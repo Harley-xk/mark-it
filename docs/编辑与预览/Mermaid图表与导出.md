@@ -193,46 +193,44 @@ Mermaid 的语法错误通常是「Parse error on line N: + 源码行 + 指示�
 ### 5.3 滚轮与双击
 
 - **Ctrl/Cmd + 滚轮**：`passive: false` 监听 `wheel`，`deltaY < 0` 放大、否则缩小，一步一个 `ZOOM_STEP`；同时 `preventDefault()`，避免触发整窗缩放。普通滚轮不拦截，交给预览区滚动。
-- **双击**：仅当双击目标位于 `<svg>` 内时触发，打开弹窗预览；`.mermaid-viewport` 的 `title` 为「双击放大预览」。
+- **双击**：仅当双击目标位于 `<svg>` 内时触发，打开大图预览；`.mermaid-viewport` 的 `title` 为「双击放大预览」。
 - 图宽超出视口时 `.mermaid-viewport` 自身横向滚动；纵向长图随页面滚动。
 
-## 6. 弹窗预览
+## 6. 大图预览
 
-组件：[DiagramPreviewModal.vue](../../src/renderer/src/components/preview/DiagramPreviewModal.vue)，通过 `<Teleport to="body">` 挂到 `body`，`z-index: 2000`。
+图表与图片共用 [MediaPreviewModal.vue](../../src/renderer/src/components/preview/MediaPreviewModal.vue)，通过 `<Teleport to="body">` 挂到 `body`，`z-index: 2000`。完整的窗口布局、缩放公式、图片操作与安全边界见 [大图预览与图片操作](./大图预览与图片操作.md)；本节只保留图表相关的入口与差异。
 
 ### 6.1 打开方式
 
-1. 工具栏放大镜图标（`title="弹窗预览（可缩放 / 滚动 / 下载）"`）；
+1. 工具栏放大镜图标（`title="大图预览（可缩放 / 滚动 / 下载）"`）；
 2. 双击图表。
 
-两种方式都调用 `openDiagramPreview(svgEl)`：先用 `serializeSvg()` 取得 `xml / width / height`，再带上当前主题背景色（深色 `#1e1e24`、浅色 `#ffffff`）打开弹窗。因此弹窗展示的是**序列化后的静态 SVG**（以 `<img>` + Blob URL 呈现），而不是原 DOM 节点。
+两种方式都调用 `openDiagramPreview(svgEl)`：先用 `serializeSvg()` 取得 `xml / width / height`，再带上当前主题背景色（深色 `#0d1117`、浅色 `#ffffff`）打开预览。因此预览展示的是**序列化后的静态 SVG**（以 `<img>` + Blob URL 呈现），而不是原 DOM 节点。Blob URL 在关闭、内容变化与组件卸载时 `revokeObjectURL`，避免泄漏。
 
-### 6.2 面板与操作
+### 6.2 面板与操作差异
 
-弹窗尺寸 `width: min(1200px, 94vw)`、`height: min(820px, 88vh)`；顶部为标题「图表预览」与按钮组：`−`、百分比、`＋`、`适应`、`SVG`、`PNG`、`✕`。
+预览窗口覆盖整个应用窗口，顶部按钮组为：`−`、百分比、`＋`、`适应`、`SVG`、`PNG`、`✕`。
 
-| 操作            | 行为                                                                                                            |
-| --------------- | --------------------------------------------------------------------------------------------------------------- |
-| 缩放按钮        | 与内联一致的 25%–400%、步进 ×1.25                                                                               |
-| 点击百分比      | 恢复 100%                                                                                                       |
-| 适应窗口        | `min(1, (视口宽 - 48) / 图宽, (视口高 - 48) / 图高)`，并把滚动位置复位到左上角；小图保持 100% 不放大            |
-| Ctrl/Cmd + 滚轮 | 以鼠标位置为锚点缩放：先记录鼠标处的内容坐标，缩放后按比例回填 `scrollLeft/scrollTop`，使鼠标指向的内容保持不动 |
-| 普通滚轮        | 交给视口滚动                                                                                                    |
-| 溢出判定        | `图宽 × 缩放 > 视口宽 - 8` 或高同理；溢出时容器从「居中」切换为「左上对齐」，保证整张图都能滚动到               |
-| 关闭            | `✕` 按钮、点击遮罩空白处（`@mousedown.self`）、`Esc`（弹窗打开期间以捕获阶段监听 `window`）                     |
-| 底部提示        | 「滚轮滚动 · Ctrl/Cmd + 滚轮缩放 · Esc 关闭」                                                                   |
-
-Blob URL 在关闭、内容变化与组件卸载时 `revokeObjectURL`，避免泄漏。
+| 操作            | 行为                                                                                            |
+| --------------- | ----------------------------------------------------------------------------------------------- |
+| 缩放按钮        | 25%–400%、步进 ×1.25，以**视口中心**为锚点                                                      |
+| 点击百分比      | 恢复 100%，以视口中心为锚点                                                                     |
+| 适应窗口        | `min(1, (视口宽 - 48) / 图宽, (视口高 - 48) / 图高)`，小图保持 100% 不放大；随后重新居中        |
+| Ctrl/Cmd + 滚轮 | 以鼠标位置为锚点缩放，缩放前后鼠标指向的图表内容保持不动                                        |
+| 普通滚轮        | 交给视口滚动                                                                                    |
+| 尺寸变化        | 自动适应模式下（打开 / 点击「适应」后）重新适应并居中；手动缩放后不覆盖用户选择                  |
+| 关闭            | `✕` 按钮、`Esc`（预览打开期间以捕获阶段监听 `window`）；全窗口后不再响应点击遮罩关闭           |
+| 底部提示        | 「滚轮滚动 · Ctrl/Cmd + 滚轮缩放 · Esc 关闭」                                                   |
 
 ### 6.3 与内联视图的差异
 
-| 维度     | 内联视图                         | 弹窗预览                                      |
+| 维度     | 内联视图                         | 大图预览                                      |
 | -------- | -------------------------------- | --------------------------------------------- |
 | 内容载体 | 真实 SVG DOM，可直接查询与序列化 | 序列化后的 SVG 经 Blob URL 以 `<img>` 显示    |
-| 初始缩放 | 自动适应（下限 60%）             | 打开时先置 100%，再 `fitToWindow`（下限 25%） |
-| 缩放锚点 | 无，围绕画布原点                 | Ctrl/Cmd + 滚轮以鼠标位置为锚点               |
-| 适应按钮 | 无，随容器自动重新适应           | 有「适应」按钮，手动触发                      |
-| 工具栏   | 悬停才显示                       | 常驻标题栏                                    |
+| 初始缩放 | 自动适应（下限 60%）             | 打开时先置 100%，再适应窗口（下限 25%）       |
+| 缩放锚点 | 无，围绕画布原点                 | 滚轮以鼠标为锚点；按钮以视口中心为锚点        |
+| 尺寸变化 | 自动重新适应                     | 自动适应模式下重新适应；手动缩放后保持        |
+| 工具栏   | 悬停才显示                       | 常驻标题栏，窗口全屏                             |
 | 下载     | 从 DOM 中现取 `<svg>`            | 直接使用打开时序列化的 `svgXml` 与宽高        |
 
 ## 7. 图表导出
@@ -314,7 +312,7 @@ sequenceDiagram
     participant R as diagram-renderer
     participant E as Pele / Mermaid
     participant V as 内联图表视图
-    participant D as DiagramPreviewModal
+    participant D as MediaPreviewModal
     participant S as 主进程保存处理器
 
     U->>P: 编辑含图表代码块的 Markdown
@@ -347,7 +345,8 @@ sequenceDiagram
 | [src/renderer/src/utils/diagram-renderer.ts](../../src/renderer/src/utils/diagram-renderer.ts)                                   | Pele 首选、Mermaid 回退与串行化渲染                                   |
 | [src/renderer/src/utils/diagram-export.ts](../../src/renderer/src/utils/diagram-export.ts)                                       | SVG 序列化、2 倍 PNG 生成、系统保存对话框调用                         |
 | [src/renderer/src/components/preview/MarkdownPreview.vue](../../src/renderer/src/components/preview/MarkdownPreview.vue)         | 渲染调度、主题重绘、内联图表视图与缩放、错误提示、弹窗入口            |
-| [src/renderer/src/components/preview/DiagramPreviewModal.vue](../../src/renderer/src/components/preview/DiagramPreviewModal.vue) | 大图弹窗的缩放、适应窗口、下载与关闭                                  |
+| [src/renderer/src/components/preview/MediaPreviewModal.vue](../../src/renderer/src/components/preview/MediaPreviewModal.vue)       | 图表 / 图片大图预览的缩放、适应窗口、下载与关闭                       |
+| [src/renderer/src/utils/media-preview.ts](../../src/renderer/src/utils/media-preview.ts)                                           | 缩放几何、文件名与来源分类的纯函数                                    |
 | [src/renderer/src/App.vue](../../src/renderer/src/App.vue)                                                                       | `.mermaid-diagram` / `.mermaid-toolbar` / `.mermaid-error` 等全局样式 |
 | [src/renderer/src/styles/preview/](../../src/renderer/src/styles/preview)                                                        | 各预览主题对图表容器与错误提示的配色覆盖                              |
 | [src/main/index.ts](../../src/main/index.ts)                                                                                     | `dialog:saveImage` 保存对话框与写盘                                   |

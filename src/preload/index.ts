@@ -13,7 +13,11 @@ import type {
 } from '../shared/file-types'
 import type { RendererErrorReport } from '../shared/diagnostics-types'
 import type { PdfExportOptions } from '../shared/pdf-types'
-import type { ImageExportOptions, ImageExportResult } from '../shared/image-types'
+import type {
+  ImageExportOptions,
+  ImageExportResult,
+  ImageFileExtension
+} from '../shared/image-types'
 import type { ExportProgress } from '../shared/export-types'
 import type {
   EditorWindowContext,
@@ -150,12 +154,18 @@ const api = {
   showItemInFolder: (path: string): Promise<boolean> => ipcRenderer.invoke('file:reveal', path),
   /** 用系统默认程序打开外部链接（http/https/mailto） */
   openExternal: (url: string): Promise<boolean> => ipcRenderer.invoke('shell:openExternal', url),
-  /** 保存图片（Mermaid 图表下载），返回保存路径；用户取消时为 null */
+  /** 保存图片（Mermaid 图表与 data/blob 图片），返回保存路径；用户取消时为 null */
   saveImage: (
     fileName: string,
     data: Uint8Array,
-    extension: 'svg' | 'png'
+    extension: ImageFileExtension
   ): Promise<string | null> => ipcRenderer.invoke('dialog:saveImage', fileName, data, extension),
+  /** 本地预览图片另存为：直接复制源文件，返回保存路径；取消或源文件缺失时为 null */
+  saveImageFromPath: (sourcePath: string, fileName: string): Promise<string | null> =>
+    ipcRenderer.invoke('dialog:saveImageFromPath', sourcePath, fileName),
+  /** 下载远程预览图片，返回保存路径；取消或非 http(s) 地址时为 null */
+  downloadImage: (url: string, fileName: string): Promise<string | null> =>
+    ipcRenderer.invoke('dialog:downloadImage', url, fileName),
   exportPdf: (html: string, options: PdfExportOptions, requestId: string): Promise<string | null> =>
     ipcRenderer.invoke('export:pdf', html, options, requestId),
   exportImage: (

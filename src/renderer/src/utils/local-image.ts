@@ -78,6 +78,21 @@ export function toLocalFileUrl(absolutePath: string): string {
   return `${LOCAL_FILE_SCHEME}://local/?p=${encodeURIComponent(absolutePath)}`
 }
 
+/** 从预览图片地址还原本地绝对路径；远程、data URL 与无效地址返回 null */
+export function localPathFromImageSrc(src: string): string | null {
+  const value = src.trim()
+  if (!value) return null
+  if (/^markit-file:/i.test(value)) {
+    try {
+      return new URL(value).searchParams.get('p') || null
+    } catch {
+      return null
+    }
+  }
+  if (/^file:\/\//i.test(value)) return fileUrlToPath(value)
+  return null
+}
+
 /**
  * 把 Markdown 图片地址解析为可加载的地址。
  * 返回 null 表示保持原样（网络图片、data URL、没有文档路径等）。

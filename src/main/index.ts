@@ -10,15 +10,26 @@ import {
   session
 } from 'electron'
 import type { IpcMainInvokeEvent, WebContents } from 'electron'
-import { dirname, join } from 'path'
+import { basename, dirname, join } from 'path'
 import { fileURLToPath, pathToFileURL } from 'url'
-import { rename, rm, writeFile } from 'fs/promises'
+import { copyFile, rename, rm, writeFile } from 'fs/promises'
 import { randomUUID } from 'crypto'
 import { existsSync, readFileSync, watchFile, unwatchFile } from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import type { PdfExportOptions } from '../shared/pdf-types'
-import type { ImageExportFormat, ImageExportOptions } from '../shared/image-types'
+import type {
+  ImageExportFormat,
+  ImageExportOptions,
+  ImageFileExtension
+} from '../shared/image-types'
+import {
+  imageExtensionOf,
+  parseRemoteImageUrl,
+  REMOTE_IMAGE_MAX_BYTES,
+  REMOTE_IMAGE_TIMEOUT_MS,
+  resolveImageDownloadExtension
+} from './image-download'
 import type {
   FileOpenFailure,
   FileReadResult,
@@ -1728,15 +1739,23 @@ registerOn('diagnostics:renderer-error', (event, payload: RendererErrorReport) =
   reportRendererError(payload)
 })
 
-/** 保存预览中导出的图片（Mermaid 图表下载） */
+/** 图片保存对话框的过滤器：jpg / jpeg 共用同一组扩展名 */
+function imageSaveFilter(extension: ImageFileExtension): { name: string; extensions: string[] } {
+  const extensions = extension === 'jpg' || extension === 'jpeg' ? ['jpg', 'jpeg'] : [extension]
+  return { name: extension.toUpperCase(), extensions }
+}
+
+/** 保存预览中导出的图片（Mermaid 图表与 data/blob 图片） */
 registerHandle(
   'dialog:saveImage',
-  async (event, fileName: string, data: Uint8Array, extension: 'svg' | 'png') => {
+  async (event, fileName: string, data: Uint8Array, extension: ImageFileExtension) => {
     const parent = windowForSender(event)
     if (!parent) return null
+    // 扩展名来自渲染进程，仍是不可信输入，必须落在图片白名单内
+    if (typeof extension !== 'string' || !IMAGE_FILE_EXTENSION.test(`.${extension}`)) return null
     const result = await dialog.showSaveDialog(parent, {
-      defaultPath: fileName,
-      filters: [{ name: extension.toUpperCase(), extensions: [extension] }]
+      defaultPath: sanitizeFileName(typeof fileName === 'string' ? fileName : '', extension),
+      filters: [imageSaveFilter(extension)]
     })
     if (result.canceled || !result.filePath) return null
     trustFile(result.filePath)
@@ -1744,6 +1763,59 @@ registerHandle(
     return result.filePath
   }
 )
+
+/** 本地预览图片另存为：直接复制源文件，避免把字节往返渲染进程 */
+registerHandle('dialog:saveImageFromPath', async (event, sourcePath: string, fileName: string) => {
+  const parent = windowForSender(event)
+  if (!parent || typeof sourcePath !== 'string') return null
+  const extension = imageExtensionOf(sourcePath)
+  if (!extension || !existsSync(sourcePath)) return null
+
+  const suggested = typeof fileName === 'string' && fileName ? fileName : basename(sourcePath)
+  const result = await dialog.showSaveDialog(parent, {
+    defaultPath: sanitizeFileName(suggested, extension),
+    filters: [imageSaveFilter(extension)]
+  })
+  if (result.canceled || !result.filePath) return null
+  if (result.filePath !== sourcePath) await copyFile(sourcePath, result.filePath)
+  trustFile(result.filePath)
+  return result.filePath
+})
+
+/** 下载远程预览图片：由主进程发起以绕开渲染进程的 CORS 限制 */
+registerHandle('dialog:downloadImage', async (event, rawUrl: string, fileName: string) => {
+  const parent = windowForSender(event)
+  const url = parseRemoteImageUrl(rawUrl)
+  if (!parent || !url) return null
+
+  const response = await net.fetch(url.toString(), {
+    signal: AbortSignal.timeout(REMOTE_IMAGE_TIMEOUT_MS)
+  })
+  if (!response.ok) throw new Error(`Failed to download image: HTTP ${response.status}`)
+
+  const declaredLength = Number(response.headers.get('content-length') ?? '')
+  if (Number.isFinite(declaredLength) && declaredLength > REMOTE_IMAGE_MAX_BYTES) {
+    throw new Error('Image file is too large')
+  }
+  const data = new Uint8Array(await response.arrayBuffer())
+  if (data.byteLength > REMOTE_IMAGE_MAX_BYTES) throw new Error('Image file is too large')
+
+  const extension = resolveImageDownloadExtension(
+    typeof fileName === 'string' ? fileName : '',
+    url,
+    response.headers.get('content-type')
+  )
+  const suggested =
+    typeof fileName === 'string' && fileName ? fileName : `image-${Date.now()}.${extension}`
+  const result = await dialog.showSaveDialog(parent, {
+    defaultPath: sanitizeFileName(suggested, extension),
+    filters: [imageSaveFilter(extension)]
+  })
+  if (result.canceled || !result.filePath) return null
+  trustFile(result.filePath)
+  await writeFile(result.filePath, Buffer.from(data))
+  return result.filePath
+})
 
 /** 会话（标签页）读写：每个编辑窗口只读写自己的切片 */
 registerHandle('session:load', (event) => {
