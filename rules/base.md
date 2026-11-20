@@ -93,11 +93,12 @@ Mark It 是 **Electron + Vue 3 + TypeScript** 的桌面 Markdown 编辑器，**�
 1. `npm run lint` 通过（ESLint，含 Prettier 一致性检查）
 2. `npm run typecheck` 通过（主进程 + 渲染进程双 tsconfig）
 3. `npm test` 通过（Vitest 纯函数回归；改动 `src/renderer/src/utils/**` 中带分支 / 边界的纯逻辑时，按 [testing.md](testing.md) 的风险驱动原则补 / 改用例，不逐文件配 spec）
-4. 涉及 `electron.vite.config.ts`、`electron-builder.yml`、`.github/workflows/**` 的改动，额外执行 `npm run build`（或对应平台的 `build:*`）
-5. 涉及主进程 / 窗口管理 / IPC / 文件读写 / 自动更新 的改动，必须用 `npm run dev` 实际启动验证，并在交付说明中写清验证方式
-6. 已按「文档先行」更新 `docs/`（所有业务改动）；实现偏离设计的，已先改文档再改代码
-7. 改动对用户有可感知价值（操作方式、行为结果、注意事项、使用体验等）的，已更新内置用户手册 `src/renderer/src/assets/welcome.md`（见第 4 节第 6 条），并在交付说明中写明；纯内部重构且对用户无价值的可不改
-8. 仓库当前**没有 pre-commit 钩子**，上述命令需在提交前由执行者自行运行，不得假设钩子会兜底
+4. e2e 按 [testing.md](testing.md) 第 3.2 节执行：**日常改动按影响范围选择用例，不做全量；打包发布前必须跑全量**。范围在改动前预估、改动后按实际 diff 修正，并在交付说明中写明执行的文件与结果
+5. 涉及 `electron.vite.config.ts`、`electron-builder.yml`、`.github/workflows/**` 的改动，额外执行 `npm run build`（或对应平台的 `build:*`）
+6. 涉及主进程 / 窗口管理 / IPC / 文件读写 / 自动更新 的改动，必须用 `npm run dev` 实际启动验证，并在交付说明中写清验证方式
+7. 已按「文档先行」更新 `docs/`（所有业务改动）；实现偏离设计的，已先改文档再改代码
+8. 改动对用户有可感知价值（操作方式、行为结果、注意事项、使用体验等）的，已更新内置用户手册 `src/renderer/src/assets/welcome.md`（见第 4 节第 6 条），并在交付说明中写明；纯内部重构且对用户无价值的可不改
+9. 仓库当前**没有 pre-commit 钩子**，上述命令需在提交前由执行者自行运行，不得假设钩子会兜底
 
 ## 6. 提交信息规范
 

@@ -57,6 +57,6 @@
 ## 5. 发版相关完成定义
 
 1. 业务改动先更新 `docs/` 与内置用户手册（[base.md](base.md) 第 4 节）；发版规则或流程变化同步更新本文件与 [docs/更新与发布/发版通道.md](../docs/更新与发布/发版通道.md)。
-2. 发版前：`npm run lint`、`npm run typecheck`、`npm test` 通过；涉及 workflow、发版配置或打包配置时执行 `npm run build`。
+2. 发版前：`npm run lint`、`npm run typecheck`、`npm test` 通过；执行 `npm run build` 后跑**全量** `npm run test:e2e`（日常改动只跑影响范围内的 e2e，见 [testing.md](testing.md) 3.2）。
 3. 涉及主进程 / IPC / 更新流程的改动，必须按 [testing.md](testing.md) 执行 `npm run dev` 与打包产物验证。
 4. 发版后按 [docs/工程与质量/测试与质量保障.md](../docs/工程与质量/测试与质量保障.md) 的 MV-27 / MV-27A / MV-27B 核对更新状态与 Beta 开关。
