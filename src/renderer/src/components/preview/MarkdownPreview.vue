@@ -665,6 +665,9 @@ function createDiagramView(
       event.preventDefault()
       event.stopPropagation()
       onClick()
+      // 鼠标点击后释放焦点，避免 :focus-within 让工具栏在鼠标移出后继续显示；
+      // 键盘触发的 click（detail === 0）保留焦点，保证键盘操作时工具栏可见
+      if (event.detail > 0) button.blur()
     })
     return button
   }
@@ -685,6 +688,7 @@ function createDiagramView(
       event.preventDefault()
       event.stopPropagation()
       onClick()
+      if (event.detail > 0) button.blur()
     })
     return button
   }
@@ -713,6 +717,7 @@ function createDiagramView(
     event.stopPropagation()
     autoFit = false
     applyScale(1)
+    if (event.detail > 0) zoomLabel.blur()
   })
 
   toolbar.append(

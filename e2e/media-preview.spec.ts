@@ -105,6 +105,14 @@ test('单击图片在独立窗口中打开大图预览', async () => {
     await window.waitForTimeout(400)
     expect(app.windows()).toHaveLength(1)
 
+    // 点击缩放按钮后移出图表，工具栏应自动隐藏（鼠标点击不保留焦点）
+    const toolbar = diagram.locator('.mermaid-toolbar')
+    await diagram.hover()
+    await expect(toolbar).toHaveCSS('opacity', '1')
+    await toolbar.locator('.mermaid-toolbar-btn').first().click()
+    await window.mouse.move(5, 5)
+    await expect(toolbar).toHaveCSS('opacity', '0')
+
     await diagram.hover()
     const diagramPreviewPromise = app.waitForEvent('window')
     await window.locator('.mermaid-icon-btn').click()
