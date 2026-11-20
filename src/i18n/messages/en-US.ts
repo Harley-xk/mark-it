@@ -205,7 +205,6 @@ export const enUS: Record<MessageKey, string> = {
   'preview.previewModal': 'Open large preview (zoom / scroll / download)',
   'preview.downloadSvg': 'Download as SVG',
   'preview.downloadPng': 'Download as PNG',
-  'preview.doubleClickPreview': 'Double-click to enlarge',
   'preview.diagramTitle': 'Diagram Preview',
   'preview.imageTitle': 'Image Preview',
   'preview.openFolder': 'Show in folder',

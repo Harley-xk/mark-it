@@ -9,7 +9,7 @@
 1. **不强制使用 `mermaid` 标记**：Mermaid 本身会根据代码内容判断图表类型，因此常见的图表名（`flowchart`、`sequenceDiagram`、`stateDiagram-v2` 等）都应被识别，降低写作时的记忆负担。
 2. **宽容的语言标记匹配**：忽略大小写、忽略 Mermaid 文档中常见的 `-beta` / `-v2` 版本后缀，使 `xychart-beta`、`sankey-beta`、`stateDiagram-v2` 这类写法无需改写即可渲染。
 3. **失败不吞内容**：渲染失败时保留原始代码块，只在下方追加一行可读的错误提示，用户可以直接在原位置修改语法。
-4. **图表可读、可放大、可带走**：内联视图支持缩放与滚动查看，支持双击打开弹窗看大图，并可直接导出 SVG / PNG。
+4. **图表可读、可放大、可带走**：内联视图支持缩放与滚动查看，可通过工具栏按钮打开大图预览，并可直接导出 SVG / PNG。
 
 ## 2. 语言标记白名单
 
@@ -171,7 +171,7 @@ Mermaid 的语法错误通常是「Parse error on line N: + 源码行 + 指示�
 
 ## 5. 内联图表交互
 
-工具栏按钮顺序：`−`（缩小）、百分比标签、`＋`（放大）、放大镜图标（弹窗预览）、`SVG`、`PNG`。工具栏默认 `opacity: 0` 且 `pointer-events: none`，悬停图表或键盘聚焦时显示，避免遮挡图表内容。
+工具栏按钮顺序：`−`（缩小）、百分比标签、`＋`（放大）、放大镜图标（大图预览）、`SVG`、`PNG`。工具栏默认 `opacity: 0` 且 `pointer-events: none`，悬停图表或键盘聚焦时显示，避免遮挡图表内容。悬停时整个图表区域还会叠加一层很淡的底色（深色主题约 4% 白色、浅色主题约 3% 黑色），用于明确可交互范围。
 
 ### 5.1 缩放
 
@@ -190,10 +190,10 @@ Mermaid 的语法错误通常是「Parse error on line N: + 源码行 + 指示�
 - 需要缩到 60% 以下时停在 `MIN_FIT_SCALE = 0.6`，剩余部分交给滚动条，避免缩小到不可读。
 - 用户一旦手动缩放（按钮、滚轮、点击百分比）即 `autoFit = false`，之后调整窗口不再覆盖用户选择。
 
-### 5.3 滚轮与双击
+### 5.3 滚轮
 
 - **Ctrl/Cmd + 滚轮**：`passive: false` 监听 `wheel`，`deltaY < 0` 放大、否则缩小，一步一个 `ZOOM_STEP`；同时 `preventDefault()`，避免触发整窗缩放。普通滚轮不拦截，交给预览区滚动。
-- **双击**：仅当双击目标位于 `<svg>` 内时触发，打开大图预览；`.mermaid-viewport` 的 `title` 为「双击放大预览」。
+- 图表**不响应双击**：双击保留给图表内文本选择，避免查看细节时误开预览；大图预览只从工具栏放大镜进入。
 - 图宽超出视口时 `.mermaid-viewport` 自身横向滚动；纵向长图随页面滚动。
 
 ## 6. 大图预览
@@ -202,10 +202,9 @@ Mermaid 的语法错误通常是「Parse error on line N: + 源码行 + 指示�
 
 ### 6.1 打开方式
 
-1. 工具栏放大镜图标（`title="大图预览（可缩放 / 滚动 / 下载）"`）；
-2. 双击图表。
+1. 工具栏放大镜图标（`title="大图预览（可缩放 / 滚动 / 下载）"`）。
 
-两种方式都调用 `openDiagramPreview(svgEl)`：先用 `serializeSvg()` 取得 `xml / width / height`，再带上当前主题背景色（深色 `#0d1117`、浅色 `#ffffff`）打开预览。因此预览展示的是**序列化后的静态 SVG**（以 `<img>` + Blob URL 呈现），而不是原 DOM 节点。Blob URL 在关闭、内容变化与组件卸载时 `revokeObjectURL`，避免泄漏。
+打开时调用 `openDiagramPreview(svgEl)`：先用 `serializeSvg()` 取得 `xml / width / height`，再带上当前主题背景色（深色 `#0d1117`、浅色 `#ffffff`）打开预览。因此预览展示的是**序列化后的静态 SVG**（以 `<img>` + Blob URL 呈现），而不是原 DOM 节点。Blob URL 在关闭、内容变化与组件卸载时 `revokeObjectURL`，避免泄漏。
 
 ### 6.2 面板与操作差异
 
@@ -325,7 +324,7 @@ sequenceDiagram
         R-->>P: svg + engine
         P->>V: createDiagramView 替换 pre（保留来源，固定原始尺寸）
         U->>V: 按钮缩放 / Ctrl+滚轮 / 滚动查看
-        U->>D: 双击图表或点击放大镜
+        U->>D: 点击工具栏放大镜
         V->>D: serializeSvg → svgXml / width / height / background
         U->>D: 缩放 / 适应 / 下载
         D->>S: saveImage(mermaid-时间戳.ext, bytes, ext)

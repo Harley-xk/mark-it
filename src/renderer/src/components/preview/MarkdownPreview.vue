@@ -714,15 +714,6 @@ function createDiagramView(
     createButton('PNG', t('preview.downloadPng'), () => void download('png'))
   )
 
-  // 双击图表快速打开弹窗预览
-  viewport.title = t('preview.doubleClickPreview')
-  viewport.addEventListener('dblclick', (event) => {
-    if (!(event.target as Element | null)?.closest('svg')) return
-    event.preventDefault()
-    const svgEl = currentSvg()
-    if (svgEl) openDiagramPreview(svgEl)
-  })
-
   // Ctrl/Cmd + 滚轮缩放图表（不触发整窗缩放）
   viewport.addEventListener(
     'wheel',

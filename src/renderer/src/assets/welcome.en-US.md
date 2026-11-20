@@ -811,7 +811,7 @@ MarkIt supports the C4 context, container, component, dynamic, and deployment di
 
 ### 6.1 Zoom
 
-Each rendered diagram has a control group in its top-right corner:
+When you hover over a diagram, its area gets a faint background tint and the toolbar appears in the top-right corner. Each rendered diagram's toolbar contains:
 
 - `−` / `＋`: zoom out or in in 1.25× steps
 - Middle percentage: click to restore 100%
@@ -822,7 +822,7 @@ You can also hold `Ctrl` / `Cmd` and scroll the mouse wheel to zoom a diagram wi
 
 ### 6.2 Large Preview
 
-Click the **Preview** button in the toolbar or **double-click a diagram** to open a large preview that covers the entire window:
+Click the **Preview** button in the diagram toolbar to open a large preview that covers the entire window (double-clicking a diagram stays reserved for selecting text and does not open the preview):
 
 - Scroll, zoom, and fit to window inside the preview; it fills the screen in full-screen mode
 - Wheel zoom is anchored at the mouse pointer and button zoom at the window center, so the diagram does not jump to the top-left corner

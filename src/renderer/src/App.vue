@@ -217,6 +217,26 @@ body {
   position: relative;
 }
 
+/* 悬停时给图表一层很淡的底色，明确可交互区域；工具栏 z-index 更高，不受影响 */
+.mermaid-diagram::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: rgba(255, 255, 255, 0.04);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+.mermaid-diagram:hover::after {
+  opacity: 1;
+}
+
+.light .mermaid-diagram::after {
+  background: rgba(0, 0, 0, 0.03);
+}
+
 .mermaid-viewport {
   display: flex;
   /* 图比容器窄时由 canvas 的 auto 外边距居中；超出时自动回落到左对齐，

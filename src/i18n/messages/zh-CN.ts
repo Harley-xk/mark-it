@@ -194,7 +194,6 @@ export const zhCN = {
   'preview.previewModal': '大图预览（可缩放 / 滚动 / 下载）',
   'preview.downloadSvg': '下载为 SVG',
   'preview.downloadPng': '下载为 PNG',
-  'preview.doubleClickPreview': '双击放大预览',
   'preview.diagramTitle': '图表预览',
   'preview.imageTitle': '图片预览',
   'preview.openFolder': '打开目录',
