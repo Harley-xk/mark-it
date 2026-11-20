@@ -86,6 +86,31 @@ test('链接中的 GitHub 风格标题锚点在目标标签激活后定位', asy
   }
 })
 
+test('页内 #L60 链接滚动编辑区到对应行', async () => {
+  test.skip(!existsSync(appEntry), '请先执行 npm run build 生成 out/main/index.js')
+
+  const workDir = mkdtempSync(join(tmpdir(), 'markit-e2e-inpage-'))
+  const userDataDir = mkdtempSync(join(tmpdir(), 'markit-e2e-inpage-user-'))
+  const documentPath = join(workDir, 'in-page.md')
+  const body = Array.from({ length: 80 }, (_, index) => `第 ${index + 1} 行`).join('\n')
+  writeFileSync(documentPath, `[跳到第 60 行](#L60)\n\n${body}\n`, 'utf-8')
+
+  const app = await launchApp(['.', `--user-data-dir=${userDataDir}`, documentPath])
+  try {
+    const window = await app.firstWindow()
+    await window.locator('.preview-content a', { hasText: '跳到第 60 行' }).click()
+
+    // 页内行号由编辑区精确滚动；新文档默认在顶部，scrollTop > 0 说明跳转生效
+    await expect
+      .poll(() => window.locator('.cm-scroller').evaluate((el) => el.scrollTop))
+      .toBeGreaterThan(0)
+  } finally {
+    await app.close()
+    rmSync(workDir, { recursive: true, force: true })
+    rmSync(userDataDir, { recursive: true, force: true })
+  }
+})
+
 test('链接中的行号在目标标签激活后定位到编辑区对应行', async () => {
   test.skip(!existsSync(appEntry), '请先执行 npm run build 生成 out/main/index.js')
 

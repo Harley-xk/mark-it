@@ -31,7 +31,7 @@ import {
 } from '../../utils/local-image'
 import { installHeadingAnchors } from '../../utils/headings'
 import { installLinkTitles } from '../../utils/link-title'
-import { findHeadingAnchorId, splitLinkLocation } from '../../utils/link-target'
+import { resolveLinkTarget, splitLinkLocation } from '../../utils/link-target'
 import { createMarkdownRenderer } from '../../utils/markdown'
 import { sanitizeMarkdownHtml } from '../../utils/sanitize'
 import { collectPreviewRanges } from '../../utils/search'
@@ -39,6 +39,7 @@ import { LruCache } from '../../utils/lru-cache'
 import { confirmUnsaved } from '../../composables/useConfirmUnsaved'
 import { useFile } from '../../composables/useFile'
 import { takePreviewJump } from '../../composables/link-navigation'
+import { EditorView } from '@codemirror/view'
 import { useI18n } from '../../i18n'
 import type { Locale } from '../../../../shared/locale-types'
 import SearchPanel from '../common/SearchPanel.vue'
@@ -412,7 +413,7 @@ const WINDOWS_DRIVE_PATH = /^[a-zA-Z]:[\\/]/
 /**
  * 页内锚点在当前预览层内解析。
  * 多个标签的预览层会同时带有 heading-N 等 id，原生 #id 跳转可能命中隐藏层。
- * 显式 id 优先；匹配不到时按 GitHub slug / 标题原文查找标题锚点。
+ * 显式 id 优先；`#L12` 行号由编辑区定位；其余按 GitHub slug / 标题原文查找标题锚点。
  */
 function scrollToPreviewAnchor(rawId: string): void {
   const id = decodeURIComponent(rawId)
@@ -426,8 +427,26 @@ function scrollToPreviewAnchor(rawId: string): void {
     direct.scrollIntoView({ behavior: 'smooth', block: 'start' })
     return
   }
+
   const source = documentsStore.activeDoc?.content
-  const headingId = source ? findHeadingAnchorId(source, id) : null
+  const target = source
+    ? resolveLinkTarget(source, { href: '', fragment: rawId, line: null, column: null })
+    : null
+
+  // 行号片段：编辑区负责精确滚动，滚动联动会带动预览；
+  // 仅预览布局没有编辑区时才退回最近标题的近似定位
+  if (target?.kind === 'line') {
+    const view = editorStore.editorView
+    if (view) {
+      const lineNo = Math.min(Math.max(target.line, 1), view.state.doc.lines)
+      view.dispatch({
+        effects: EditorView.scrollIntoView(view.state.doc.line(lineNo).from, { y: 'start' })
+      })
+      return
+    }
+  }
+
+  const headingId = target?.headingId ?? null
   if (!headingId) return
   content?.querySelector(`#${CSS.escape(headingId)}`)?.scrollIntoView({
     behavior: 'smooth',

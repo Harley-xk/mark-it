@@ -121,11 +121,6 @@ function resolveHeading(content: string, rawFragment: string): ParsedHeading | n
   return headings.find((heading) => heading.text === fragment) ?? null
 }
 
-/** 供页内锚点跳转使用：片段对应的标题锚点 id */
-export function findHeadingAnchorId(content: string, fragment: string): string | null {
-  return resolveHeading(content, fragment)?.id ?? null
-}
-
 /** 目标行之前（含自身）最近的标题，供预览模式按行号近似定位 */
 function findHeadingAtOrBefore(content: string, line: number): ParsedHeading | null {
   let result: ParsedHeading | null = null
