@@ -1392,4 +1392,15 @@ onUnmounted(() => {
 .markit-preview-layer > .preview-content {
   margin: 0 auto;
 }
+
+/*
+ * 预览内容只是程序化聚焦锚点（tabIndex = -1），不是键盘导航目标。
+ * 聚焦后按 Esc 时浏览器会重新评估焦点可见性，给整块内容绘制 focus ring，
+ * 视觉上像「选中了整个预览区」；这里屏蔽它。层内链接等真实可交互元素
+ * 仍保留浏览器默认焦点样式，不影响键盘导航。
+ */
+.markit-preview-layer > .preview-content:focus,
+.markit-preview-layer > .preview-content:focus-visible {
+  outline: none;
+}
 </style>
