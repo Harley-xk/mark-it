@@ -18,6 +18,7 @@ import type {
   ImageExportResult,
   ImageFileExtension
 } from '../shared/image-types'
+import type { PreviewWindowPayload } from '../shared/preview-types'
 import type { ExportProgress } from '../shared/export-types'
 import type {
   EditorWindowContext,
@@ -122,6 +123,17 @@ const api = {
   /** 打开或聚焦独立设置窗口；只应由编辑器窗口调用 */
   settings: {
     open: (): Promise<boolean> => ipcRenderer.invoke('settings:open')
+  },
+  /** 独立预览窗口：打开 / 替换内容、取载荷与关闭 */
+  preview: {
+    open: (payload: PreviewWindowPayload): Promise<boolean> =>
+      ipcRenderer.invoke('preview:open', payload),
+    takePayload: (): Promise<PreviewWindowPayload | null> =>
+      ipcRenderer.invoke('preview:take-payload'),
+    close: (): Promise<boolean> => ipcRenderer.invoke('preview:close'),
+    /** 预览窗口已存在时接收替换后的载荷 */
+    onPayload: (callback: (payload: PreviewWindowPayload) => void): (() => void) =>
+      subscribe('preview:payload', callback)
   },
   /** 打开文件对话框，支持多选；返回成功文件与失败项 */
   openFiles: (): Promise<OpenFilesResponse> => ipcRenderer.invoke('dialog:openFiles'),

@@ -61,10 +61,12 @@ npm start              # 预览已构建产物（electron-vite preview）
 | `src/shared/`       | 跨进程**纯类型**（`session-types.ts`、`update-types.ts`、`locale-types.ts`），禁止运行时依赖                                    |
 | `src/i18n/`         | 跨进程**纯数据**消息目录与 `translate` 纯函数（中英文），同时被主进程与渲染进程打包，禁止引用 Electron / Vue / Node API         |
 
-渲染进程有**两个 HTML 入口**，由 `electron.vite.config.ts` 的 rollup input 配置：
+渲染进程有**四个 HTML 入口**，由 `electron.vite.config.ts` 的 rollup input 配置：
 
 - `src/renderer/index.html` → 主编辑器窗口（`main.ts` → `App.vue`）
 - `src/renderer/update.html` → 独立的「更新详情」窗口（`update/main.ts` → `update/UpdateWindow.vue`），与主窗口通过主进程的更新状态广播协作
+- `src/renderer/settings.html` → 独立的设置窗口（`settings/main.ts` → `settings/SettingsWindow.vue`）
+- `src/renderer/preview.html` → 独立的图表 / 图片预览窗口（`preview/main.ts` → `preview/PreviewWindow.vue`），由编辑窗口通过 `preview:open` 载荷驱动
 
 新增 IPC 必须三处同步：主进程 `ipcMain.handle` → preload `ipcRenderer.invoke` → `src/preload/index.d.ts` 类型。**渲染进程不得 `import 'electron'`**。
 

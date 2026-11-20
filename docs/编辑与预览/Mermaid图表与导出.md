@@ -1,6 +1,6 @@
 # Mermaid 图表与导出
 
-本文说明 MarkIt 预览区如何识别、渲染、交互与导出 Mermaid 图表，覆盖代码块语言标记白名单、「代码块 → 渲染 → 缩放/弹窗/下载」的完整链路，以及渲染失败时的降级表现。文中参数、常量、类名均以当前源码为准；与 README 描述不一致处以源码为准（见第 2.3 节）。
+本文说明 MarkIt 预览区如何识别、渲染、交互与导出 Mermaid 图表，覆盖代码块语言标记白名单、「代码块 → 渲染 → 缩放/预览/下载」的完整链路，以及渲染失败时的降级表现。文中参数、常量、类名均以当前源码为准；与 README 描述不一致处以源码为准（见第 2.3 节）。
 
 相关实现主要分布在 `src/renderer/src/utils/`、`src/renderer/src/components/preview/` 与 `src/renderer/src/App.vue`。
 
@@ -131,7 +131,7 @@ PDF 导出使用同一入口和浅色 token，详见 [PDF导出.md](../导出/PD
 `createDiagramView(svgText, source, language, theme, fontFamily, engine)` 生成的层级：
 
 - `div.mermaid-diagram`：外层容器，保存原始源码、语言和渲染引擎，悬停时显示工具栏
-  - `div.mermaid-toolbar`：缩放、弹窗、下载按钮
+  - `div.mermaid-toolbar`：缩放、预览、下载按钮
   - `div.mermaid-viewport`：`overflow: auto`，只在宽度超出时横向滚动
     - `div.mermaid-canvas`：承载 `CSS zoom` 缩放与 Pele CSS 变量
       - `svg`：Pele 或 Mermaid 输出，宽高被固定为原始尺寸
@@ -198,17 +198,17 @@ Mermaid 的语法错误通常是「Parse error on line N: + 源码行 + 指示�
 
 ## 6. 大图预览
 
-图表与图片共用 [MediaPreviewModal.vue](../../src/renderer/src/components/preview/MediaPreviewModal.vue)，通过 `<Teleport to="body">` 挂到 `body`，`z-index: 2000`。完整的窗口布局、缩放公式、图片操作与安全边界见 [大图预览与图片操作](./大图预览与图片操作.md)；本节只保留图表相关的入口与差异。
+图表与图片共用**独立的预览窗口**（[PreviewWindow.vue](../../src/renderer/src/preview/PreviewWindow.vue)，主进程管理见 [preview-window.ts](../../src/main/preview-window.ts)）。窗口定位、视图层级、缩放公式、图片操作与安全边界见 [大图预览与图片操作](./大图预览与图片操作.md)；本节只保留图表相关的入口与差异。
 
 ### 6.1 打开方式
 
 1. 工具栏放大镜图标（`title="大图预览（可缩放 / 滚动 / 下载）"`）。
 
-打开时调用 `openDiagramPreview(svgEl)`：先用 `serializeSvg()` 取得 `xml / width / height`，再带上当前主题背景色（深色 `#0d1117`、浅色 `#ffffff`）打开预览。因此预览展示的是**序列化后的静态 SVG**（以 `<img>` + Blob URL 呈现），而不是原 DOM 节点。Blob URL 在关闭、内容变化与组件卸载时 `revokeObjectURL`，避免泄漏。
+打开时编辑窗口调用 `serializeSvg()` 取得 `xml / width / height`，再带上当前主题背景色（深色 `#0d1117`、浅色 `#ffffff`）与深浅主题快照，通过 `preview:open` 交给主进程。预览窗口展示的是**序列化后的静态 SVG**（以 `<img>` + Blob URL 呈现），而不是原 DOM 节点。Blob URL 在内容替换与窗口关闭时 `revokeObjectURL`，避免泄漏。图表**不响应双击**，双击保留给图表内文本选择。
 
 ### 6.2 面板与操作差异
 
-预览窗口覆盖整个应用窗口，顶部按钮组为：`−`、百分比、`＋`、`适应`、`SVG`、`PNG`、`✕`。
+预览窗口顶部按钮组为：`−`、百分比、`＋`、`适应`、`SVG`、`PNG`、`✕`；系统窗口控制按钮位于标题栏预留区，不会与内容区按钮重叠。
 
 | 操作            | 行为                                                                                            |
 | --------------- | ----------------------------------------------------------------------------------------------- |
@@ -218,7 +218,7 @@ Mermaid 的语法错误通常是「Parse error on line N: + 源码行 + 指示�
 | Ctrl/Cmd + 滚轮 | 以鼠标位置为锚点缩放，缩放前后鼠标指向的图表内容保持不动                                        |
 | 普通滚轮        | 交给视口滚动                                                                                    |
 | 尺寸变化        | 自动适应模式下（打开 / 点击「适应」后）重新适应并居中；手动缩放后不覆盖用户选择                  |
-| 关闭            | `✕` 按钮、`Esc`（预览打开期间以捕获阶段监听 `window`）；全窗口后不再响应点击遮罩关闭           |
+| 关闭            | 内容区 `✕`、系统窗口关闭按钮、`Esc`；三种方式都只关闭预览窗口                                   |
 | 底部提示        | 「滚轮滚动 · Ctrl/Cmd + 滚轮缩放 · Esc 关闭」                                                   |
 
 ### 6.3 与内联视图的差异
@@ -229,12 +229,12 @@ Mermaid 的语法错误通常是「Parse error on line N: + 源码行 + 指示�
 | 初始缩放 | 自动适应（下限 60%）             | 打开时先置 100%，再适应窗口（下限 25%）       |
 | 缩放锚点 | 无，围绕画布原点                 | 滚轮以鼠标为锚点；按钮以视口中心为锚点        |
 | 尺寸变化 | 自动重新适应                     | 自动适应模式下重新适应；手动缩放后保持        |
-| 工具栏   | 悬停才显示                       | 常驻标题栏，窗口全屏                             |
+| 工具栏   | 悬停才显示                       | 独立窗口，常驻标题栏与系统窗口控制            |
 | 下载     | 从 DOM 中现取 `<svg>`            | 直接使用打开时序列化的 `svgXml` 与宽高        |
 
 ## 7. 图表导出
 
-导出逻辑集中在 [diagram-export.ts](../../src/renderer/src/utils/diagram-export.ts)，内联工具栏与弹窗共用。
+导出逻辑集中在 [diagram-export.ts](../../src/renderer/src/utils/diagram-export.ts)，内联工具栏与预览窗口共用。
 
 ### 7.1 serializeSvg
 
@@ -259,13 +259,13 @@ Mermaid 的语法错误通常是「Parse error on line N: + 源码行 + 指示�
 
 `saveDiagram(svgEl, extension, background, fileName?)`：
 
-- 默认文件名 `mermaid-<Date.now()>.<ext>`，由调用方决定是否覆盖；当前内联与弹窗两处都使用默认值，即**时间戳文件名**，不含文档名或图表标题。
+- 默认文件名 `mermaid-<Date.now()>.<ext>`，由调用方决定是否覆盖；当前内联与预览窗口两处都使用默认值，即**时间戳文件名**，不含文档名或图表标题。
 - SVG 分支：序列化文本 → `TextEncoder` 编码 → `window.api.saveImage(fileName, bytes, 'svg')`。
 - PNG 分支：`svgToPng` → `window.api.saveImage(fileName, bytes, 'png')`。
 - 主进程 `dialog:saveImage`（[src/main/index.ts](../../src/main/index.ts)）弹出系统保存对话框，`defaultPath` 为传入文件名，过滤器按扩展名生成（`SVG` / `PNG`）；用户取消返回 `null`。
 - 渲染进程对 `null` 不做任何提示（静默返回），只有真正的异常才 `console.error('Failed to export diagram:', err)`。
 
-弹窗侧不走 `saveDiagram`，而是直接调用 `window.api.saveImage`（SVG 用已序列化文本，PNG 用 `svgXmlToPng`），文件名规则与默认值一致。
+预览窗口不走 `saveDiagram`，而是直接调用 `window.api.saveImage`（SVG 用已序列化文本，PNG 用 `svgXmlToPng`），文件名规则与默认值一致。
 
 ## 8. 主题与背景色
 
@@ -283,7 +283,7 @@ Mermaid 的语法错误通常是「Parse error on line N: + 源码行 + 指示�
 | `critical`   | `#f85149` | `#dc2626` | 高风险、失败、关键任务       |
 | `series`     | 8 色序列  | 8 色序列  | 饼图、雷达图、桑基图等系列色 |
 
-图表视图背景、PNG 铺底和弹窗背景都使用同一个 `background`。主题切换后已有图表按保存的源码自动重绘，不沿用旧颜色。弹窗遮罩仍由弹窗组件按深浅色控制。
+图表视图背景、PNG 铺底和预览窗口内容背景都使用同一个 `background`。主题切换后已有图表按保存的源码自动重绘，不沿用旧颜色。预览窗口的标题栏与按钮配色由打开时传入的深浅主题决定。
 
 `resolvedTheme` 已经把「跟随系统」解析成具体的 `light` / `dark`，因此三种主题设置下都能得到确定的取值。预览区的容器背景由预览样式 CSS 决定（例如 `github.css` 的 `.mermaid-diagram` 背景），与导出铺底用的 `#1e1e24` 并非同一色值——导出图不会带上预览主题的圆角与内边距。
 
@@ -294,7 +294,7 @@ Mermaid 的语法错误通常是「Parse error on line N: + 源码行 + 指示�
 | 语法错误             | 保留代码块 + 下方提示，完整错误在 `title`                       | 见第 4 节                                                                       |
 | 图表类型不支持       | 先尝试 Pele，再回退 Mermaid；两者都失败才显示错误               | 白名单命中但内容无法解析时按失败处理                                            |
 | 渲染模块动态导入失败 | 保留源码 + 错误提示                                             | Pele 失败会记录 warn；Mermaid 最终失败会进入现有错误链路                        |
-| 极大图表             | 宽度低于 60% 时停止缩小并横向滚动；纵向自然展开；弹窗可缩到 25% | 不做分页或截断                                                                  |
+| 极大图表             | 宽度低于 60% 时停止缩小并横向滚动；纵向自然展开；预览窗口可缩到 25% | 不做分页或截断                                                                  |
 | 超大 PNG             | 画布按 2 倍尺寸创建，未做上限校验                               | 极端尺寸可能受浏览器画布上限/内存限制，`toBlob` 返回 `null` 时抛 `PNG 编码失败` |
 | SVG 缺少 `viewBox`   | 依次回退 `clientWidth/clientHeight`，再回退 800×600             | 元素不可见时 `clientWidth` 为 0，最终落到默认值                                 |
 | 用户取消保存         | `saveImage` 返回 `null`，静默返回                               | 不关闭任何界面，不报错                                                          |
@@ -311,7 +311,7 @@ sequenceDiagram
     participant R as diagram-renderer
     participant E as Pele / Mermaid
     participant V as 内联图表视图
-    participant D as MediaPreviewModal
+    participant D as PreviewWindow
     participant S as 主进程保存处理器
 
     U->>P: 编辑含图表代码块的 Markdown
@@ -343,8 +343,8 @@ sequenceDiagram
 | [src/renderer/src/utils/diagram-theme.ts](../../src/renderer/src/utils/diagram-theme.ts)                                         | 深浅主题 token、Mermaid 配置与 Pele CSS 变量映射                      |
 | [src/renderer/src/utils/diagram-renderer.ts](../../src/renderer/src/utils/diagram-renderer.ts)                                   | Pele 首选、Mermaid 回退与串行化渲染                                   |
 | [src/renderer/src/utils/diagram-export.ts](../../src/renderer/src/utils/diagram-export.ts)                                       | SVG 序列化、2 倍 PNG 生成、系统保存对话框调用                         |
-| [src/renderer/src/components/preview/MarkdownPreview.vue](../../src/renderer/src/components/preview/MarkdownPreview.vue)         | 渲染调度、主题重绘、内联图表视图与缩放、错误提示、弹窗入口            |
-| [src/renderer/src/components/preview/MediaPreviewModal.vue](../../src/renderer/src/components/preview/MediaPreviewModal.vue)       | 图表 / 图片大图预览的缩放、适应窗口、下载与关闭                       |
+| [src/renderer/src/components/preview/MarkdownPreview.vue](../../src/renderer/src/components/preview/MarkdownPreview.vue)         | 渲染调度、主题重绘、内联图表视图与缩放、错误提示、预览入口            |
+| [src/renderer/src/preview/PreviewWindow.vue](../../src/renderer/src/preview/PreviewWindow.vue)                                   | 独立预览窗口的缩放、适应窗口、下载与关闭                              |
 | [src/renderer/src/utils/media-preview.ts](../../src/renderer/src/utils/media-preview.ts)                                           | 缩放几何、文件名与来源分类的纯函数                                    |
 | [src/renderer/src/App.vue](../../src/renderer/src/App.vue)                                                                       | `.mermaid-diagram` / `.mermaid-toolbar` / `.mermaid-error` 等全局样式 |
 | [src/renderer/src/styles/preview/](../../src/renderer/src/styles/preview)                                                        | 各预览主题对图表容器与错误提示的配色覆盖                              |

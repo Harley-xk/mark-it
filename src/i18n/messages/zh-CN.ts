@@ -27,6 +27,7 @@ export const zhCN = {
 
   'window.settingsTitle': 'MarkIt 设置',
   'window.updateTitle': 'MarkIt 更新',
+  'window.previewTitle': 'MarkIt 预览',
   'window.updateBrand': '软件更新',
   'window.untitledTab': '未命名标签',
   'window.label': '窗口 {index}',

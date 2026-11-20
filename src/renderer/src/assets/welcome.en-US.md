@@ -279,11 +279,12 @@ Common formats are supported: PNG, JPEG, GIF, WebP, BMP, SVG, AVIF, ICO, and TIF
 
 Relative paths are resolved from the **directory of the current document**, so move the image directory together with the document when you relocate it.
 
-Click an image in the preview to open a large preview that covers the entire window:
+Click an image in the preview to open the large view in a **separate window**:
 
+- The preview window has its own title bar and system window buttons, so it never covers the editor's title bar or status bar
 - Scroll the wheel, or hold `Ctrl` / `Cmd` and scroll to zoom around the mouse pointer; `−` / `＋` zoom around the window center
-- **Fit** keeps the whole image visible; entering full screen re-fits it instead of squeezing it into a fixed-size dialog
-- Local images offer **Show in folder** and **Save as**; web images can be downloaded locally; press `Esc` or click `✕` to close
+- **Fit** keeps the whole image visible; resizing or maximizing the window re-fits it
+- Local images offer **Show in folder** and **Save as**; web images can be downloaded locally; `Esc`, the `✕` in the window, and the system close button all close only the preview window
 - When an image is inside a link, clicking it follows the link instead of opening the preview
 
 ### 3.8 Code
@@ -822,12 +823,14 @@ You can also hold `Ctrl` / `Cmd` and scroll the mouse wheel to zoom a diagram wi
 
 ### 6.2 Large Preview
 
-Click the **Preview** button in the diagram toolbar to open a large preview that covers the entire window (double-clicking a diagram stays reserved for selecting text and does not open the preview):
+Click the **Preview** button in the diagram toolbar to open the large view in a **separate window** (double-clicking a diagram stays reserved for selecting text and does not open the preview):
 
-- Scroll, zoom, and fit to window inside the preview; it fills the screen in full-screen mode
+- The preview window has its own title bar and system window buttons, so it never covers the editor
+- Scroll, zoom, and fit to window inside the preview; resizing or maximizing re-fits it
 - Wheel zoom is anchored at the mouse pointer and button zoom at the window center, so the diagram does not jump to the top-left corner
 - Useful for inspecting the details of a complex diagram
 - Download SVG / PNG directly from the preview window
+- `Esc`, the `✕` in the window, and the system close button all close only the preview window
 
 Images and diagrams share the same preview window; see "3.7 Images" for image save and download actions.
 

@@ -21,11 +21,7 @@ import {
 } from '../../utils/diagram-renderer'
 import { parseFrontmatter, renderFrontmatterTable } from '../../utils/frontmatter'
 import { saveDiagram, serializeSvg } from '../../utils/diagram-export'
-import {
-  isRemoteImageSrc,
-  suggestImageFileName,
-  type MediaPreviewItem
-} from '../../utils/media-preview'
+import { isRemoteImageSrc, suggestImageFileName } from '../../utils/media-preview'
 import {
   installLocalImageRule,
   localPathFromImageSrc,
@@ -42,7 +38,7 @@ import { confirmUnsaved } from '../../composables/useConfirmUnsaved'
 import { useI18n } from '../../i18n'
 import type { Locale } from '../../../../shared/locale-types'
 import SearchPanel from '../common/SearchPanel.vue'
-import MediaPreviewModal from './MediaPreviewModal.vue'
+import type { PreviewWindowPayload } from '../../../../shared/preview-types'
 
 /** 单个标签的预览渲染结果；路径参与校验，因为相对图片在渲染时已解析为绝对地址 */
 interface CachedPreviewHtml {
@@ -461,7 +457,7 @@ function handlePreviewLinkClick(event: MouseEvent): void {
   const image = event.target.closest('img')
   if (image instanceof HTMLImageElement) {
     event.preventDefault()
-    openImagePreview(image)
+    void openImagePreview(image)
   }
 }
 
@@ -496,40 +492,71 @@ function clearViewportObservers(): void {
   fitCallbacks.clear()
 }
 
-// 图表 / 图片大图预览
-const mediaPreviewVisible = ref(false)
-const mediaPreviewItem = ref<MediaPreviewItem | null>(null)
+// 图表 / 图片独立预览窗口
+function currentPreviewTheme(): 'light' | 'dark' {
+  return isDark.value ? 'dark' : 'light'
+}
 
 function openDiagramPreview(svgEl: SVGSVGElement): void {
   const { xml, width, height } = serializeSvg(svgEl)
-  mediaPreviewItem.value = {
-    kind: 'diagram',
-    svgXml: xml,
-    width,
-    height,
-    background: diagramTheme.value.background
+  const payload: PreviewWindowPayload = {
+    theme: currentPreviewTheme(),
+    media: {
+      kind: 'diagram',
+      svgXml: xml,
+      width,
+      height,
+      background: diagramTheme.value.background
+    }
   }
-  mediaPreviewVisible.value = true
+  void window.api.preview.open(payload)
 }
 
-/** 单击预览中的图片打开大图；链接内的图片已在前面的链接分支处理 */
-function openImagePreview(img: HTMLImageElement): void {
+/** blob URL 只在创建它的渲染进程内有效，预览窗口需要先转成 data URL */
+function blobUrlToDataUrl(src: string): Promise<string> {
+  return fetch(src)
+    .then((response) => response.blob())
+    .then(
+      (blob) =>
+        new Promise<string>((resolve, reject) => {
+          const reader = new FileReader()
+          reader.onload = () => resolve(String(reader.result))
+          reader.onerror = () => reject(reader.error)
+          reader.readAsDataURL(blob)
+        })
+    )
+}
+
+/** 单击预览中的图片打开独立预览窗口；链接内的图片已在前面的链接分支处理 */
+async function openImagePreview(img: HTMLImageElement): Promise<void> {
   if (!img.complete || img.naturalWidth === 0 || img.naturalHeight === 0) return
-  const src = img.getAttribute('src') || img.currentSrc || ''
+  let src = img.getAttribute('src') || img.currentSrc || ''
   if (!src) return
 
-  const fallbackName = img.alt.trim() || `image-${Date.now()}`
-  mediaPreviewItem.value = {
-    kind: 'image',
-    src,
-    width: img.naturalWidth,
-    height: img.naturalHeight,
-    background: diagramTheme.value.background,
-    fileName: suggestImageFileName(src, fallbackName),
-    localPath: localPathFromImageSrc(src),
-    remote: isRemoteImageSrc(src)
+  if (src.startsWith('blob:')) {
+    try {
+      src = await blobUrlToDataUrl(src)
+    } catch (err) {
+      console.error('Failed to read blob image for preview:', err)
+      return
+    }
   }
-  mediaPreviewVisible.value = true
+
+  const fallbackName = img.alt.trim() || `image-${Date.now()}`
+  const payload: PreviewWindowPayload = {
+    theme: currentPreviewTheme(),
+    media: {
+      kind: 'image',
+      src,
+      width: img.naturalWidth,
+      height: img.naturalHeight,
+      background: diagramTheme.value.background,
+      fileName: suggestImageFileName(src, fallbackName),
+      localPath: localPathFromImageSrc(src),
+      remote: isRemoteImageSrc(src)
+    }
+  }
+  void window.api.preview.open(payload)
 }
 
 /**
@@ -1165,11 +1192,6 @@ onUnmounted(() => {
     </div>
 
     <SearchPanel v-if="search.isOpen && search.surface === 'preview'" />
-    <MediaPreviewModal
-      :visible="mediaPreviewVisible"
-      :item="mediaPreviewItem"
-      @close="mediaPreviewVisible = false"
-    />
   </div>
 </template>
 

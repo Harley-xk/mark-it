@@ -6,30 +6,6 @@
  */
 import type { ImageFileExtension } from '../../../shared/image-types'
 
-export interface DiagramPreviewItem {
-  kind: 'diagram'
-  /** 已序列化的 SVG 文本（带 xmlns 与固定尺寸） */
-  svgXml: string
-  width: number
-  height: number
-  background: string
-}
-
-export interface ImagePreviewItem {
-  kind: 'image'
-  /** 预览区已解析的图片地址 */
-  src: string
-  width: number
-  height: number
-  background: string
-  fileName: string
-  /** 本地图片的绝对路径；远程与 data/blob 图片为 null */
-  localPath: string | null
-  remote: boolean
-}
-
-export type MediaPreviewItem = DiagramPreviewItem | ImagePreviewItem
-
 /** 缩放范围与步长，图表与图片共用 */
 export const PREVIEW_MIN_SCALE = 0.25
 export const PREVIEW_MAX_SCALE = 4

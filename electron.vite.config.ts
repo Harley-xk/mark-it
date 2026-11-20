@@ -69,7 +69,9 @@ export default defineConfig({
           // 独立的更新详情窗口
           update: resolve(__dirname, 'src/renderer/update.html'),
           // 独立的设置窗口
-          settings: resolve(__dirname, 'src/renderer/settings.html')
+          settings: resolve(__dirname, 'src/renderer/settings.html'),
+          // 独立的图表 / 图片预览窗口
+          preview: resolve(__dirname, 'src/renderer/preview.html')
         }
       }
     }

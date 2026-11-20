@@ -2,13 +2,13 @@
   * 作者: Harley-xk
   * 创建: 2026-11-20
   *
-  * 描述: 全窗口大图预览，图表与图片共用缩放、适应、保存与下载能力
+  * 描述: 独立预览窗口，承载图表与图片的缩放、适应、保存与下载
 -->
 <script setup lang="ts">
-import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
-import { useAppStore } from '../../stores/app'
-import { useI18n } from '../../i18n'
-import { svgXmlToPng } from '../../utils/diagram-export'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import appIconUrl from '@resources/icon.png'
+import { useI18n } from '../i18n'
+import { svgXmlToPng } from '../utils/diagram-export'
 import {
   anchoredScroll,
   centeredScroll,
@@ -17,24 +17,15 @@ import {
   imageExtensionFromFileName,
   PREVIEW_PADDING,
   PREVIEW_ZOOM_STEP,
-  type MediaPreviewItem,
   type PreviewGeometry,
   type PreviewPoint
-} from '../../utils/media-preview'
+} from '../utils/media-preview'
+import type { PreviewWindowPayload } from '../../../shared/preview-types'
 
-const props = defineProps<{
-  visible: boolean
-  item: MediaPreviewItem | null
-}>()
-
-const emit = defineEmits<{
-  close: []
-}>()
-
-const appStore = useAppStore()
 const { t } = useI18n()
-const isDark = computed(() => appStore.resolvedTheme === 'dark')
+const platform = window.api.platform
 
+const payload = ref<PreviewWindowPayload | null>(null)
 const viewportRef = ref<HTMLDivElement>()
 const scale = ref(1)
 /** 自动适应模式下，窗口尺寸变化会重新适应并居中 */
@@ -42,20 +33,22 @@ const autoFit = ref(true)
 const errorMessage = ref('')
 const objectUrl = ref('')
 
-const mediaWidth = computed(() => Math.max(1, props.item?.width || 800))
-const mediaHeight = computed(() => Math.max(1, props.item?.height || 600))
+const media = computed(() => payload.value?.media ?? null)
+const theme = computed(() => payload.value?.theme ?? 'dark')
+const mediaWidth = computed(() => Math.max(1, media.value?.width || 800))
+const mediaHeight = computed(() => Math.max(1, media.value?.height || 600))
 const zoomLabel = computed(() => `${Math.round(scale.value * 100)}%`)
 
 const headerTitle = computed(() => {
-  const item = props.item
-  if (!item) return ''
+  const item = media.value
+  if (!item) return t('window.previewTitle')
   return item.kind === 'diagram'
     ? t('preview.diagramTitle')
     : `${t('preview.imageTitle')} · ${item.fileName}`
 })
 
 const displaySrc = computed(() => {
-  const item = props.item
+  const item = media.value
   if (!item) return ''
   return item.kind === 'image' ? item.src : objectUrl.value
 })
@@ -63,13 +56,21 @@ const displaySrc = computed(() => {
 const imageStyle = computed(() => ({
   width: `${mediaWidth.value * scale.value}px`,
   height: `${mediaHeight.value * scale.value}px`,
-  background: props.item?.background
+  background: media.value?.background
 }))
 
 const stageStyle = computed(() => ({
   width: `${mediaWidth.value * scale.value + PREVIEW_PADDING * 2}px`,
   height: `${mediaHeight.value * scale.value + PREVIEW_PADDING * 2}px`
 }))
+
+watch(
+  headerTitle,
+  (value) => {
+    document.title = value
+  },
+  { immediate: true }
+)
 
 function revokeUrl(): void {
   if (objectUrl.value) {
@@ -101,7 +102,7 @@ function geometryFor(
  */
 let zoomChain: Promise<void> = Promise.resolve()
 let requestedScale = 1
-/** 当前预览会话的标记：切换图片时丢弃上一张图排队的缩放任务 */
+/** 当前预览内容的标记：替换载荷时丢弃上一份内容排队的缩放任务 */
 let mediaToken = 0
 
 function applyScale(next: number, anchor?: PreviewPoint | null, center = false): Promise<void> {
@@ -121,7 +122,7 @@ async function applyScaleNow(
   center = false
 ): Promise<void> {
   const viewport = viewportRef.value
-  if (!props.visible || !props.item || !viewport) return
+  if (!media.value || !viewport) return
 
   const target = clampPreviewScale(next)
   if (target === scale.value) return
@@ -184,10 +185,6 @@ function resetZoom(): void {
   void applyScale(1)
 }
 
-function close(): void {
-  emit('close')
-}
-
 /** Ctrl/Cmd + 滚轮以鼠标为锚点缩放，普通滚轮交给视口滚动 */
 function onWheel(event: WheelEvent): void {
   if (!event.ctrlKey && !event.metaKey) return
@@ -209,7 +206,7 @@ function reportFailure(message: string, err: unknown): void {
 }
 
 async function downloadDiagram(extension: 'svg' | 'png'): Promise<void> {
-  const item = props.item
+  const item = media.value
   if (item?.kind !== 'diagram') return
   try {
     errorMessage.value = ''
@@ -225,9 +222,27 @@ async function downloadDiagram(extension: 'svg' | 'png'): Promise<void> {
   }
 }
 
-/** 本地图片直接复制文件；远程图由主进程下载；data/blob 图片先取字节再保存 */
+/** data URL 直接解码，避免受 CSP connect-src 限制；其余地址再退回 fetch */
+async function readImageBytes(src: string): Promise<Uint8Array> {
+  if (src.startsWith('data:')) {
+    const comma = src.indexOf(',')
+    if (comma === -1) throw new Error('Invalid data URL')
+    const meta = src.slice(5, comma)
+    const body = src.slice(comma + 1)
+    if (/;base64/i.test(meta)) {
+      const binary = atob(body)
+      return Uint8Array.from(binary, (char) => char.charCodeAt(0))
+    }
+    return new TextEncoder().encode(decodeURIComponent(body))
+  }
+  const response = await fetch(src)
+  if (!response.ok) throw new Error(`Failed to read image: HTTP ${response.status}`)
+  return new Uint8Array(await response.arrayBuffer())
+}
+
+/** 本地图片直接复制文件；远程图由主进程下载；data 图片先取字节再保存 */
 async function saveImage(): Promise<void> {
-  const item = props.item
+  const item = media.value
   if (item?.kind !== 'image') return
   try {
     errorMessage.value = ''
@@ -243,9 +258,7 @@ async function saveImage(): Promise<void> {
       }
       return
     }
-    const response = await fetch(item.src)
-    if (!response.ok) throw new Error(`Failed to read image: HTTP ${response.status}`)
-    const bytes = new Uint8Array(await response.arrayBuffer())
+    const bytes = await readImageBytes(item.src)
     await window.api.saveImage(item.fileName, bytes, imageExtensionFromFileName(item.fileName))
   } catch (err) {
     reportFailure(t('preview.saveFailed'), err)
@@ -253,7 +266,7 @@ async function saveImage(): Promise<void> {
 }
 
 async function openFolder(): Promise<void> {
-  const item = props.item
+  const item = media.value
   if (item?.kind !== 'image' || !item.localPath) return
   try {
     await window.api.showItemInFolder(item.localPath)
@@ -262,13 +275,36 @@ async function openFolder(): Promise<void> {
   }
 }
 
+function closeWindow(): void {
+  void window.api.preview.close()
+}
+
 function onKeydown(event: KeyboardEvent): void {
-  if (!props.visible) return
-  if (event.key === 'Escape') {
-    event.preventDefault()
-    event.stopPropagation()
-    close()
+  if (event.key !== 'Escape') return
+  event.preventDefault()
+  event.stopPropagation()
+  closeWindow()
+}
+
+/** 替换预览内容：图表重建 Blob URL，图片直接使用载荷地址 */
+function applyPayload(next: PreviewWindowPayload): void {
+  mediaToken += 1
+  revokeUrl()
+  errorMessage.value = ''
+  payload.value = next
+
+  if (next.media.kind === 'diagram') {
+    objectUrl.value = URL.createObjectURL(
+      new Blob([next.media.svgXml], { type: 'image/svg+xml;charset=utf-8' })
+    )
   }
+  scale.value = 1
+  requestedScale = 1
+  autoFit.value = true
+  void nextTick().then(async () => {
+    await fitToWindow()
+    observeViewport()
+  })
 }
 
 let resizeObserver: ResizeObserver | null = null
@@ -284,218 +320,202 @@ function observeViewport(): void {
   resizeObserver.observe(viewport)
 }
 
-function disconnectViewport(): void {
-  resizeObserver?.disconnect()
-  resizeObserver = null
-}
+let offPayload: (() => void) | null = null
 
-watch(
-  () => [props.visible, props.item] as const,
-  async ([visible, item]) => {
-    mediaToken += 1
-    disconnectViewport()
-    revokeUrl()
-    errorMessage.value = ''
-    if (!visible || !item) return
-
-    if (item.kind === 'diagram') {
-      objectUrl.value = URL.createObjectURL(
-        new Blob([item.svgXml], { type: 'image/svg+xml;charset=utf-8' })
-      )
-    }
-    scale.value = 1
-    requestedScale = 1
-    autoFit.value = true
-    await nextTick()
-    await fitToWindow()
-    observeViewport()
-  },
-  { immediate: true }
-)
-
-watch(
-  () => props.visible,
-  (visible) => {
-    if (visible) window.addEventListener('keydown', onKeydown, true)
-    else window.removeEventListener('keydown', onKeydown, true)
-  },
-  { immediate: true }
-)
+onMounted(async () => {
+  offPayload = window.api.preview.onPayload(applyPayload)
+  const initial = await window.api.preview.takePayload()
+  if (initial) applyPayload(initial)
+  observeViewport()
+  window.addEventListener('keydown', onKeydown, true)
+})
 
 onUnmounted(() => {
   window.removeEventListener('keydown', onKeydown, true)
-  disconnectViewport()
+  offPayload?.()
+  offPayload = null
+  resizeObserver?.disconnect()
+  resizeObserver = null
   revokeUrl()
 })
 </script>
 
 <template>
-  <Teleport to="body">
-    <div v-if="visible && item" class="media-preview-backdrop" :class="isDark ? 'dark' : 'light'">
-      <div class="media-preview" role="dialog" aria-modal="true" :aria-label="headerTitle">
-        <div class="media-preview-header">
-          <span class="media-preview-title" :title="headerTitle">{{ headerTitle }}</span>
-          <div class="media-preview-actions">
-            <button
-              class="mp-btn"
-              type="button"
-              :title="t('preview.zoomOut')"
-              @click="zoomBy(1 / PREVIEW_ZOOM_STEP)"
-            >
-              −
-            </button>
-            <button
-              class="mp-btn mp-zoom-label"
-              type="button"
-              :title="t('preview.restoreSize')"
-              @click="resetZoom"
-            >
-              {{ zoomLabel }}
-            </button>
-            <button
-              class="mp-btn"
-              type="button"
-              :title="t('preview.zoomIn')"
-              @click="zoomBy(PREVIEW_ZOOM_STEP)"
-            >
-              ＋
-            </button>
-            <button
-              class="mp-btn mp-text-btn"
-              type="button"
-              :title="t('preview.fitWindow')"
-              @click="fitToWindow"
-            >
-              {{ t('preview.fitWindowShort') }}
-            </button>
-            <span class="mp-separator"></span>
-            <template v-if="item.kind === 'diagram'">
-              <button
-                class="mp-btn mp-text-btn"
-                type="button"
-                :title="t('preview.downloadSvg')"
-                @click="downloadDiagram('svg')"
-              >
-                SVG
-              </button>
-              <button
-                class="mp-btn mp-text-btn"
-                type="button"
-                :title="t('preview.downloadPng')"
-                @click="downloadDiagram('png')"
-              >
-                PNG
-              </button>
-            </template>
-            <template v-else>
-              <button
-                v-if="item.localPath"
-                class="mp-btn mp-text-btn"
-                type="button"
-                :title="t('preview.openFolder')"
-                @click="openFolder"
-              >
-                {{ t('preview.openFolder') }}
-              </button>
-              <button
-                class="mp-btn mp-text-btn"
-                type="button"
-                :title="item.remote ? t('preview.downloadImage') : t('preview.saveImageAs')"
-                @click="saveImage"
-              >
-                {{ item.remote ? t('preview.downloadImage') : t('preview.saveImageAs') }}
-              </button>
-            </template>
-            <span class="mp-separator"></span>
-            <button class="mp-btn mp-close" type="button" :title="t('search.close')" @click="close">
-              ✕
-            </button>
-          </div>
-        </div>
+  <div class="preview-window" :class="theme">
+    <header class="preview-header" :class="platform">
+      <div class="preview-title">
+        <img :src="appIconUrl" alt="" aria-hidden="true" />
+        <span>{{ headerTitle }}</span>
+      </div>
+      <div class="preview-actions">
+        <button
+          class="preview-btn"
+          type="button"
+          :title="t('preview.zoomOut')"
+          @click="zoomBy(1 / PREVIEW_ZOOM_STEP)"
+        >
+          −
+        </button>
+        <button
+          class="preview-btn preview-zoom-label"
+          type="button"
+          :title="t('preview.restoreSize')"
+          @click="resetZoom"
+        >
+          {{ zoomLabel }}
+        </button>
+        <button
+          class="preview-btn"
+          type="button"
+          :title="t('preview.zoomIn')"
+          @click="zoomBy(PREVIEW_ZOOM_STEP)"
+        >
+          ＋
+        </button>
+        <button
+          class="preview-btn preview-text-btn"
+          type="button"
+          :title="t('preview.fitWindow')"
+          @click="fitToWindow"
+        >
+          {{ t('preview.fitWindowShort') }}
+        </button>
+        <span class="preview-separator"></span>
+        <template v-if="media?.kind === 'diagram'">
+          <button
+            class="preview-btn preview-text-btn"
+            type="button"
+            :title="t('preview.downloadSvg')"
+            @click="downloadDiagram('svg')"
+          >
+            SVG
+          </button>
+          <button
+            class="preview-btn preview-text-btn"
+            type="button"
+            :title="t('preview.downloadPng')"
+            @click="downloadDiagram('png')"
+          >
+            PNG
+          </button>
+        </template>
+        <template v-else-if="media?.kind === 'image'">
+          <button
+            v-if="media.localPath"
+            class="preview-btn preview-text-btn"
+            type="button"
+            :title="t('preview.openFolder')"
+            @click="openFolder"
+          >
+            {{ t('preview.openFolder') }}
+          </button>
+          <button
+            class="preview-btn preview-text-btn"
+            type="button"
+            :title="media.remote ? t('preview.downloadImage') : t('preview.saveImageAs')"
+            @click="saveImage"
+          >
+            {{ media.remote ? t('preview.downloadImage') : t('preview.saveImageAs') }}
+          </button>
+        </template>
+        <span class="preview-separator"></span>
+        <button
+          class="preview-btn preview-close"
+          type="button"
+          :title="t('common.close')"
+          @click="closeWindow"
+        >
+          ✕
+        </button>
+      </div>
+    </header>
 
-        <div ref="viewportRef" class="media-preview-viewport" @wheel="onWheel">
-          <div class="media-preview-stage" :style="stageStyle">
-            <img
-              class="media-preview-image"
-              :src="displaySrc"
-              :style="imageStyle"
-              :alt="headerTitle"
-              draggable="false"
-            />
-          </div>
-        </div>
-
-        <div class="media-preview-hint" :class="{ error: !!errorMessage }">
-          {{ errorMessage || t('preview.diagramHint') }}
-        </div>
+    <div ref="viewportRef" class="preview-viewport" @wheel="onWheel">
+      <div v-if="media" class="preview-stage" :style="stageStyle">
+        <img
+          class="preview-image"
+          :src="displaySrc"
+          :style="imageStyle"
+          :alt="headerTitle"
+          draggable="false"
+        />
       </div>
     </div>
-  </Teleport>
+
+    <div class="preview-hint" :class="{ error: !!errorMessage }">
+      {{ errorMessage || t('preview.diagramHint') }}
+    </div>
+  </div>
 </template>
 
 <style scoped>
-.media-preview-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 2000;
-  display: flex;
-  background: #14141a;
-}
-
-.media-preview {
+.preview-window {
   display: flex;
   flex-direction: column;
-  width: 100%;
-  height: 100%;
+  width: 100vw;
+  height: 100vh;
   overflow: hidden;
   background: #1e1e24;
+  color: rgba(255, 255, 255, 0.8);
 }
 
-.media-preview-backdrop.light {
-  background: #f5f6f8;
-}
-
-.media-preview-backdrop.light .media-preview {
+.preview-window.light {
   background: #ffffff;
+  color: rgba(0, 0, 0, 0.75);
 }
 
-.media-preview-header {
+.preview-header {
   display: flex;
   align-items: center;
   gap: 12px;
   flex-shrink: 0;
-  height: 46px;
-  padding: 0 10px 0 16px;
+  height: 36px;
+  /* 右侧为 Windows / Linux 系统窗口控制按钮预留 */
+  padding: 0 148px 0 14px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  background: rgba(0, 0, 0, 0.12);
+  -webkit-app-region: drag;
   user-select: none;
 }
 
-.media-preview-backdrop.light .media-preview-header {
-  border-bottom-color: rgba(0, 0, 0, 0.07);
+.preview-header.darwin {
+  padding-right: 14px;
+  padding-left: 88px;
 }
 
-.media-preview-title {
+.preview-window.light .preview-header {
+  border-bottom-color: rgba(0, 0, 0, 0.07);
+  background: rgba(0, 0, 0, 0.03);
+}
+
+.preview-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   flex: 1;
   min-width: 0;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
-  color: rgba(255, 255, 255, 0.85);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.media-preview-backdrop.light .media-preview-title {
-  color: rgba(0, 0, 0, 0.75);
+.preview-title img {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
 }
 
-.media-preview-actions {
+.preview-actions {
   display: flex;
   align-items: center;
   gap: 2px;
+  flex-shrink: 0;
+  -webkit-app-region: no-drag;
 }
 
-.mp-btn {
+.preview-btn {
   min-width: 28px;
   height: 26px;
   padding: 0 8px;
@@ -505,7 +525,7 @@ onUnmounted(() => {
   border: none;
   border-radius: 6px;
   background: transparent;
-  color: rgba(255, 255, 255, 0.65);
+  color: rgba(255, 255, 255, 0.68);
   font-size: 12px;
   font-family: inherit;
   line-height: 1;
@@ -515,50 +535,50 @@ onUnmounted(() => {
     color 0.12s ease;
 }
 
-.mp-btn:hover {
+.preview-btn:hover {
   background: rgba(255, 255, 255, 0.1);
   color: #fff;
 }
 
-.media-preview-backdrop.light .mp-btn {
-  color: rgba(0, 0, 0, 0.6);
+.preview-window.light .preview-btn {
+  color: rgba(0, 0, 0, 0.62);
 }
 
-.media-preview-backdrop.light .mp-btn:hover {
+.preview-window.light .preview-btn:hover {
   background: rgba(0, 0, 0, 0.06);
   color: #000;
 }
 
-.mp-text-btn {
+.preview-text-btn {
   font-size: 11px;
 }
 
-.mp-zoom-label {
+.preview-zoom-label {
   min-width: 48px;
   font-variant-numeric: tabular-nums;
   color: rgba(255, 255, 255, 0.5);
 }
 
-.media-preview-backdrop.light .mp-zoom-label {
+.preview-window.light .preview-zoom-label {
   color: rgba(0, 0, 0, 0.5);
 }
 
-.mp-separator {
+.preview-separator {
   width: 1px;
   height: 16px;
   margin: 0 4px;
   background: rgba(255, 255, 255, 0.12);
 }
 
-.media-preview-backdrop.light .mp-separator {
+.preview-window.light .preview-separator {
   background: rgba(0, 0, 0, 0.1);
 }
 
-.mp-close {
+.preview-close {
   font-size: 13px;
 }
 
-.media-preview-viewport {
+.preview-viewport {
   flex: 1;
   min-height: 0;
   display: flex;
@@ -569,11 +589,11 @@ onUnmounted(() => {
   overscroll-behavior: contain;
 }
 
-.media-preview-backdrop.light .media-preview-viewport {
+.preview-window.light .preview-viewport {
   background: rgba(0, 0, 0, 0.04);
 }
 
-.media-preview-stage {
+.preview-stage {
   flex: 0 0 auto;
   min-width: 100%;
   min-height: 100%;
@@ -583,7 +603,7 @@ onUnmounted(() => {
   box-sizing: border-box;
 }
 
-.media-preview-image {
+.preview-image {
   display: block;
   max-width: none;
   max-height: none;
@@ -593,29 +613,44 @@ onUnmounted(() => {
   box-shadow: 0 6px 28px rgba(0, 0, 0, 0.28);
 }
 
-.media-preview-backdrop.light .media-preview-image {
+.preview-window.light .preview-image {
   box-shadow: 0 6px 28px rgba(0, 0, 0, 0.12);
 }
 
-.media-preview-hint {
+.preview-hint {
   flex-shrink: 0;
-  padding: 8px 16px;
+  padding: 7px 16px;
   border-top: 1px solid rgba(255, 255, 255, 0.06);
   font-size: 11px;
   color: rgba(255, 255, 255, 0.35);
   user-select: none;
 }
 
-.media-preview-hint.error {
+.preview-hint.error {
   color: #f08c8c;
 }
 
-.media-preview-backdrop.light .media-preview-hint {
+.preview-window.light .preview-hint {
   border-top-color: rgba(0, 0, 0, 0.06);
   color: rgba(0, 0, 0, 0.35);
 }
 
-.media-preview-backdrop.light .media-preview-hint.error {
+.preview-window.light .preview-hint.error {
   color: #c0392b;
+}
+</style>
+
+<style>
+html,
+body,
+#app {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+body {
+  background: #1e1e24;
 }
 </style>

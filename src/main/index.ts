@@ -70,6 +70,15 @@ import {
   openSettingsWindow
 } from './settings-window'
 import {
+  closePreviewWindow,
+  isPreviewWindowSender,
+  openPreviewWindow,
+  previewWindowForSender,
+  setPreviewZoomFactor,
+  takePreviewPayload
+} from './preview-window'
+import { parsePreviewPayload } from './preview-payload'
+import {
   normalizeZoomFactor,
   parseWindowStateFile,
   placeWindowOnWorkArea
@@ -498,6 +507,11 @@ function windowForSender(event: IpcMainInvokeEvent): BrowserWindow | null {
   return getEditorWindowBySender(event.sender)?.win ?? null
 }
 
+/** 保存对话框的父窗口：编辑窗口与预览窗口都可以发起图片保存 / 下载 */
+function mediaDialogParent(event: IpcMainInvokeEvent): BrowserWindow | null {
+  return windowForSender(event) ?? previewWindowForSender(event.sender)
+}
+
 /** 只为发起导出的渲染进程创建阶段进度上报，避免多窗口串进度 */
 function createExportProgressReporter(
   event: IpcMainInvokeEvent,
@@ -531,6 +545,7 @@ function applyZoomFactor(factor: number): void {
     settings.webContents.setZoomFactor(globalZoomFactor)
     settings.webContents.send('window:zoom-changed', globalZoomFactor)
   }
+  setPreviewZoomFactor(globalZoomFactor)
   queuePersistWindowStateFile()
 }
 
@@ -1003,6 +1018,7 @@ function createEditorWindow(options: CreateEditorWindowOptions = {}): EditorWind
     if (editorWindows.size === 0) {
       closeSettingsWindow()
       closeUpdateWindow()
+      closePreviewWindow()
     }
   })
 
@@ -1749,7 +1765,7 @@ function imageSaveFilter(extension: ImageFileExtension): { name: string; extensi
 registerHandle(
   'dialog:saveImage',
   async (event, fileName: string, data: Uint8Array, extension: ImageFileExtension) => {
-    const parent = windowForSender(event)
+    const parent = mediaDialogParent(event)
     if (!parent) return null
     // 扩展名来自渲染进程，仍是不可信输入，必须落在图片白名单内
     if (typeof extension !== 'string' || !IMAGE_FILE_EXTENSION.test(`.${extension}`)) return null
@@ -1766,7 +1782,7 @@ registerHandle(
 
 /** 本地预览图片另存为：直接复制源文件，避免把字节往返渲染进程 */
 registerHandle('dialog:saveImageFromPath', async (event, sourcePath: string, fileName: string) => {
-  const parent = windowForSender(event)
+  const parent = mediaDialogParent(event)
   if (!parent || typeof sourcePath !== 'string') return null
   const extension = imageExtensionOf(sourcePath)
   if (!extension || !existsSync(sourcePath)) return null
@@ -1784,7 +1800,7 @@ registerHandle('dialog:saveImageFromPath', async (event, sourcePath: string, fil
 
 /** 下载远程预览图片：由主进程发起以绕开渲染进程的 CORS 限制 */
 registerHandle('dialog:downloadImage', async (event, rawUrl: string, fileName: string) => {
-  const parent = windowForSender(event)
+  const parent = mediaDialogParent(event)
   const url = parseRemoteImageUrl(rawUrl)
   if (!parent || !url) return null
 
@@ -2269,7 +2285,8 @@ registerHandle('app:set-locale', (event, locale: unknown) => {
   const allowed =
     isEditorWindowSender(event.sender) ||
     isSettingsWindowSender(event.sender) ||
-    isUpdateWindowSender(event.sender)
+    isUpdateWindowSender(event.sender) ||
+    isPreviewWindowSender(event.sender)
   if (!allowed || !isLocale(locale)) return false
   setMainLocale(locale)
   return true
@@ -2278,6 +2295,25 @@ registerHandle('settings:open', (event) => {
   const source = getEditorWindowBySender(event.sender)
   if (!source) return false
   openSettingsWindow(source.win)
+  return true
+})
+
+/** 打开或更新独立预览窗口；只允许编辑窗口发起 */
+registerHandle('preview:open', (event, payload: unknown) => {
+  const source = getEditorWindowBySender(event.sender)
+  if (!source) return false
+  const parsed = parsePreviewPayload(payload)
+  if (!parsed) return false
+  return openPreviewWindow(source.win, parsed, globalZoomFactor)
+})
+
+/** 预览窗口加载完成后取当前载荷 */
+registerHandle('preview:take-payload', (event) => takePreviewPayload(event.sender))
+
+/** 关闭预览窗口自身；不影响编辑窗口与应用 */
+registerHandle('preview:close', (event) => {
+  if (!isPreviewWindowSender(event.sender)) return false
+  closePreviewWindow()
   return true
 })
 registerHandle('window:get-context', (event): RendererWindowContext | null => {

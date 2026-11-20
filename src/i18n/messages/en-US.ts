@@ -28,6 +28,7 @@ export const enUS: Record<MessageKey, string> = {
 
   'window.settingsTitle': 'MarkIt Settings',
   'window.updateTitle': 'MarkIt Update',
+  'window.previewTitle': 'MarkIt Preview',
   'window.updateBrand': 'Software Update',
   'window.untitledTab': 'Untitled tab',
   'window.label': 'Window {index}',

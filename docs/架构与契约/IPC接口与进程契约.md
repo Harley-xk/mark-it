@@ -102,6 +102,17 @@
 | `dialog:saveImageFromPath` | R→M invoke | `saveImageFromPath(sourcePath, fileName)` | `sourcePath: string`, `fileName: string` | `Promise<string \| null>` | [`src/main/index.ts`](../../src/main/index.ts) | 本地预览图片另存为；源文件必须是已存在的图片，弹保存对话框后 `copyFile`；取消或源文件缺失返回 `null` |
 | `dialog:downloadImage` | R→M invoke | `downloadImage(url, fileName)` | `url: string`, `fileName: string` | `Promise<string \| null>` | [`src/main/index.ts`](../../src/main/index.ts) | 远程图片下载；仅放行 `http` / `https`，主进程 `net.fetch` 拉取，体积上限 64 MiB，取消返回 `null`；响应内容不回传渲染进程 |
 
+预览窗口同样可以调用这三个保存 / 下载通道；主进程按发送方选择编辑窗口或预览窗口作为保存对话框的父窗口。
+
+### 3.2.1 预览窗口
+
+| 通道名 | 方向 | preload 方法 | 参数 | 返回值 | 主进程处理位置 | 备注 |
+| --- | --- | --- | --- | --- | --- | --- |
+| `preview:open` | R→M invoke | `preview.open(payload)` | `PreviewWindowPayload` | `Promise<boolean>` | [`src/main/index.ts`](../../src/main/index.ts) | **只接受编辑窗口**；经 `parsePreviewPayload` 校验后创建或更新全局单实例预览窗口 |
+| `preview:take-payload` | R→M invoke | `preview.takePayload()` | 无 | `Promise<PreviewWindowPayload \| null>` | [`src/main/index.ts`](../../src/main/index.ts) | 预览窗口加载完成后取最新载荷；只接受预览窗口 |
+| `preview:close` | R→M invoke | `preview.close()` | 无 | `Promise<boolean>` | [`src/main/index.ts`](../../src/main/index.ts) | 关闭预览窗口自身；不关闭编辑窗口 |
+| `preview:payload` | M→R send | `preview.onPayload(cb)` | `PreviewWindowPayload` | 注销函数 | [`src/main/preview-window.ts`](../../src/main/preview-window.ts) | 预览窗口已存在时替换内容 |
+
 ### 3.3 窗口与系统
 
 | 通道名                         | 方向       | preload 方法                               | 参数                                          | 返回值                                 | 主进程处理位置                                     | 备注                                                                                                                      |
@@ -123,7 +134,7 @@
 | `window:get-zoom`              | R→M invoke | `getZoom()`                                | 无                                            | `Promise<number>`                      | [`src/main/index.ts`](../../src/main/index.ts)     | 返回全局缩放比例（1 = 100%）；编辑窗口与设置窗口可调用，其余发送方返回 1                                                  |
 | `window:set-zoom`              | R→M invoke | `setZoom(factor)`                          | `factor: number`（1 = 100%）                  | `Promise<boolean>`                     | [`src/main/index.ts`](../../src/main/index.ts)     | 状态栏与设置页使用；主进程归一到 10% 步长并夹取 0.5–3 后同步全部窗口、持久化；非法入参返回 `false`                        |
 | `window:set-native-theme`      | R→M invoke | `setNativeTheme(theme)`                    | `theme: 'light' \| 'dark' \| 'system'`        | `Promise<void>`                        | [`src/main/index.ts`](../../src/main/index.ts)     | 写入全局 `nativeTheme.themeSource`；允许任意编辑窗口和设置窗口调用                                                        |
-| `app:set-locale`               | R→M invoke | `setLocale(locale)`                        | `locale: 'zh-CN' \| 'en-US'`                  | `Promise<boolean>`                     | [`src/main/index.ts`](../../src/main/index.ts)     | 同步主进程当前界面语言；允许编辑 / 设置 / 更新窗口调用；非法入参或来源返回 `false`（见[国际化与文案](./国际化与文案.md)） |
+| `app:set-locale`               | R→M invoke | `setLocale(locale)`                        | `locale: 'zh-CN' \| 'en-US'`                  | `Promise<boolean>`                     | [`src/main/index.ts`](../../src/main/index.ts)     | 同步主进程当前界面语言；允许编辑 / 设置 / 更新 / 预览窗口调用；非法入参或来源返回 `false`（见[国际化与文案](./国际化与文案.md)） |
 | `shell:openExternal`           | R→M invoke | `openExternal(url)`                        | `url: string`                                 | `Promise<boolean>`                     | [`src/main/index.ts:553`](../../src/main/index.ts) | 仅放行 `http` / `https` / `mailto`；`file:` 转为定位文件；其余协议忽略并返回 `false`                                      |
 
 ### 3.3.1 设置窗口
@@ -191,7 +202,7 @@
 | `file:external-change`        | M→R send | `onExternalFileChange(cb)`    | `{ path: string; content: string }`                                                | 监视文件内容真实变化                          | [`src/main/index.ts`](../../src/main/index.ts)                                        | 只在内容与 `watchedContent` 不同时发送；**返回取消监听函数**                      |
 | `file:missing`                | M→R send | `onFileMissing(cb)`           | `{ path: string }`                                                                 | 监视中的活跃文件被外部删除                    | [`src/main/index.ts`](../../src/main/index.ts)                                        | 只发给该文件所属窗口；标签显示缺失提示，重建文件后由外部变更事件清除              |
 | `recent:changed`              | M→R send | `recent.onChanged(cb)`        | 无                                                                                 | 打开成功 / 另存为 / 清除最近打开记录          | [`src/main/index.ts`](../../src/main/index.ts)                                        | 广播给全部编辑窗口；各窗口的 `recent` store 重新拉取列表                          |
-| `window:zoom-changed`         | M→R send | `onZoomChange(cb)`            | `number`（全局缩放比例）                                                           | 应用缩放、页面加载完成恢复缩放                | [`src/main/index.ts:160`](../../src/main/index.ts)、[`:437`](../../src/main/index.ts) | 广播到全部编辑窗口与设置窗口；页面重载会重置缩放，`did-finish-load` 后重发        |
+| `window:zoom-changed`         | M→R send | `onZoomChange(cb)`            | `number`（全局缩放比例）                                                           | 应用缩放、页面加载完成恢复缩放                | [`src/main/index.ts:160`](../../src/main/index.ts)、[`:437`](../../src/main/index.ts) | 广播到全部编辑窗口、设置窗口与预览窗口；页面重载会重置缩放，`did-finish-load` 后重发        |
 | `window:fullscreen`           | M→R send | `onFullscreenChange(cb)`      | `boolean`                                                                          | 进入 / 退出全屏                               | [`src/main/index.ts:374`](../../src/main/index.ts)                                    | 标题栏据此移除两侧留白                                                            |
 | `window:close-request`        | M→R send | `onCloseRequest(cb)`          | `{ quit: boolean }`                                                                | 编辑窗口 `close` 事件被拦截时                 | [`src/main/index.ts`](../../src/main/index.ts)                                        | 只发送给触发关闭的编辑窗口；应用退出统一走 `app:prepare-exit`                     |
 | `shortcut:close-tab`          | M→R send | `onCloseTabShortcut(cb)`      | 无                                                                                 | macOS `Cmd+W` 被 `before-input-event` 拦截    | [`src/main/index.ts:353`](../../src/main/index.ts)                                    | 仅 macOS；其他平台由渲染进程键盘处理                                              |
@@ -270,6 +281,7 @@
 | `{ path, content }` | `file:external-change`                                 | `path: string`、`content: string`                                                                                                                                                 |
 | 图片保存参数        | `dialog:saveImage`                                     | `fileName: string`、`data: Uint8Array`、`extension: ImageFileExtension`（[`src/shared/image-types.ts`](../../src/shared/image-types.ts)）                                          |
 | 图片另存 / 下载参数 | `dialog:saveImageFromPath`、`dialog:downloadImage`     | 前者 `sourcePath: string`、`fileName: string`；后者 `url: string`、`fileName: string`；均返回保存路径或 `null`                                                                     |
+| 预览载荷 | `preview:open`、`preview:take-payload`、`preview:payload` | `PreviewWindowPayload`（[`src/shared/preview-types.ts`](../../src/shared/preview-types.ts)）：`theme: 'light' \| 'dark'` 与 `media`（图表 SVG / 图片地址、尺寸、背景、文件名、本地路径、远程标记） |
 | PDF 选项            | `export:pdf`                                           | `PdfExportOptions`（[`src/shared/pdf-types.ts`](../../src/shared/pdf-types.ts)）：`pageSize`、`margin`、`showPageNumbers`、`showToc`、`showFrontmatter`、`fileName`、`sourcePath` |
 | 长图选项 / 结果     | `export:image`                                         | `ImageExportOptions`：`format`、`contentWidth`、`scale`、`theme`、`includeFrontmatter`、`fileName`、`sourcePath`；返回 `ImageExportResult`：路径、格式、请求 / 实际倍率与像素尺寸 |
 | 文件读取结果        | `dialog:openFiles`、`file:open-dropped`、`file:read`、`open-file-from-argv`、`recent:open` | `FileReadResult`（[`src/shared/file-types.ts`](../../src/shared/file-types.ts)）：`path`、`content`、`encoding`、`size`、`readOnly`、`excludedFromSession`、`notices`             |
@@ -309,6 +321,7 @@
 3. 主进程还有兜底：`setWindowOpenHandler` 一律拒绝新窗口并转交系统打开；`will-navigate` 对非应用自身页面地址 `preventDefault` 后转交系统打开，避免编辑窗口被导航走导致界面丢失。
 4. 页内锚点（`#heading-N`）保留浏览器原生跳转，不经过主进程。
 5. 预览中的图片单击只打开大图窗口；远程图片下载必须由用户显式点击，由主进程 `dialog:downloadImage` 发起，渲染进程不能借该通道读取任意地址的响应内容。
+6. 预览窗口只接受 `preview:open` 等白名单通道，不参与文件打开、会话与导出流程；图表 / 图片内容作为载荷由主进程校验后转发。
 
 ### 5.4 `markit-file://` 协议
 
