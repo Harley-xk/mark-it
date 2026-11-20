@@ -56,13 +56,19 @@ const displaySrc = computed(() => {
 const imageStyle = computed(() => ({
   width: `${mediaWidth.value * scale.value}px`,
   height: `${mediaHeight.value * scale.value}px`,
-  background: media.value?.background
+  // 图片本身可能有底色，不再额外铺一层；图表 SVG 为透明背景，由主题底色兜底
+  ...(media.value?.kind === 'diagram' ? { background: media.value.background } : {})
 }))
 
 const stageStyle = computed(() => ({
   width: `${mediaWidth.value * scale.value + PREVIEW_PADDING * 2}px`,
   height: `${mediaHeight.value * scale.value + PREVIEW_PADDING * 2}px`
 }))
+
+/** 窗口、视口与图片使用同一背景色，避免图片周围出现色块边界 */
+const windowBackground = computed(
+  () => media.value?.background || (theme.value === 'light' ? '#ffffff' : '#1e1e24')
+)
 
 watch(
   headerTitle,
@@ -341,7 +347,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="preview-window" :class="theme">
+  <div class="preview-window" :class="theme" :style="{ background: windowBackground }">
     <header class="preview-header" :class="platform">
       <div class="preview-title">
         <img :src="appIconUrl" alt="" aria-hidden="true" />
@@ -568,16 +574,11 @@ onUnmounted(() => {
 .preview-viewport {
   flex: 1;
   min-height: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  /* 只负责滚动：若在这里居中，舞台超过视口时会被推到负坐标，左上角无法滚动到 */
+  display: block;
   overflow: auto;
-  background: rgba(0, 0, 0, 0.18);
+  background: transparent;
   overscroll-behavior: contain;
-}
-
-.preview-window.light .preview-viewport {
-  background: rgba(0, 0, 0, 0.04);
 }
 
 .preview-stage {
@@ -597,11 +598,6 @@ onUnmounted(() => {
   object-fit: fill;
   user-select: none;
   -webkit-user-drag: none;
-  box-shadow: 0 6px 28px rgba(0, 0, 0, 0.28);
-}
-
-.preview-window.light .preview-image {
-  box-shadow: 0 6px 28px rgba(0, 0, 0, 0.12);
 }
 
 .preview-hint {
@@ -638,6 +634,6 @@ body,
 }
 
 body {
-  background: #1e1e24;
+  background: transparent;
 }
 </style>

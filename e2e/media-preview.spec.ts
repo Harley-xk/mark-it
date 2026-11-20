@@ -52,6 +52,12 @@ test('单击图片在独立窗口中打开大图预览', async () => {
     await expect(preview.locator('.preview-image')).toBeVisible()
     await expect(preview).toHaveTitle(/图片预览/)
 
+    // 图片不再额外叠加底色，避免在自身有背景的图片外又出现一层色块
+    const imageBackground = await preview
+      .locator('.preview-image')
+      .evaluate((element) => getComputedStyle(element).backgroundColor)
+    expect(imageBackground).toBe('rgba(0, 0, 0, 0)')
+
     // 预览窗口内容区铺满窗口，不再覆盖编辑窗口的标题栏与状态栏
     const viewportSize = await preview.evaluate(() => ({
       width: window.innerWidth,
@@ -69,6 +75,17 @@ test('单击图片在独立窗口中打开大图预览', async () => {
     await expect(zoomLabel).not.toHaveText(initialLabel)
     await zoomLabel.click()
     await expect(zoomLabel).toHaveText('100%')
+
+    // 放大到超过视口后，滚到左上角应能看到图片左上边缘，而不是被居中裁切
+    const viewport = preview.locator('.preview-viewport')
+    await viewport.evaluate((element) => {
+      element.scrollTop = 0
+      element.scrollLeft = 0
+    })
+    const viewportBox = await viewport.boundingBox()
+    const zoomedImageBox = await preview.locator('.preview-image').boundingBox()
+    expect(zoomedImageBox?.x).toBeGreaterThanOrEqual((viewportBox?.x ?? 0) - 1)
+    expect(zoomedImageBox?.y).toBeGreaterThanOrEqual((viewportBox?.y ?? 0) - 1)
 
     // Esc 只关闭预览窗口，编辑窗口仍然存在；按键会同步触发窗口关闭，忽略关闭后的输入错误
     const closed = preview.waitForEvent('close')
@@ -95,6 +112,16 @@ test('单击图片在独立窗口中打开大图预览', async () => {
     await diagramPreview.waitForLoadState('domcontentloaded')
     await expect(diagramPreview.locator('.preview-window')).toBeVisible()
     await expect(diagramPreview.locator('.preview-image')).toBeVisible()
+
+    // 图表画布与窗口必须共用同一主题底色
+    const diagramWindowBackground = await diagramPreview
+      .locator('.preview-window')
+      .evaluate((element) => getComputedStyle(element).backgroundColor)
+    const diagramImageBackground = await diagramPreview
+      .locator('.preview-image')
+      .evaluate((element) => getComputedStyle(element).backgroundColor)
+    expect(diagramImageBackground).toBe(diagramWindowBackground)
+
     const diagramClosed = diagramPreview.waitForEvent('close')
     await diagramPreview.keyboard.press('Escape').catch(() => undefined)
     await diagramClosed

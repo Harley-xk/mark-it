@@ -18,6 +18,11 @@ let currentPayload: PreviewWindowPayload | null = null
 /** 与主进程 globalZoomFactor 保持同步，页面重载后据此恢复 */
 let currentZoomFactor = 1
 
+/** BrowserWindow 只接受具体颜色值；非法值回退到默认深色 */
+function windowBackground(background: string): string {
+  return /^#[0-9a-f]{3,8}$/i.test(background) ? background : '#1e1e24'
+}
+
 export function getPreviewWindow(): BrowserWindow | null {
   return previewWindow && !previewWindow.isDestroyed() ? previewWindow : null
 }
@@ -46,6 +51,7 @@ export function openPreviewWindow(
   currentZoomFactor = zoomFactor
 
   if (existing) {
+    existing.setBackgroundColor(windowBackground(payload.media.background))
     existing.webContents.setZoomFactor(zoomFactor)
     // 页面尚未加载完成时由 take-payload 取最新载荷；加载完成后再补发一次，避免监听注册晚于事件
     if (existing.webContents.isLoading()) {
@@ -62,6 +68,7 @@ export function openPreviewWindow(
   }
 
   const isMac = process.platform === 'darwin'
+  const backgroundColor = windowBackground(payload.media.background)
   const placement = resolveWindowPlacement(sourceWindow, {
     width: 1120,
     height: 780,
@@ -73,7 +80,7 @@ export function openPreviewWindow(
     show: false,
     autoHideMenuBar: true,
     title: mt('window.previewTitle'),
-    backgroundColor: '#151922',
+    backgroundColor,
     ...(isMac
       ? {
           titleBarStyle: 'hidden',

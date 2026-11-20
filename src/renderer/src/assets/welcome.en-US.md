@@ -282,6 +282,7 @@ Relative paths are resolved from the **directory of the current document**, so m
 Click an image in the preview to open the large view in a **separate window**:
 
 - The preview window has its own title bar and system window buttons, so it never covers the editor's title bar or status bar
+- Diagram canvases share the theme background with the window, while images get no extra background layer, so images with their own background show no color patch
 - Scroll the wheel, or hold `Ctrl` / `Cmd` and scroll to zoom around the mouse pointer; `−` / `＋` zoom around the window center
 - **Fit** keeps the whole image visible; resizing or maximizing the window re-fits it
 - Local images offer **Show in folder** and **Save as**; web images can be downloaded locally; `Esc` and the system close button both close only the preview window
