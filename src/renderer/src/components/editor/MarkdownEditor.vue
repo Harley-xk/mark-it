@@ -28,6 +28,7 @@ import { useEditorStore } from '../../stores/editor'
 import { useAppStore } from '../../stores/app'
 import { useDocumentsStore } from '../../stores/documents'
 import { useSearchStore } from '../../stores/search'
+import { takeEditorJump } from '../../composables/link-navigation'
 import { useScrollSync } from '../../composables/useScrollSync'
 import { registerScrollCapture } from '../../composables/session-scroll'
 import { findTextMatches, type TextMatch } from '../../utils/search'
@@ -266,6 +267,25 @@ function restoreScroll(id: string): void {
   view.requestMeasure()
 }
 
+/**
+ * 链接打开时登记的行号跳转：滚动到目标行并把光标放到该行指定列。
+ * 必须在恢复滚动之后执行，否则会被 restoreScroll 覆盖。
+ */
+function applyPendingJump(id: string): void {
+  if (!view) return
+  const jump = takeEditorJump(id)
+  if (!jump) return
+  // 标题锚点由预览区负责定位（与大纲跳转一致）；没有预览时才退回编辑区行号
+  if (jump.kind === 'heading' && editorStore.previewContent) return
+  const lineNo = Math.min(Math.max(jump.line, 1), view.state.doc.lines)
+  const line = view.state.doc.line(lineNo)
+  const pos = Math.min(line.from + Math.max(jump.column - 1, 0), line.to)
+  view.dispatch({
+    selection: { anchor: pos },
+    effects: EditorView.scrollIntoView(pos, { y: 'start' })
+  })
+}
+
 /** 窗口重新可见 / 获得焦点时强制复测，修正隐藏期间可能失效的行高缓存 */
 function refreshMeasure(): void {
   view?.requestMeasure()
@@ -491,6 +511,7 @@ watch(
     // 顺序反了会覆盖刚恢复的滚动位置
     view.focus()
     restoreScroll(newId)
+    applyPendingJump(newId)
     // 旧标签缓存的状态里可能还带着搜索装饰，强制重新派发一次
     searchDecorationsApplied = true
     refreshEditorSearch({ reset: true, reveal: true })

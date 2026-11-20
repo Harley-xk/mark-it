@@ -12,6 +12,8 @@ import { manualContent } from '../utils/manual'
 import { useI18n } from '../i18n'
 import { showFileOpenFailures, showFileReadNotices } from './file-notifications'
 import { canAutoSave } from '../utils/auto-save'
+import { resolveLinkTarget, type LinkLocation } from '../utils/link-target'
+import { clearPendingLinkTarget, setPendingLinkTarget } from './link-navigation'
 import type { TabDropOptions, TabTransferPayload } from '../../../shared/window-types'
 import type {
   FileIoError,
@@ -71,8 +73,8 @@ interface FileActions {
   openDroppedFiles: (files: File[]) => Promise<void>
   /** 从最近打开列表打开文件 */
   openRecentFile: (entry: RecentFileEntry) => Promise<void>
-  /** 打开文档内的本地 Markdown 链接：已打开时激活对应标签，否则读取磁盘后新建标签 */
-  openLinkedDocument: (filePath: string) => Promise<void>
+  /** 打开文档内的本地 Markdown 链接：以后台标签入列，并按链接中的锚点 / 行号定位 */
+  openLinkedDocument: (filePath: string, location?: LinkLocation) => Promise<void>
   /** 静默自动保存单个标签，不弹确认框 */
   autoSaveDocument: (doc: DocumentTab) => Promise<AutoSaveOutcome>
   saveFile: () => Promise<void>
@@ -343,11 +345,12 @@ export function useFile(): FileActions {
   /**
    * 应用一次“读取成功 + 失败项”的打开结果，多个入口共用。
    * `activate` 为 false 时按浏览器后台标签处理：只入列，不切换当前标签。
+   * 返回与 `result.files` 一一对应的标签，供调用方登记后续定位目标。
    */
   async function applyOpenFiles(
     result: OpenFilesResponse,
     options: { activate?: boolean } = {}
-  ): Promise<void> {
+  ): Promise<DocumentTab[]> {
     const activate = options.activate ?? true
     const before = new Set(docs.docs.map((doc) => doc.id))
     const opened = result.files.map((file) =>
@@ -363,6 +366,7 @@ export function useFile(): FileActions {
 
     await showFileOpenFailures(result.failures)
     await showFileReadNotices(result.files.filter((file) => file.notices.length > 0))
+    return opened
   }
 
   /** 打开文件对话框（支持多选），每个文件对应一个标签页 */
@@ -407,13 +411,19 @@ export function useFile(): FileActions {
    * 打开文档内的本地 Markdown 链接（预览区 Ctrl/Cmd + 单击）。
    * 按浏览器后台标签的语义处理：目标已在本窗口打开时不切换标签，
    * 未打开时读取磁盘后入列但不激活；主进程在其它窗口发现同一文件时会前置该窗口。
+   * 链接带锚点 / 行号时登记待定位目标，目标标签首次激活时由编辑区与预览区各自消费。
    */
-  async function openLinkedDocument(filePath: string): Promise<void> {
+  async function openLinkedDocument(filePath: string, location?: LinkLocation): Promise<void> {
     if (docs.docs.some((doc) => samePath(doc.path, filePath))) return
     await whenSessionReady()
     try {
       const result = await window.api.openLinkedMarkdown(filePath)
-      await applyOpenFiles(result, { activate: false })
+      const opened = await applyOpenFiles(result, { activate: false })
+      const target = result.files[0]
+      const doc = opened[0]
+      if (!target || !doc || !location) return
+      const resolved = resolveLinkTarget(target.content, location)
+      if (resolved) setPendingLinkTarget(doc.id, resolved)
     } catch (err) {
       console.error('Failed to open linked document:', filePath, err)
     }
@@ -574,6 +584,7 @@ export function useFile(): FileActions {
       if (action === 'save' && !(await saveDocument(doc))) return false
     }
 
+    clearPendingLinkTarget(doc.id)
     docs.closeDocument(doc.id)
     return true
   }

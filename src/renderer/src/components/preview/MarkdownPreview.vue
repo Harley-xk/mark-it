@@ -31,12 +31,14 @@ import {
 } from '../../utils/local-image'
 import { installHeadingAnchors } from '../../utils/headings'
 import { installLinkTitles } from '../../utils/link-title'
+import { findHeadingAnchorId, splitLinkLocation } from '../../utils/link-target'
 import { createMarkdownRenderer } from '../../utils/markdown'
 import { sanitizeMarkdownHtml } from '../../utils/sanitize'
 import { collectPreviewRanges } from '../../utils/search'
 import { LruCache } from '../../utils/lru-cache'
 import { confirmUnsaved } from '../../composables/useConfirmUnsaved'
 import { useFile } from '../../composables/useFile'
+import { takePreviewJump } from '../../composables/link-navigation'
 import { useI18n } from '../../i18n'
 import type { Locale } from '../../../../shared/locale-types'
 import SearchPanel from '../common/SearchPanel.vue'
@@ -410,6 +412,7 @@ const WINDOWS_DRIVE_PATH = /^[a-zA-Z]:[\\/]/
 /**
  * 页内锚点在当前预览层内解析。
  * 多个标签的预览层会同时带有 heading-N 等 id，原生 #id 跳转可能命中隐藏层。
+ * 显式 id 优先；匹配不到时按 GitHub slug / 标题原文查找标题锚点。
  */
 function scrollToPreviewAnchor(rawId: string): void {
   const id = decodeURIComponent(rawId)
@@ -417,8 +420,19 @@ function scrollToPreviewAnchor(rawId: string): void {
     previewRef.value?.scrollTo({ top: 0, behavior: 'smooth' })
     return
   }
-  const target = previewContentEl()?.querySelector(`#${CSS.escape(id)}`)
-  target?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  const content = previewContentEl()
+  const direct = content?.querySelector(`#${CSS.escape(id)}`)
+  if (direct) {
+    direct.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    return
+  }
+  const source = documentsStore.activeDoc?.content
+  const headingId = source ? findHeadingAnchorId(source, id) : null
+  if (!headingId) return
+  content?.querySelector(`#${CSS.escape(headingId)}`)?.scrollIntoView({
+    behavior: 'smooth',
+    block: 'start'
+  })
 }
 
 /**
@@ -452,12 +466,14 @@ function handlePreviewLinkClick(event: MouseEvent): void {
     const isFileUrl = /^file:/i.test(href)
     if (!isFileUrl && LINK_SCHEME.test(href) && !WINDOWS_DRIVE_PATH.test(href)) return
 
-    const localPath = resolveLocalPath(href, documentsStore.activeDoc?.path)
+    // 行号后缀与片段不属于文件路径：拆分后按真实路径定位，定位信息留给打开逻辑
+    const location = splitLinkLocation(href)
+    const localPath = resolveLocalPath(location.href, documentsStore.activeDoc?.path)
     if (!localPath) return
 
     if (event.ctrlKey || event.metaKey) {
       // 类似浏览器后台标签：Markdown 入列但不切换；其它本地文件交给系统默认程序
-      if (isMarkdownPath(localPath)) void file.openLinkedDocument(localPath)
+      if (isMarkdownPath(localPath)) void file.openLinkedDocument(localPath, location)
       else void window.api.openPath(localPath)
       return
     }
@@ -1111,6 +1127,29 @@ function restorePreviewScroll(id: string): void {
   }
 }
 
+/**
+ * 链接打开时登记的待定位目标：显式 id 优先，其次标题锚点，
+ * 都没有对应元素时回到文档顶部。必须在内容渲染与滚动恢复之后调用，避免被覆盖。
+ */
+function applyPendingPreviewJump(docId: string): void {
+  const jump = takePreviewJump(docId)
+  if (!jump) return
+  // 行号由编辑区负责精确滚动，滚动联动会自然带动预览；仅预览布局才按最近标题近似定位
+  if (jump.kind === 'line' && editorStore.editorView) return
+  const container = previewRef.value
+  if (!container) return
+  const content = previewContentEl()
+  for (const id of [jump.anchorId, jump.headingId]) {
+    if (!id) continue
+    const target = content?.querySelector<HTMLElement>(`#${CSS.escape(id)}`)
+    if (target) {
+      container.scrollTop = topWithin(target, container)
+      return
+    }
+  }
+  container.scrollTop = 0
+}
+
 watch(
   () => documentsStore.activeId,
   async (newId, oldId) => {
@@ -1145,6 +1184,12 @@ watch(
     } finally {
       releaseSync()
     }
+
+    // 链接的定位目标最后应用：编辑区行号跳转会触发比例联动，
+    // 在恢复窗口内应用会被联动改写；这里单独屏蔽两帧保证锚点精确落位
+    const releaseJump = suspendSync()
+    applyPendingPreviewJump(newId)
+    requestAnimationFrame(() => requestAnimationFrame(releaseJump))
   }
 )
 

@@ -267,6 +267,7 @@ Click behavior in the preview:
 - `http` / `https` / `mailto` links open in the system browser
 - Local file links are revealed in the system file manager
 - **`Ctrl` / `Cmd` + click** on a link to a local `.md` / `.markdown` file opens that document in a **background tab**, like a browser: the current tab and reading position stay unchanged, and no duplicate tab is created if it is already open
+- Links may carry a **heading anchor** (`./doc.md#Section Title`, GitHub-style `#some-heading`, or `#heading-2`) or a **line number** (`./doc.md:60`, `./doc.md:60:5`, `#L60`, `#L60-L70`); when you switch to that tab, the editor jumps to the line and the preview jumps to the heading. In-page links such as `#Section Title` also resolve by heading text
 - **`Ctrl` / `Cmd` + click** on other local files (images, PDFs, `.txt`, etc.) opens them with the system default app; executables and scripts are refused for safety
 - In-page anchors keep native navigation; all other protocols are ignored
 
