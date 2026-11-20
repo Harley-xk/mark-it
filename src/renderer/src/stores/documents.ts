@@ -224,11 +224,12 @@ export const useDocumentsStore = defineStore('documents', () => {
     path: string | null,
     content: string,
     name?: string,
-    meta?: DocumentFileMeta
+    meta?: DocumentFileMeta,
+    activate = true
   ): DocumentTab {
     const doc = createTab(path, content, name, meta)
     docs.value.push(doc)
-    activeId.value = doc.id
+    if (activate) activeId.value = doc.id
     return doc
   }
 
@@ -240,24 +241,29 @@ export const useDocumentsStore = defineStore('documents', () => {
     return doc.path === null && !doc.isModified
   }
 
-  /** 打开磁盘文件：已打开过则直接激活对应标签，避免重复标签 */
+  /**
+   * 打开磁盘文件：已打开过则复用对应标签，避免重复标签。
+   * `activate` 为 false 时按浏览器后台标签处理：只入列，不切换当前标签，
+   * 只有占位标签时也不替换，保持当前页面不变。
+   */
   function openPathDocument(
     filePath: string,
     content: string,
-    meta?: DocumentFileMeta
+    meta?: DocumentFileMeta,
+    activate = true
   ): DocumentTab {
     const normalized = normalizePath(filePath)
     const existing = docs.value.find((d) => d.path !== null && normalizePath(d.path) === normalized)
     if (existing) {
       if (meta) applyFileMeta(existing, meta)
-      activeId.value = existing.id
+      if (activate) activeId.value = existing.id
       return existing
     }
     // 只有占位标签时直接替换，而不是在其旁边新建标签
-    if (docs.value.length === 1 && isPlaceholderTab(docs.value[0])) {
+    if (activate && docs.value.length === 1 && isPlaceholderTab(docs.value[0])) {
       removeDocument(0)
     }
-    return addDocument(filePath, content, undefined, meta)
+    return addDocument(filePath, content, undefined, meta, activate)
   }
 
   function newDocument(content = '', filePath: string | null = null): DocumentTab {

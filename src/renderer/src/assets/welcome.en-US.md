@@ -266,7 +266,8 @@ Click behavior in the preview:
 
 - `http` / `https` / `mailto` links open in the system browser
 - Local file links are revealed in the system file manager
-- **`Ctrl` / `Cmd` + click** on a link to a local `.md` / `.markdown` file opens that document in a new tab; if it is already open, the existing tab is activated
+- **`Ctrl` / `Cmd` + click** on a link to a local `.md` / `.markdown` file opens that document in a **background tab**, like a browser: the current tab and reading position stay unchanged, and no duplicate tab is created if it is already open
+- **`Ctrl` / `Cmd` + click** on other local files (images, PDFs, `.txt`, etc.) opens them with the system default app; executables and scripts are refused for safety
 - In-page anchors keep native navigation; all other protocols are ignored
 
 ### 3.7 Images

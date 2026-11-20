@@ -423,8 +423,8 @@ function scrollToPreviewAnchor(rawId: string): void {
 
 /**
  * 预览区链接点击分流：页内锚点在当前预览层内跳转；
- * 网络链接交给默认浏览器；Ctrl/Cmd + 单击本地 Markdown 链接在新标签中打开目标文档；
- * 其余本地文件链接在资源管理器中定位，无法定位则不处理。
+ * 网络链接交给默认浏览器；本地链接按修饰键分流——Ctrl/Cmd + 单击 Markdown 链接
+ * 以浏览器后台标签方式打开，其余本地文件交给系统默认程序，不按修饰键时在资源管理器中定位。
  * 其余协议（ftp、tel、javascript 等）一律忽略，避免编辑窗口被导航走。
  */
 function handlePreviewLinkClick(event: MouseEvent): void {
@@ -455,9 +455,10 @@ function handlePreviewLinkClick(event: MouseEvent): void {
     const localPath = resolveLocalPath(href, documentsStore.activeDoc?.path)
     if (!localPath) return
 
-    // 类似浏览器在新标签页打开链接：仅限本地 Markdown 文档
-    if ((event.ctrlKey || event.metaKey) && isMarkdownPath(localPath)) {
-      void file.openLinkedDocument(localPath)
+    if (event.ctrlKey || event.metaKey) {
+      // 类似浏览器后台标签：Markdown 入列但不切换；其它本地文件交给系统默认程序
+      if (isMarkdownPath(localPath)) void file.openLinkedDocument(localPath)
+      else void window.api.openPath(localPath)
       return
     }
 

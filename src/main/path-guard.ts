@@ -65,6 +65,19 @@ export function isTrustedPath(
 }
 
 /**
+ * 交给系统默认程序打开时一律拒绝的可执行 / 脚本扩展名。
+ * 文档内容不受信任，链接作者可以诱导用户修饰键 + 单击直接执行本地程序；
+ * 这类文件仍可通过「在文件夹中显示」后由用户手动决定是否运行。
+ */
+export const BLOCKED_OPEN_EXTENSION =
+  /\.(?:exe|com|bat|cmd|msi|msix|appx|ps1|ps2|vbs|vbe|js|jse|wsf|wsh|hta|cpl|jar|reg|lnk|url|scr|pif|sh|bash|zsh|command|app|dmg|pkg|deb|rpm)$/i
+
+/** 路径是否属于禁止直接交给系统默认程序执行的文件 */
+export function isBlockedOpenPath(filePath: string): boolean {
+  return BLOCKED_OPEN_EXTENSION.test(filePath)
+}
+
+/**
  * 系统开机启动目录。写入这些目录会形成持久化风险，因此一律拒绝。
  * Windows 的 Startup 目录同时存在「当前用户」与「所有用户」两份，这里只保护当前用户路径；
  * 所有用户路径通常需要管理员权限，普通应用无法写入。

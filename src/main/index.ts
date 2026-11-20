@@ -10,7 +10,7 @@ import {
   session
 } from 'electron'
 import type { IpcMainInvokeEvent, WebContents } from 'electron'
-import { basename, dirname, join } from 'path'
+import { basename, dirname, isAbsolute, join } from 'path'
 import { fileURLToPath, pathToFileURL } from 'url'
 import { copyFile, rename, rm, writeFile } from 'fs/promises'
 import { randomUUID } from 'crypto'
@@ -51,7 +51,12 @@ import {
   type RecentFileRecord
 } from './recent-files-store'
 import type { RecentFileEntry, RecentOpenResult } from '../shared/recent-types'
-import { isTrustedPath, registerTrustedPath, startupDirectories } from './path-guard'
+import {
+  isBlockedOpenPath,
+  isTrustedPath,
+  registerTrustedPath,
+  startupDirectories
+} from './path-guard'
 import { exportDiagnostics, installLogger, reportRendererError } from './logger'
 import type { ExportKind, ExportProgress } from '../shared/export-types'
 import {
@@ -1770,6 +1775,23 @@ registerHandle('file:reveal', (_e, filePath: string) => {
 registerHandle('shell:openExternal', (_e, url: string) => {
   if (typeof url !== 'string') return false
   return openLinkExternally(url)
+})
+
+/**
+ * 用系统默认程序打开本地文件（预览区修饰键 + 单击非 Markdown 本地链接）。
+ * 只接受绝对路径，并拒绝可执行 / 脚本类扩展名，避免文档内容诱导直接执行本地程序。
+ */
+registerHandle('shell:openPath', async (event, filePath: unknown) => {
+  if (!isEditorWindowSender(event.sender)) return false
+  if (typeof filePath !== 'string' || !isAbsolute(filePath) || isBlockedOpenPath(filePath)) {
+    return false
+  }
+  const error = await shell.openPath(filePath)
+  if (error) {
+    console.error('Failed to open path with system default:', filePath, error)
+    return false
+  }
+  return true
 })
 
 /** 导出诊断日志：只允许编辑窗口与设置窗口调用 */

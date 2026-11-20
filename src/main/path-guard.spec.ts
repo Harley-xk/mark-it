@@ -2,6 +2,7 @@ import { join } from 'path'
 import { describe, expect, it } from 'vitest'
 import {
   findProtectedRoot,
+  isBlockedOpenPath,
   isTrustedPath,
   isWithinRoot,
   normalizeGuardPath,
@@ -23,6 +24,22 @@ describe('路径归一化', () => {
   it('盘符根目录保留结尾斜杠', () => {
     expect(normalizeGuardPath('C:\\', 'win32')).toBe('c:/')
     expect(normalizeGuardPath('C:', 'win32')).toBe('c:/')
+  })
+})
+
+describe('系统默认程序打开的黑名单', () => {
+  it('可执行文件与脚本应被拒绝，忽略大小写', () => {
+    expect(isBlockedOpenPath('D:/docs/setup.exe')).toBe(true)
+    expect(isBlockedOpenPath('D:/docs/run.BAT')).toBe(true)
+    expect(isBlockedOpenPath('/home/a/start.sh')).toBe(true)
+    expect(isBlockedOpenPath('D:/docs/note.lnk')).toBe(true)
+  })
+
+  it('普通文档、图片与 PDF 不应被拦截', () => {
+    expect(isBlockedOpenPath('D:/docs/report.pdf')).toBe(false)
+    expect(isBlockedOpenPath('D:/docs/pic.png')).toBe(false)
+    expect(isBlockedOpenPath('D:/docs/notes.txt')).toBe(false)
+    expect(isBlockedOpenPath('D:/docs/exe')).toBe(false)
   })
 })
 

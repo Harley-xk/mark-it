@@ -137,6 +137,7 @@
 | `window:set-native-theme`      | R→M invoke | `setNativeTheme(theme)`                    | `theme: 'light' \| 'dark' \| 'system'`        | `Promise<void>`                        | [`src/main/index.ts`](../../src/main/index.ts)     | 写入全局 `nativeTheme.themeSource`；允许任意编辑窗口和设置窗口调用                                                        |
 | `app:set-locale`               | R→M invoke | `setLocale(locale)`                        | `locale: 'zh-CN' \| 'en-US'`                  | `Promise<boolean>`                     | [`src/main/index.ts`](../../src/main/index.ts)     | 同步主进程当前界面语言；允许编辑 / 设置 / 更新 / 预览窗口调用；非法入参或来源返回 `false`（见[国际化与文案](./国际化与文案.md)） |
 | `shell:openExternal`           | R→M invoke | `openExternal(url)`                        | `url: string`                                 | `Promise<boolean>`                     | [`src/main/index.ts:553`](../../src/main/index.ts) | 仅放行 `http` / `https` / `mailto`；`file:` 转为定位文件；其余协议忽略并返回 `false`                                      |
+| `shell:openPath`               | R→M invoke | `openPath(path)`                           | `path: string`                                | `Promise<boolean>`                     | [`src/main/index.ts`](../../src/main/index.ts)     | 用系统默认程序打开本地文件；只接受绝对路径，拒绝可执行 / 脚本扩展名（`BLOCKED_OPEN_EXTENSION`），`shell.openPath` 报错返回 `false` |
 
 ### 3.3.1 设置窗口
 
@@ -317,8 +318,8 @@
 
 ### 5.3 链接与导航
 
-1. 渲染进程**不得直接导航**到外部地址；预览中的链接点击统一走 `shell:openExternal` 或 `file:reveal`。
-2. 仅 `http` / `https` / `mailto` 放行给系统默认程序；`file:` 转为在文件管理器中定位；`ftp`、`tel`、`javascript:` 等其余协议一律忽略。
+1. 渲染进程**不得直接导航**到外部地址；预览中的链接点击统一走 `shell:openExternal`、`file:reveal`、`shell:openPath` 或 `file:open-linked`。
+2. 仅 `http` / `https` / `mailto` 作为链接协议放行给系统默认程序；本地文件不按修饰键时经 `file:reveal` 在文件管理器中定位，修饰键 + 单击本地非 Markdown 文件时经 `shell:openPath` 交给系统默认程序，且拒绝可执行 / 脚本扩展名；`ftp`、`tel`、`javascript:` 等其余协议一律忽略。
 3. 主进程还有兜底：`setWindowOpenHandler` 一律拒绝新窗口并转交系统打开；`will-navigate` 对非应用自身页面地址 `preventDefault` 后转交系统打开，避免编辑窗口被导航走导致界面丢失。
 4. 页内锚点（`#heading-N`）保留浏览器原生跳转，不经过主进程。
 5. 预览中的图片单击只打开大图窗口；远程图片下载必须由用户显式点击，由主进程 `dialog:downloadImage` 发起，渲染进程不能借该通道读取任意地址的响应内容。

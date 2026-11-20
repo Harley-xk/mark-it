@@ -340,17 +340,26 @@ export function useFile(): FileActions {
     return { status: 'saved', path: targetPath }
   }
 
-  /** 应用一次“读取成功 + 失败项”的打开结果，多个入口共用 */
-  async function applyOpenFiles(result: OpenFilesResponse): Promise<void> {
+  /**
+   * 应用一次“读取成功 + 失败项”的打开结果，多个入口共用。
+   * `activate` 为 false 时按浏览器后台标签处理：只入列，不切换当前标签。
+   */
+  async function applyOpenFiles(
+    result: OpenFilesResponse,
+    options: { activate?: boolean } = {}
+  ): Promise<void> {
+    const activate = options.activate ?? true
     const before = new Set(docs.docs.map((doc) => doc.id))
     const opened = result.files.map((file) =>
-      docs.openPathDocument(file.path, file.content, fileMeta(file))
+      docs.openPathDocument(file.path, file.content, fileMeta(file), activate)
     )
-    // 多选时优先激活新打开的最后一个文件；全部已在标签页中时激活最后一项，
-    // 保证打开动作结束后看到的总是本次操作对应的标签
-    const fresh = opened.filter((doc) => !before.has(doc.id))
-    const target = fresh.length > 0 ? fresh[fresh.length - 1] : opened[opened.length - 1]
-    if (target) docs.activateDocument(target.id)
+    if (activate) {
+      // 多选时优先激活新打开的最后一个文件；全部已在标签页中时激活最后一项，
+      // 保证打开动作结束后看到的总是本次操作对应的标签
+      const fresh = opened.filter((doc) => !before.has(doc.id))
+      const target = fresh.length > 0 ? fresh[fresh.length - 1] : opened[opened.length - 1]
+      if (target) docs.activateDocument(target.id)
+    }
 
     await showFileOpenFailures(result.failures)
     await showFileReadNotices(result.files.filter((file) => file.notices.length > 0))
@@ -396,13 +405,15 @@ export function useFile(): FileActions {
 
   /**
    * 打开文档内的本地 Markdown 链接（预览区 Ctrl/Cmd + 单击）。
-   * 主进程校验路径后按常规打开流程处理：已有标签只激活，不覆盖未保存内容。
+   * 按浏览器后台标签的语义处理：目标已在本窗口打开时不切换标签，
+   * 未打开时读取磁盘后入列但不激活；主进程在其它窗口发现同一文件时会前置该窗口。
    */
   async function openLinkedDocument(filePath: string): Promise<void> {
+    if (docs.docs.some((doc) => samePath(doc.path, filePath))) return
     await whenSessionReady()
     try {
       const result = await window.api.openLinkedMarkdown(filePath)
-      await applyOpenFiles(result)
+      await applyOpenFiles(result, { activate: false })
     } catch (err) {
       console.error('Failed to open linked document:', filePath, err)
     }
