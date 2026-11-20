@@ -92,6 +92,7 @@
 | `recent:list`   | R→M invoke | `recent.list()`   | 无             | `Promise<RecentFileEntry[]>` | [`src/main/index.ts`](../../src/main/index.ts) | 全局列表；按磁盘存在性补充 `missing`；只接受编辑窗口                                     |
 | `recent:open`   | R→M invoke | `recent.open(path)` | `path: string` | `Promise<RecentOpenResult>` | [`src/main/index.ts`](../../src/main/index.ts) | **只接受列表内路径**；已在其他窗口打开时投递并返回 `status: 'focused'`                   |
 | `recent:clear`  | R→M invoke | `recent.clear()`  | 无             | `Promise<boolean>`           | [`src/main/index.ts`](../../src/main/index.ts) | 清空并持久化，随后广播 `recent:changed`                                                  |
+| `recent:remember` | R→M invoke | `recent.remember(path)` | `path: string` | `Promise<boolean>`      | [`src/main/index.ts`](../../src/main/index.ts) | 关闭标签后补记；只接受信任集合内、扩展名合法的文档路径；随后广播 `recent:changed`      |
 
 ### 3.2 对话框
 

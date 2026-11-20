@@ -235,6 +235,8 @@ const api = {
     list: (): Promise<RecentFileEntry[]> => ipcRenderer.invoke('recent:list'),
     open: (path: string): Promise<RecentOpenResult> => ipcRenderer.invoke('recent:open', path),
     clear: (): Promise<boolean> => ipcRenderer.invoke('recent:clear'),
+    /** 关闭标签后补记路径，使该文件立即出现在最近文件列表 */
+    remember: (path: string): Promise<boolean> => ipcRenderer.invoke('recent:remember', path),
     /** 列表变化（任一窗口打开文件 / 清除）后广播 */
     onChanged: (callback: () => void): (() => void) => subscribeVoid('recent:changed', callback)
   },

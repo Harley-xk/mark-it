@@ -584,6 +584,15 @@ export function useFile(): FileActions {
       if (action === 'save' && !(await saveDocument(doc))) return false
     }
 
+    // 关闭成功后补记一次最近打开：会话恢复或清除记录后关闭的标签也能出现在最近文件组
+    if (doc.path) {
+      try {
+        await window.api.recent.remember(doc.path)
+      } catch (err) {
+        console.error('Failed to remember closed file:', doc.path, err)
+      }
+    }
+
     clearPendingLinkTarget(doc.id)
     docs.closeDocument(doc.id)
     return true

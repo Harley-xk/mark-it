@@ -48,13 +48,25 @@ test('最近打开在欢迎态与工具栏展示，清除后重启不再出现',
     await window.keyboard.press('Escape')
     await expect(window.locator('.tab-overview-popover')).toHaveCount(0)
 
-    // 等会话快照包含当前文件，验证「清除记录」不会被会话恢复补齐覆盖
+    // 关闭标签时补记：即使记录被清除过，刚关闭的文件也会重新出现在最近文件组
+    await window.locator('.tab-new').click()
+    await window.locator('.tab', { hasText: 'recent.md' }).click({ button: 'right' })
+    await window.locator('.ctx-item', { hasText: '关闭' }).first().click()
+    await window.locator('.tab-overview-btn').click()
+    await expect(
+      window.locator('.overview-recent-list .overview-item', { hasText: 'recent.md' })
+    ).toBeVisible()
+    await window.locator('.overview-clear').click()
+    await expect(window.locator('.overview-empty')).toBeVisible()
+    await window.keyboard.press('Escape')
+
+    // 等会话快照落盘，确保重启时恢复的是当前剩余标签
     const sessionPath = join(userDataDir, 'session.json')
     await expect
       .poll(() => (existsSync(sessionPath) ? readFileSync(sessionPath, 'utf-8') : ''), {
         timeout: 5000
       })
-      .toContain('recent.md')
+      .toContain('untitled.md')
   } finally {
     await app.close()
   }
@@ -65,9 +77,7 @@ test('最近打开在欢迎态与工具栏展示，清除后重启不再出现',
     const window = await app.firstWindow()
     await expect(window.locator('.app-layout')).toBeVisible()
     await window.locator('.tab-overview-btn').click()
-    await expect(
-      window.locator('.overview-tab-list .overview-item', { hasText: 'recent.md' })
-    ).toBeVisible()
+    await expect(window.locator('.overview-tab-list .overview-item').first()).toBeVisible()
     await expect(window.locator('.overview-recent-list .overview-item')).toHaveCount(0)
   } finally {
     await app.close()

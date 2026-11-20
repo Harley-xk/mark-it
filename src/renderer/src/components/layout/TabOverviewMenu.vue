@@ -170,10 +170,7 @@ onBeforeUnmount(() => {
       stroke-linecap="round"
       stroke-linejoin="round"
     >
-      <line x1="4" y1="7" x2="15" y2="7" />
-      <line x1="4" y1="12" x2="15" y2="12" />
-      <line x1="4" y1="17" x2="15" y2="17" />
-      <polyline points="18 9.5 21 12.5 18 15.5" />
+      <polyline points="6 9 12 15 18 9" />
     </svg>
   </button>
 
@@ -212,7 +209,7 @@ onBeforeUnmount(() => {
                         : t('recent.unsaved')
                   }}
                 </span>
-                <span class="overview-item-time">{{ formatTime(doc.openedAt) }}</span>
+                <span class="overview-item-time">{{ formatTime(doc.openedAt || now) }}</span>
               </span>
             </button>
           </li>

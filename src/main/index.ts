@@ -1639,6 +1639,14 @@ registerHandle('recent:list', (event): RecentFileEntry[] => {
   return listRecentFiles()
 })
 
+/** 关闭标签时补记一次路径：只接受本进程信任集合内的文档，避免注入任意路径 */
+registerHandle('recent:remember', (event, filePath: unknown): boolean => {
+  if (!isEditorWindowSender(event.sender) || typeof filePath !== 'string') return false
+  if (!isTrustedPath(trustedFilePaths, filePath, process.platform)) return false
+  rememberRecentFile(filePath)
+  return true
+})
+
 registerHandle('recent:open', async (event, filePath: unknown): Promise<RecentOpenResult> => {
   if (!isEditorWindowSender(event.sender) || typeof filePath !== 'string') {
     return { status: 'failed', path: '', error: { code: 'invalid-path', message: 'Invalid path' } }
