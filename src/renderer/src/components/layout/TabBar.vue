@@ -750,6 +750,8 @@ onBeforeUnmount(() => {
   color: inherit;
   cursor: pointer;
   opacity: 0;
+  /* 隐藏时不可点击：否则透明按钮会吞掉标签右侧 / 中央的点击，造成误关闭 */
+  pointer-events: none;
   transition:
     opacity 0.12s ease,
     background 0.12s ease;
@@ -759,6 +761,7 @@ onBeforeUnmount(() => {
 .tab:hover .tab-close,
 .tab-close:focus-visible {
   opacity: 1;
+  pointer-events: auto;
 }
 
 .tab-close:hover {
@@ -766,7 +769,7 @@ onBeforeUnmount(() => {
   color: #fff;
 }
 
-/* 纯图标模式：隐藏名称、图标居中，悬停时关闭按钮替换图标。
+/* 纯图标模式：隐藏名称、图标居中，激活标签悬停时关闭按钮替换图标。
    容器查询按内容区宽度（不含 12px 内边距）计算，对应标签总宽约 72px */
 @container (max-width: 60px) {
   .tab-name {
@@ -782,8 +785,16 @@ onBeforeUnmount(() => {
     transform: translate(50%, -50%);
   }
 
-  .tab:hover .tab-icon-wrap {
+  /* 参考 Chrome：只有激活标签悬停才把图标换成关闭按钮；
+     未激活标签悬停保持图标，点击落点始终是「切换标签」而不是关闭 */
+  .tab.active:hover .tab-icon-wrap,
+  .tab:has(.tab-close:focus-visible) .tab-icon-wrap {
     opacity: 0;
+  }
+
+  .tab:not(.active):hover .tab-close:not(:focus-visible) {
+    opacity: 0;
+    pointer-events: none;
   }
 }
 
