@@ -9,8 +9,13 @@ import { decodeText, encodeText } from '../utils/text-encoding'
 import { serializeEditorState } from '../utils/editor-state-transfer'
 import { describeFileError } from '../utils/file-errors'
 import { manualContent } from '../utils/manual'
+import { MAX_TABS_PER_WINDOW } from '../utils/tab-limit'
 import { useI18n } from '../i18n'
-import { showFileOpenFailures, showFileReadNotices } from './file-notifications'
+import {
+  showFileFailureMessage,
+  showFileOpenFailures,
+  showFileReadNotices
+} from './file-notifications'
 import { canAutoSave } from '../utils/auto-save'
 import { resolveLinkTarget, type LinkLocation } from '../utils/link-target'
 import { clearPendingLinkTarget, setPendingLinkTarget } from './link-navigation'
@@ -107,6 +112,20 @@ export function useFile(): FileActions {
   const docs = useDocumentsStore()
   const editor = useEditorStore()
   const { locale, t } = useI18n()
+
+  /**
+   * 单窗口标签上限的统一提示。批量打开时按被忽略数量汇总一次，不逐个文件弹窗。
+   * 迁移被拒时提示目标窗口（迁移期间目标窗口会被前置）。
+   */
+  async function notifyTabLimit(
+    key: 'tabs.limitReached' | 'tabs.limitIgnored' | 'tabs.limitMoveRejected',
+    count = 1
+  ): Promise<void> {
+    await showFileFailureMessage(
+      t('tabs.limitTitle'),
+      t(key, { limit: MAX_TABS_PER_WINDOW, count })
+    )
+  }
 
   if (!transferListenersInstalled) {
     transferListenersInstalled = true
@@ -353,19 +372,24 @@ export function useFile(): FileActions {
   ): Promise<DocumentTab[]> {
     const activate = options.activate ?? true
     const before = new Set(docs.docs.map((doc) => doc.id))
-    const opened = result.files.map((file) =>
-      docs.openPathDocument(file.path, file.content, fileMeta(file), activate)
-    )
-    if (activate) {
+    const opened: DocumentTab[] = []
+    let rejected = 0
+    for (const file of result.files) {
+      const doc = docs.openPathDocument(file.path, file.content, fileMeta(file), activate)
+      if (doc) opened.push(doc)
+      else rejected += 1
+    }
+    if (activate && opened.length > 0) {
       // 多选时优先激活新打开的最后一个文件；全部已在标签页中时激活最后一项，
       // 保证打开动作结束后看到的总是本次操作对应的标签
       const fresh = opened.filter((doc) => !before.has(doc.id))
       const target = fresh.length > 0 ? fresh[fresh.length - 1] : opened[opened.length - 1]
-      if (target) docs.activateDocument(target.id)
+      docs.activateDocument(target.id)
     }
 
     await showFileOpenFailures(result.failures)
     await showFileReadNotices(result.files.filter((file) => file.notices.length > 0))
+    if (rejected > 0) await notifyTabLimit('tabs.limitIgnored', rejected)
     return opened
   }
 
@@ -397,7 +421,15 @@ export function useFile(): FileActions {
     try {
       const result = await window.api.recent.open(entry.path)
       if (result.status === 'opened') {
-        docs.openPathDocument(result.file.path, result.file.content, fileMeta(result.file))
+        const doc = docs.openPathDocument(
+          result.file.path,
+          result.file.content,
+          fileMeta(result.file)
+        )
+        if (!doc) {
+          await notifyTabLimit('tabs.limitReached')
+          return
+        }
         await showFileReadNotices(result.file.notices.length > 0 ? [result.file] : [])
       } else if (result.status === 'failed') {
         await showFileOpenFailures([{ path: result.path, error: result.error }])
@@ -431,7 +463,11 @@ export function useFile(): FileActions {
 
   /** 打开主进程发来的文件（右键"使用 MarkIt 打开" / 命令行传参） */
   function openFileFromPath(result: FileReadResult): void {
-    docs.openPathDocument(result.path, result.content, fileMeta(result))
+    const doc = docs.openPathDocument(result.path, result.content, fileMeta(result))
+    if (!doc) {
+      void notifyTabLimit('tabs.limitReached')
+      return
+    }
     void showFileReadNotices(result.notices.length > 0 ? [result] : [])
   }
 
@@ -539,7 +575,12 @@ export function useFile(): FileActions {
         window.api.rejectTabTransfer(payload.transferId)
         return
       }
-      docs.insertSessionTab(payload.tab, payload.editorStateJson)
+      const doc = docs.insertSessionTab(payload.tab, payload.editorStateJson)
+      if (!doc) {
+        window.api.rejectTabTransfer(payload.transferId)
+        void notifyTabLimit('tabs.limitMoveRejected')
+        return
+      }
       window.api.ackTabTransfer(payload.transferId)
     } catch (err) {
       console.error('Failed to receive tab transfer:', err)
@@ -552,7 +593,7 @@ export function useFile(): FileActions {
     const active = docs.activeDoc
     // 当前已经是未修改的空白文档时直接复用，避免堆积空标签
     if (active && active.path === null && !active.isModified && active.content === '') return
-    docs.newDocument('')
+    if (!docs.newDocument('')) void notifyTabLimit('tabs.limitReached')
   }
 
   /** 打开内置使用手册：没有手册标签时新建，已存在则直接激活，避免重复堆积 */
@@ -565,7 +606,9 @@ export function useFile(): FileActions {
       docs.activateDocument(existing.id)
       return
     }
-    docs.addDocument(null, manualContent(locale.value), name)
+    if (!docs.addDocument(null, manualContent(locale.value), name)) {
+      await notifyTabLimit('tabs.limitReached')
+    }
   }
 
   /**

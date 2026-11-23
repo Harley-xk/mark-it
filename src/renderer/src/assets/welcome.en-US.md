@@ -65,7 +65,9 @@ Auto save is off by default. In Settings → Editor → Auto Save, choose to wri
 
 - Each tab keeps its own **content, undo history, cursor position, layout mode, outline visibility, and scroll positions for the editor and preview**; switching back and forth loses nothing.
 - For very large documents (hundreds of thousands of characters), switching back to a recently viewed tab reuses its last preview instead of re-rendering the whole document. While typing, the preview refreshes about 0.15 seconds after you stop, avoiding per-keystroke layout work.
-- A dot on a tab means unsaved changes; middle-click closes the tab.
+- Each tab shows an icon: Markdown files use the first character of the file name, and a blank unsaved document shows a document icon. A dot at the icon's bottom-right means unsaved changes; middle-click closes the tab.
+- As more tabs open, every tab narrows evenly. Once only the icon fits, hovering the icon turns it into a close button, and the tab strip scrolls horizontally for the rest.
+- Each window can keep up to 99 tabs. After that, opening or creating another tab shows a prompt; reopening a file that is already open just switches to its tab.
 - Right-click a tab to open in a new window, close, close others, close to the left, or close to the right. Batch closing still confirms each unsaved document.
 - Drag a tab left or right to reorder it. The order is saved with the session; `Ctrl + 1` to `Ctrl + 9` and `Ctrl + Tab` follow the new order.
 - Drag a tab into another MarkIt editor window to move it there. Releasing outside the title bar or outside all windows creates a new editor window. The source tab is not removed until the target window is ready.

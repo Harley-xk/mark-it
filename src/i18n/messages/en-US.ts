@@ -182,6 +182,13 @@ export const enUS: Record<MessageKey, string> = {
   'tabs.context.closeLeft': 'Close to the Left',
   'tabs.context.closeRight': 'Close to the Right',
   'tabs.dropHint': 'Release to move "{name}" to this window',
+  'tabs.limitTitle': 'Tab limit reached',
+  'tabs.limitReached': 'This window can keep up to {limit} tabs open; no new tab was opened',
+  'tabs.limitIgnored':
+    'This window can keep up to {limit} tabs open; {count} file(s) were not opened',
+  'tabs.limitMoveRejected': 'This window already has {limit} tabs, so the tab was not moved',
+  'tabs.limitSessionTrimmed':
+    'The session contained {count} tabs; only the first {limit} were restored',
 
   'outline.title': 'Outline',
   'outline.empty': 'No headings',

@@ -5,6 +5,7 @@ import type { HeadingItem, LayoutMode } from '../types'
 import type { SessionTab } from '../../../shared/session-types'
 import type { FileTextEncoding } from '../../../shared/file-types'
 import { normalizePath } from '../utils/path'
+import { MAX_TABS_PER_WINDOW, remainingTabSlots } from '../utils/tab-limit'
 import { isLayoutMode, loadSavedLayoutMode } from '../utils/layout-mode'
 import { loadSavedOutlineVisible } from '../utils/outline-visibility'
 import { moveItem } from '../utils/tab-order'
@@ -92,6 +93,13 @@ export interface PreviewScrollPosition {
   anchor: number
   /** 视口顶部相对锚点元素顶部的偏移（像素，向下为正） */
   offset: number
+}
+
+/** 会话恢复结果：是否恢复、被上限截断的标签数、会话中的原始标签总数 */
+export interface RestoreSessionResult {
+  restored: boolean
+  trimmed: number
+  total: number
 }
 
 let docSequence = 0
@@ -223,13 +231,15 @@ export const useDocumentsStore = defineStore('documents', () => {
     if (meta.missing !== undefined) doc.missing = meta.missing
   }
 
+  /** 新增标签；达到单窗口上限时返回 null，调用方负责提示 */
   function addDocument(
     path: string | null,
     content: string,
     name?: string,
     meta?: DocumentFileMeta,
     activate = true
-  ): DocumentTab {
+  ): DocumentTab | null {
+    if (remainingTabSlots(docs.value.length) === 0) return null
     const doc = createTab(path, content, name, meta)
     docs.value.push(doc)
     if (activate) activeId.value = doc.id
@@ -254,7 +264,7 @@ export const useDocumentsStore = defineStore('documents', () => {
     content: string,
     meta?: DocumentFileMeta,
     activate = true
-  ): DocumentTab {
+  ): DocumentTab | null {
     const normalized = normalizePath(filePath)
     const existing = docs.value.find((d) => d.path !== null && normalizePath(d.path) === normalized)
     if (existing) {
@@ -262,14 +272,16 @@ export const useDocumentsStore = defineStore('documents', () => {
       if (activate) activeId.value = existing.id
       return existing
     }
+    // 上限判断必须在移除占位标签之前：占位替换不增加数量，不应被拒绝
+    const replacesPlaceholder =
+      activate && docs.value.length === 1 && isPlaceholderTab(docs.value[0])
+    if (!replacesPlaceholder && remainingTabSlots(docs.value.length) === 0) return null
     // 只有占位标签时直接替换，而不是在其旁边新建标签
-    if (activate && docs.value.length === 1 && isPlaceholderTab(docs.value[0])) {
-      removeDocument(0)
-    }
+    if (replacesPlaceholder) removeDocument(0)
     return addDocument(filePath, content, undefined, meta, activate)
   }
 
-  function newDocument(content = '', filePath: string | null = null): DocumentTab {
+  function newDocument(content = '', filePath: string | null = null): DocumentTab | null {
     return addDocument(filePath, content)
   }
 
@@ -315,21 +327,24 @@ export const useDocumentsStore = defineStore('documents', () => {
 
   /**
    * 用上次会话的标签页替换当前内容（更新重启后恢复）。
-   * 返回 false 表示会话为空、保持现有标签页不变
+   * 会话中的标签超过单窗口上限时只恢复前 N 个，并返回截断数量供调用方提示。
    */
   function restoreSession(
     tabs: SessionTab[],
     activeIndex: number,
     serializedStates?: ReadonlyMap<number, unknown>
-  ): boolean {
-    if (tabs.length === 0) return false
+  ): RestoreSessionResult {
+    if (tabs.length === 0) return { restored: false, trimmed: 0, total: 0 }
+
+    const limited = tabs.slice(0, MAX_TABS_PER_WINDOW)
+    const trimmed = tabs.length - limited.length
 
     editorStates.clear()
     serializedEditorStates.clear()
     scrollPositions.clear()
     previewScrollPositions.clear()
 
-    const restored = tabs.map((tab, index) => {
+    const restored = limited.map((tab, index) => {
       const doc = createRestoredTab(tab)
       const serialized = serializedStates?.get(index)
       if (serialized) serializedEditorStates.set(doc.id, serialized)
@@ -339,11 +354,12 @@ export const useDocumentsStore = defineStore('documents', () => {
     docs.value = restored
     const index = Math.min(Math.max(Math.floor(activeIndex) || 0, 0), restored.length - 1)
     activeId.value = restored[index].id
-    return true
+    return { restored: true, trimmed, total: tabs.length }
   }
 
-  /** 接收另一个编辑窗口迁入的标签，并保留其序列化 EditorState */
-  function insertSessionTab(tab: SessionTab, serializedState?: unknown): DocumentTab {
+  /** 接收另一个编辑窗口迁入的标签，并保留其序列化 EditorState；达到上限返回 null */
+  function insertSessionTab(tab: SessionTab, serializedState?: unknown): DocumentTab | null {
+    if (remainingTabSlots(docs.value.length) === 0) return null
     const doc = createRestoredTab(tab)
     if (serializedState) serializedEditorStates.set(doc.id, serializedState)
     docs.value.push(doc)

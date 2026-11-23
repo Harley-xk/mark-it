@@ -3,7 +3,13 @@ import { useDocumentsStore } from '../stores/documents'
 import { useAppStore } from '../stores/app'
 import { useEditorStore } from '../stores/editor'
 import { useFile } from './useFile'
-import { showFileOpenFailures, showFileReadNotices } from './file-notifications'
+import {
+  showFileFailureMessage,
+  showFileOpenFailures,
+  showFileReadNotices
+} from './file-notifications'
+import { MAX_TABS_PER_WINDOW } from '../utils/tab-limit'
+import { useI18n } from '../i18n'
 import { markSessionReady } from './session-ready'
 import { captureScrollPositions } from './session-scroll'
 import { decodeText } from '../utils/text-encoding'
@@ -29,6 +35,7 @@ export function useSession(): { flush: () => Promise<void> } {
   const app = useAppStore()
   const editor = useEditorStore()
   const file = useFile()
+  const { t } = useI18n()
 
   /** 会话恢复完成前收到的命令行文件先缓存，避免与恢复结果互相覆盖 */
   const pendingOpenFiles: FileReadResult[] = []
@@ -136,6 +143,8 @@ export function useSession(): { flush: () => Promise<void> } {
     let pendingTransferId: string | null = null
     let pendingTransfer: TabTransferPayload | null = null
     let transferAccepted = false
+    let trimmedTabs = 0
+    let totalTabs = 0
     const failures: FileOpenFailure[] = []
     const noticeFiles: FileReadResult[] = []
     try {
@@ -186,7 +195,10 @@ export function useSession(): { flush: () => Promise<void> } {
             serializedStates.set(transferredIndex, pendingTransfer.editorStateJson)
           }
         }
-        transferAccepted = docs.restoreSession(tabs, saved.activeIndex, serializedStates)
+        const result = docs.restoreSession(tabs, saved.activeIndex, serializedStates)
+        transferAccepted = result.restored
+        trimmedTabs = result.trimmed
+        totalTabs = result.total
       }
     } catch (err) {
       console.error('Failed to restore session:', err)
@@ -205,6 +217,12 @@ export function useSession(): { flush: () => Promise<void> } {
     // 会话恢复完成后再提示，避免阻塞 pendingOpenFiles 放行
     void showFileOpenFailures(failures)
     void showFileReadNotices(noticeFiles)
+    if (trimmedTabs > 0) {
+      void showFileFailureMessage(
+        t('tabs.limitTitle'),
+        t('tabs.limitSessionTrimmed', { count: totalTabs, limit: MAX_TABS_PER_WINDOW })
+      )
+    }
   }
 
   const offOpenFile = window.api.onOpenFile((result) => {

@@ -125,8 +125,24 @@ async function onExportImage(options: ImageExportOptions): Promise<void> {
   color: #1a1a2e;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
 }
+.light .title-bar .tab-icon.is-letter {
+  background: rgba(0, 0, 0, 0.07);
+  color: rgba(0, 0, 0, 0.65);
+}
+.light .title-bar .tab:hover .tab-icon.is-letter {
+  background: rgba(0, 0, 0, 0.1);
+}
+.light .title-bar .tab.active .tab-icon.is-letter {
+  background: rgba(0, 0, 0, 0.08);
+  color: #1a1a2e;
+}
 .light .title-bar .tab-dot {
   background: #3b82f6;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.9);
+}
+.light .title-bar .tab-missing {
+  background: rgba(217, 119, 6, 0.18);
+  color: #b45309;
 }
 .light .title-bar .tab.drop-before::before,
 .light .title-bar .tab.drop-after::after {

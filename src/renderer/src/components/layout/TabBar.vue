@@ -4,6 +4,7 @@ import { useDocumentsStore } from '../../stores/documents'
 import { useFile } from '../../composables/useFile'
 import { useAppStore } from '../../stores/app'
 import { findInsertBefore } from '../../utils/tab-order'
+import { isUntitledName, tabIconLetter } from '../../utils/tab-icon'
 import { useI18n } from '../../i18n'
 import TabOverviewMenu from './TabOverviewMenu.vue'
 import type { EditorWindowSummary } from '../../../../shared/window-types'
@@ -14,6 +15,8 @@ const file = useFile()
 const { t } = useI18n()
 
 const scrollRef = ref<HTMLDivElement>()
+/** 标签条整体（滚动区 + 新建按钮），用于拖拽命中判断 */
+const stripRef = ref<HTMLDivElement>()
 
 /** 鼠标滚轮纵向滚动时，横向翻动标签栏 */
 function onWheel(e: WheelEvent): void {
@@ -156,7 +159,7 @@ function resetPointerDrag(): void {
 }
 
 function pointerInTabStrip(e: PointerEvent): boolean {
-  const rect = scrollRef.value?.getBoundingClientRect()
+  const rect = stripRef.value?.getBoundingClientRect()
   return (
     !!rect &&
     e.clientX >= rect.left &&
@@ -389,45 +392,70 @@ onBeforeUnmount(() => {
 <template>
   <div class="tab-bar">
     <TabOverviewMenu />
-    <div ref="scrollRef" class="tab-scroll" @wheel="onWheel">
-      <div
-        v-for="(doc, index) in docs.docs"
-        :key="doc.id"
-        class="tab"
-        :class="{
-          active: doc.id === docs.activeId,
-          modified: doc.isModified,
-          dragging: dragTabId === doc.id,
-          'drop-before': dropIndicatorIndex === index,
-          'drop-after': dropIndicatorIndex === docs.docs.length && index === docs.docs.length - 1
-        }"
-        :title="doc.path || doc.name"
-        :data-doc-id="doc.id"
-        @click="onTabClick(doc.id, $event)"
-        @pointerdown="onPointerDown(doc.id, $event)"
-        @pointermove="onPointerMove"
-        @pointerup="onPointerUp"
-        @pointercancel="onPointerCancel"
-        @mousedown="onMiddleClick(doc.id, $event)"
-        @contextmenu="openContextMenu(doc.id, $event)"
-      >
-        <span class="tab-name">{{ doc.name }}</span>
-        <span v-if="doc.missing" class="tab-missing" :title="t('tabs.missing')">!</span>
-        <span v-if="doc.isModified" class="tab-dot" :title="t('tabs.unsaved')"></span>
-        <button class="tab-close" :title="t('tabs.close')" @click.stop="file.closeTab(doc.id)">
-          <svg
-            width="12"
-            height="12"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-          >
-            <line x1="18" y1="6" x2="6" y2="18" />
-            <line x1="6" y1="6" x2="18" y2="18" />
-          </svg>
-        </button>
+    <div ref="stripRef" class="tab-strip">
+      <div ref="scrollRef" class="tab-scroll" @wheel="onWheel">
+        <div
+          v-for="(doc, index) in docs.docs"
+          :key="doc.id"
+          class="tab"
+          :class="{
+            active: doc.id === docs.activeId,
+            modified: doc.isModified,
+            dragging: dragTabId === doc.id,
+            'drop-before': dropIndicatorIndex === index,
+            'drop-after': dropIndicatorIndex === docs.docs.length && index === docs.docs.length - 1
+          }"
+          :title="doc.path || doc.name"
+          :data-doc-id="doc.id"
+          @click="onTabClick(doc.id, $event)"
+          @pointerdown="onPointerDown(doc.id, $event)"
+          @pointermove="onPointerMove"
+          @pointerup="onPointerUp"
+          @pointercancel="onPointerCancel"
+          @mousedown="onMiddleClick(doc.id, $event)"
+          @contextmenu="openContextMenu(doc.id, $event)"
+        >
+          <span class="tab-icon-wrap">
+            <span
+              class="tab-icon"
+              :class="{ 'is-letter': !isUntitledName(doc.name) }"
+              aria-hidden="true"
+            >
+              <svg
+                v-if="isUntitledName(doc.name)"
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
+                <polyline points="14 3 14 8 19 8" />
+              </svg>
+              <template v-else>{{ tabIconLetter(doc.name) }}</template>
+            </span>
+            <span v-if="doc.isModified" class="tab-dot" :title="t('tabs.unsaved')"></span>
+            <span v-if="doc.missing" class="tab-missing" :title="t('tabs.missing')">!</span>
+          </span>
+          <span class="tab-name">{{ doc.name }}</span>
+          <button class="tab-close" :title="t('tabs.close')" @click.stop="file.closeTab(doc.id)">
+            <svg
+              width="12"
+              height="12"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+            >
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </div>
       </div>
 
       <button class="tab-new" :title="t('tabs.new')" @click="file.newFile()">
@@ -529,6 +557,15 @@ onBeforeUnmount(() => {
   align-items: stretch;
 }
 
+/* 滚动区 + 新建按钮：新建按钮固定在标签条末尾，不随标签滚动消失 */
+.tab-strip {
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+  max-width: 100%;
+  flex: 0 1 auto;
+}
+
 .tab-scroll {
   flex: 0 1 auto;
   min-width: 0;
@@ -552,18 +589,23 @@ onBeforeUnmount(() => {
   -webkit-app-region: drag;
 }
 
-/* Chrome 风格标签：顶部圆角、贴住标题栏底部 */
+/* Chrome 风格标签：顶部圆角、贴住标题栏底部；等宽压缩，最窄只留图标 */
 .tab {
-  flex: 0 0 auto;
+  /* 显式宽度为内部尺寸包含提供基准：container-type 会让 auto 宽度归零，
+     标签条才能按「n × 200px」计算内容宽度并让外层决定压缩余地 */
+  width: 200px;
+  flex: 1 1 200px;
+  min-width: 46px;
+  max-width: 200px;
+  /* 纯图标模式按容器宽度判定，不依赖 JS 尺寸测量 */
+  container-type: inline-size;
   position: relative;
   display: flex;
   align-items: center;
   gap: 6px;
   height: 30px;
-  min-width: 100px;
-  max-width: 200px;
   margin: 0 1px;
-  padding: 0 30px 0 12px;
+  padding: 0 6px;
   border-radius: 8px 8px 0 0;
   color: rgba(255, 255, 255, 0.5);
   font-size: 12px;
@@ -612,39 +654,88 @@ onBeforeUnmount(() => {
   right: -2px;
 }
 
+/* 图标外框：未保存圆点与文件缺失标记叠加在图标角上，不占用横向空间 */
+.tab-icon-wrap {
+  position: relative;
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  transition: opacity 0.12s ease;
+}
+
+.tab-icon {
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border-radius: 5px;
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1;
+  color: currentColor;
+}
+
+/* 文件名首字符徽标：用半透明底色与文本区分普通图标 */
+.tab-icon.is-letter {
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.tab:hover .tab-icon.is-letter {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.tab.active .tab-icon.is-letter {
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+}
+
+.tab-icon svg {
+  display: block;
+}
+
 .tab-name {
-  flex: 1;
+  flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  /* 为右侧绝对定位的关闭按钮留位 */
+  padding-right: 18px;
 }
 
 .tab-dot {
-  flex-shrink: 0;
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
   width: 6px;
   height: 6px;
   border-radius: 50%;
   background: #6c9bff;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.22);
 }
 
 .tab-missing {
-  flex-shrink: 0;
-  width: 13px;
-  height: 13px;
+  position: absolute;
+  right: -4px;
+  top: -4px;
+  width: 12px;
+  height: 12px;
   display: grid;
   place-items: center;
   border-radius: 50%;
-  background: rgba(217, 119, 6, 0.18);
+  background: rgba(217, 119, 6, 0.24);
   color: #e4b76b;
-  font-size: 9px;
+  font-size: 8px;
   font-weight: 700;
   line-height: 1;
 }
 
 .tab-close {
   position: absolute;
-  right: 6px;
+  right: 4px;
   top: 50%;
   transform: translateY(-50%);
   width: 18px;
@@ -664,8 +755,9 @@ onBeforeUnmount(() => {
     background 0.12s ease;
 }
 
+/* 所有标签统一「悬停才显示关闭按钮」，激活标签不再常显，避免与图标抢位 */
 .tab:hover .tab-close,
-.tab.active .tab-close {
+.tab-close:focus-visible {
   opacity: 1;
 }
 
@@ -674,8 +766,30 @@ onBeforeUnmount(() => {
   color: #fff;
 }
 
+/* 纯图标模式：隐藏名称、图标居中，悬停时关闭按钮替换图标。
+   容器查询按内容区宽度（不含 12px 内边距）计算，对应标签总宽约 72px */
+@container (max-width: 60px) {
+  .tab-name {
+    display: none;
+  }
+
+  .tab-icon-wrap {
+    margin: 0 auto;
+  }
+
+  .tab-close {
+    right: 50%;
+    transform: translate(50%, -50%);
+  }
+
+  .tab:hover .tab-icon-wrap {
+    opacity: 0;
+  }
+}
+
 .tab-new {
   flex: 0 0 auto;
+  align-self: flex-end;
   width: 30px;
   height: 30px;
   /* 与标签底部对齐，悬停背景与标签齐平 */

@@ -171,6 +171,11 @@ export const zhCN = {
   'tabs.context.closeLeft': '关闭左侧',
   'tabs.context.closeRight': '关闭右侧',
   'tabs.dropHint': '松开以移动「{name}」到此窗口',
+  'tabs.limitTitle': '标签页数量已达上限',
+  'tabs.limitReached': '当前窗口最多同时打开 {limit} 个标签页，未打开新的标签页',
+  'tabs.limitIgnored': '当前窗口最多同时打开 {limit} 个标签页，本次有 {count} 个文件未打开',
+  'tabs.limitMoveRejected': '当前窗口的标签页已达上限（{limit} 个），标签未移动',
+  'tabs.limitSessionTrimmed': '本次会话包含 {count} 个标签页，超过上限，已恢复前 {limit} 个',
 
   'outline.title': '大纲',
   'outline.empty': '暂无大纲',
