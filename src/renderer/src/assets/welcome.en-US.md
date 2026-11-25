@@ -155,7 +155,7 @@ The interface language follows the operating system by default: Chinese systems 
 
 ### 2.5 Windows and Automatic Updates
 
-- A frameless frosted-glass window with tabs merged into the title bar; drag an empty part of the title bar to move the window.
+- A frameless frosted-glass window with tabs merged into the title bar; drag an empty part of the title bar to move the window. When tabs fill the title bar, drag an empty part of the toolbar instead.
 - Press `Ctrl + Shift + N` to create a new editor window. Each editor window has its own tabs, layout, and scroll positions; theme, preview style, and preview width are synchronized across windows.
 - Moving a tab between windows preserves unsaved content, cursor, layout, outline visibility, scroll positions, and undo/redo history. A single editor history larger than 4 MB safely degrades to moving only the document content.
 - Before a normal quit or an update install, each tab's edit history is written to a local sidecar file. The per-window history limit is 32 MB; overflow degrades in tab order.

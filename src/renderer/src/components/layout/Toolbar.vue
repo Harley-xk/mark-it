@@ -245,14 +245,17 @@ const layouts = computed<{ mode: LayoutMode; icon: string; tip: string }[]>(() =
   padding: 0 10px;
   background: rgba(255, 255, 255, 0.025);
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-  -webkit-app-region: no-drag;
+  /* 标签占满标题栏时，工具栏空白处仍可拖动窗口 */
+  -webkit-app-region: drag;
   gap: 2px;
 }
 
+/* 按钮组保持可点击；其余空白（内边距、组间、弹性空白）沿用 drag */
 .toolbar-group {
   display: flex;
   align-items: center;
   gap: 1px;
+  -webkit-app-region: no-drag;
 }
 
 .toolbar-separator {
